@@ -1,0 +1,1 @@
+"""Miniatures management."""

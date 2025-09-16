@@ -1,0 +1,12 @@
+# Activate Python virtual environment.
+source .venv/bin/activate
+
+# Allow to make Python absolute imports from project root.
+export PYTHONPATH=$PYTHONPATH:$PWD
+
+
+export CHANNEL_ID=
+
+export CLIENT_SECRET_FILE =
+
+DJANGO_SECRET_KEY=

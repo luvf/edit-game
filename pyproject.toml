@@ -1,0 +1,219 @@
+[project]
+name = "edit-game"
+version = "0.0.5"
+description = "Edit juger games"
+authors = [
+    { name = "Luca Veyrin-Forrer", email = "luca.veyin@laposte.net" },
+]
+requires-python = ">=3.12"
+
+# Dependencies
+
+dependencies = [
+    "pandas[feather] == 2.*",
+    "django == 5.*",
+    "django-stubs == 5.*",
+    "djangorestframework == 3.16",
+    "djangorestframework-stubs == 3.*",
+    "django-cleanup == 8.1",
+    "django-colorfield == 0.11",
+    "django-cors-headers == 4.7",
+    "django-debug-toolbar ==4.4",
+    "google-api-python-client == 2.*",
+    "google-api-python-client-stubs == 1.*",
+    "google_auth_oauthlib == 1.2",
+    "google-auth-oauthlib-stubs == 1.2.*",
+    "ffmpeg-python == 0.2",
+    "moviepy == 2.0.0.dev2",
+    "torch == 2.3",
+    "torchaudio ==2.3",
+    "PyYAML == 6.*",
+    "scipy == 1.*",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "bump-my-version == 0.20.*",
+    "dvc[s3] == 3.*",
+    "matplotlib == 3.*",
+    "mypy == 1.*",
+    "plotly == 5.*",
+    "pre-commit == 3.*",
+    "pytest == 8.*",
+    "pytest-cov == 5.*",
+    "ruff == 0.3.*",
+    "typer == 0.10.*",
+    "types-requests == 2.*",
+    "django-model-info==2024.11.*",
+]
+
+python-preference = "only-managed"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Packages configs
+
+## bumpversion
+
+## pytest
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    # https://github.com/protocolbuffers/protobuf/issues/12186
+    # Warnings fixed in protobuf 5.x but streamlit needs protobuf <5
+    "ignore:Type .* uses PyType_Spec with a metaclass that has custom tp_new:DeprecationWarning",
+]
+
+## coverage
+
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+]
+omit = [
+
+]
+exclude_also = [
+    # Such code branches cannot be easily tested; that's OK since they should only contain 1 function call
+    "if __name__ == \"__main__\":",
+]
+fail_under = 70.00
+precision = 2
+
+## ruff
+
+# Recommended ruff config for now, to be updated as we go along.
+[tool.ruff]
+target-version = 'py312'
+extend-exclude = [
+    "**/migrations/*.py",
+    "**/old/*.py",
+]
+
+
+[tool.ruff.lint]
+# See all rules at https://docs.astral.sh/ruff/rules/
+select = [
+    "F", # Pyflakes
+    "E", # pycodestyle
+    "W", # pycodestyle
+    "C90", # mccabe
+    "I", # isort
+    "N", # pep8 naming
+    "D", # pydocstyle
+    "UP", # pyupgrade
+    "FBT", # flake8-boolean-trap
+    "B", # flake8-bugbear
+    "A", # flake8-builtin
+    "C4", # flake8-comprehensions
+    "DTZ", # flake8-datetimez
+    "T10", # flake8-debugger
+    "ISC", # flake8-implicit-str-concat
+    "ICN", # flake8-import-conventions
+    "LOG", # flake8-logging
+    "G", # flake8-logging-format
+    "INP", # flake8-no-pep420
+    "PIE", # flake8-pie
+    "PT", # flake8-pytest-style
+    "RSE", # flake8-raise
+    "RET", # flake8-return
+    "SLF", # flake8-self
+    "SIM", # flake8-simplify
+    "TID", # flake8-tidy-imports
+    "TCH", # flake8-type-checking
+    "ARG", # flake8-unused-arguments
+    "PTH", # flake8-use-pathlib
+    "ERA", # eradicate
+    "PD", # pandas-vet
+    "PGH", # pygrep-hooks
+    "PL", # Pylint
+    "TRY", # tryceratops
+    "NPY", # NumPy-specific rules
+    "PERF", # Perflint
+    "RUF", # Ruff-specific rules
+]
+
+ignore = [
+    "E501", # "Line too long"
+    # -> line length already regulated by the formatter
+    "ISC001", # "Implicitly concatenated string literals on one line"
+    # -> may conflict with formatter
+    "PT011", # "pytest.raises() should specify expected exception"
+    # -> would imply to update tests every time you update exception message
+    "SIM102", # "Use a single `if` statement instead of nested `if` statements"
+    # -> too restrictive
+    "TRY003", # "Avoid specifying long messages outside the exception class"
+    # -> too restrictive
+]
+
+[tool.ruff.lint.pydocstyle]
+# Automatically disable rules that are incompatible with Google docstring convention
+convention = "google"
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 120
+
+[tool.ruff.lint.pylint]
+max-args = 7
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.flake8-type-checking]
+strict = true
+runtime-evaluated-base-classes = ["pydantic.BaseModel"]
+# Pydantic needs to be able to evaluate types at runtime
+# see https://pypi.org/project/flake8-type-checking/ for flake8-type-checking documentation
+# see https://beta.ruff.rs/docs/settings/#flake8-type-checking-runtime-evaluated-base-classes for ruff documentation
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "D1", # "Missing docstring"
+    "PLR0913", # "Too many arguments in function definition"
+    "SLF001", # "Private member accessed"
+]
+
+
+## mypy
+
+[tool.mypy]
+python_version = "3.12"
+# Enable all optional error checking flags, providing stricter type checking; see https://mypy.readthedocs.io/en/stable/getting_started.html#strict-mode-and-configuration
+strict = true
+
+# Type-check the interiors of functions without type annotations; if missing, mypy won't check function bodies without type hints, for instance those coming from third-party libraries
+check_untyped_defs = true
+
+# Make __init__.py file optional for package definitions; if missing, mypy requires __init__.py at packages roots, see https://mypy.readthedocs.io/en/stable/running_mypy.html#mapping-file-paths-to-modules
+explicit_package_bases = true
+
+
+plugins = ["mypy_django_plugin.main"]
+
+
+[tool.django-stubs]
+django_settings_module = "edit_game.settings"
+## hatch
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+
+[[tool.mypy.overrides]]
+module = [
+    # Ignore missing library stubs for the following packages;
+    # see https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-library-stubs-or-py-typed-marker
+    # and https://mypy.readthedocs.io/en/stable/config_file.html#using-a-pyproject-toml-file
+    "game_edit.migrations.*",
+    "miniatures.migrations.*",
+    "jugger_video_manipulation.*",
+    "colorfield.*"
+]
+ignore_missing_imports = true

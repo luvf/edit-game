@@ -1,0 +1,1 @@
+"""Edit game django base."""
