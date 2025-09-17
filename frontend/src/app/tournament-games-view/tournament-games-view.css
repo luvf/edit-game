@@ -1,0 +1,87 @@
+
+.table {
+  width: 100%;
+}
+
+/* ... existing code ... */
+
+/* Hauteur des lignes du tableau Material */
+table[mat-table] .mat-header-row,
+table[mat-table] .mat-row {
+  height: 9em;
+}
+
+/* Cellules: alignement et suppression de padding vertical qui fausserait la hauteur visible */
+table[mat-table] .mat-header-cell,
+table[mat-table] .mat-cell {
+  line-height: 9em;
+  vertical-align: middle;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* Cellule miniature (première colonne) */
+table[mat-table] .mat-column-miniature {
+  width: 9em; /* 3 × la hauteur de ligne pour laisser de la place à l'image */
+  min-width: 16em;
+  max-width: 16em;
+  overflow: hidden; /* masque tout dépassement éventuel */
+}
+
+/* Image dans la colonne miniature: contrainte par la hauteur de la ligne */
+table[mat-table] .mat-column-miniature img,
+table[mat-table] .mat-column-miniature .miniature {
+  height: 9em; /* s'aligne sur la hauteur de la ligne */
+  width: auto; /* conserve le ratio */
+  max-width: 12em; /* ne dépasse pas la largeur de la colonne */
+  display: block; /* évite les espaces inline et facilite le masquage */
+  object-fit: contain;
+}
+
+/* Hauteur fixe des lignes */
+table.game-table .mat-header-row,
+table.game-table .mat-row {
+  height: 9em;
+}
+
+/* Cellules: pas de padding vertical qui augmenterait la hauteur */
+table.game-table .mat-header-cell,
+table.game-table .mat-cell {
+  vertical-align: middle;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 9em;
+}
+
+/* Colonne "miniature" (Angular Material génère .mat-column-miniature) */
+table.game-table .mat-column-miniature {
+  height: 9em; /* 3 × 3em */
+  width: 20em;
+  overflow: hidden;
+}
+
+/* Boîte qui contraint l'image à la hauteur de la ligne et largeur 3× */
+.miniature-box {
+  height: 9em;
+  width: auto;
+  overflow: hidden;
+  display: flex;
+  align-items: center; /* centre verticalement l’image */
+}
+
+/* L'image s'adapte à la boîte (et donc à la ligne), sans l’agrandir */
+.miniature-box > img.miniature {
+  height: 100%;
+  width: auto; /* conserve le ratio */
+  max-width: 100%; /* ne déborde pas en largeur */
+  display: block;
+  object-fit: contain;
+}
+
+.miniature {
+  height: 9px;
+  width: auto;
+  object-fit: contain;
+}
+
+/* ... existing code ... */

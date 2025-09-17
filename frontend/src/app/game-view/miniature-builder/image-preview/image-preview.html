@@ -1,0 +1,25 @@
+<section>
+  <h3>Images</h3>
+  <div class="images-row">
+    <figure class="image-card">
+      <canvas
+        #baseCanvas
+        (mousedown)="onCanvasMouseDown($event)"
+        (mouseleave)="onCanvasMouseUp()"
+        (mousemove)="onCanvasMouseMove($event)"
+        (mouseup)="onCanvasMouseUp()"
+        (wheel)="onCanvasWheel($event)"
+        tabindex="0"
+      ></canvas>
+      @if (!(baseImage()?.image)) {
+        <em>Aucun lien base_image trouvé.</em>
+      }
+    </figure>
+
+    <figure class="image-card">
+      <img [src]="miniatureImageUrl()" alt="Miniature"/>
+    </figure>
+
+
+  </div>
+</section>

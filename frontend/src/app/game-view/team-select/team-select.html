@@ -1,0 +1,16 @@
+
+
+<div class="team-field">
+  <mat-form-field>
+  <mat-label>{{ label }}</mat-label>
+    <mat-select [value]="value ?? ''" (selectionChange)="onChange($event.value)">
+      @for (team of teams ?? []; track team.name) {
+        <mat-option [value]="team._links?.self?.href ?? ''">
+          {{ team.name }}
+        </mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+
+</div>
+

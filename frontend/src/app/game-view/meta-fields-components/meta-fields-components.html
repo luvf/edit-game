@@ -1,0 +1,48 @@
+<mat-form-field appearance="outline" class="form-row">
+  <mat-label>Nom de la vidéo</mat-label>
+  <input
+    matInput
+    id="vid_name"
+    type="text"
+    [value]="vidName ?? ''"
+    (input)="vidNameChange.emit(($any($event.target)).value)"
+    placeholder="Nom de la vidéo"
+    maxlength="120"
+  />
+  <mat-hint align="start">Longueur</mat-hint>
+  <mat-hint align="end">{{ (vidName || '').length }}/120</mat-hint>
+</mat-form-field>
+
+<!-- Description -->
+<mat-form-field appearance="outline" class="form-row">
+  <mat-label>Description</mat-label>
+  <textarea
+    matInput
+    id="description"
+    rows="5"
+    [value]="description ?? ''"
+    (input)="descriptionChange.emit(($any($event.target)).value)"
+    placeholder="Résumé, timecodes, liens…"
+    maxlength="5000"
+  ></textarea>
+  <mat-hint align="start">Vous pouvez inclure des timecodes et des liens utiles.</mat-hint>
+  <mat-hint align="end">{{ (description || '').length }}/5000</mat-hint>
+</mat-form-field>
+
+<!-- Date de publication -->
+<mat-form-field appearance="outline" class="form-row">
+  <mat-label>Date de publication</mat-label>
+  <input
+    matInput
+    id="publication_date"
+    type="datetime-local"
+    [value]="publicationDate ?? ''"
+    (input)="publicationDateChange.emit(($any($event.target)).value)"
+    placeholder="YYYY-MM-DDThh:mm"
+  />
+  <button mat-icon-button matSuffix tabindex="-1" aria-label="Date et heure locales">
+    <mat-icon>event</mat-icon>
+  </button>
+  <mat-hint>Indique la date/heure de publication (heure locale).</mat-hint>
+</mat-form-field>
+

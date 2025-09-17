@@ -1,0 +1,77 @@
+
+h3 {
+  text-align: center;
+  margin: 12px 0 16px;
+}
+
+.images-row {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 16px 0 24px;
+}
+
+.image-card {
+  flex: 1;
+  max-width: 720px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.image-card figcaption {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.image-card img {
+  width: 100%;
+  height: auto;
+  max-height: 480px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #fff;
+  display: block;
+}
+
+/* Canvas stylé comme l'image */
+.image-card canvas {
+  width: 100%;
+  height: auto;
+  max-height: 480px;
+  display: block;
+  border-radius: 4px;
+  background: linear-gradient(45deg, #f4f4f4 25%, transparent 25%) 0 0/16px 16px,
+  linear-gradient(-45deg, #f4f4f4 25%, transparent 25%) 0 0/16px 16px,
+  linear-gradient(45deg, transparent 75%, #f4f4f4 75%) 0 0/16px 16px,
+  linear-gradient(-45deg, transparent 75%, #f4f4f4 75%) 0 0/16px 16px,
+  #ffffff;
+  cursor: default;
+}
+
+/* Facultatif: quand la figure ne contient que le canvas, étirer verticalement de façon propre */
+.image-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.image-card > canvas,
+.image-card > img {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 640px) {
+  .images-row {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .image-card {
+    max-width: 560px;
+    width: 100%;
+  }
+}
+

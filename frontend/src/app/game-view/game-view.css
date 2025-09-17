@@ -1,0 +1,180 @@
+/* ... existing code ... */
+:host {
+  display: block;
+  padding: 16px;
+}
+
+/* Conteneur central */
+.page-container {
+  max-width: 960px;
+  margin: 0 auto; /* centre horizontalement tout le contenu */
+}
+
+/* Titres centrés */
+h2, h3 {
+  text-align: center;
+  margin: 12px 0 16px;
+}
+
+/* Espacement des sections */
+section {
+  margin-block: 16px;
+}
+
+
+/* Lignes du formulaire */
+
+
+/* Inputs embellis */
+.pretty-input input[type="text"],
+.pretty-input input[type="datetime-local"],
+.pretty-input textarea,
+.team-field select {
+  padding: 10px 12px;
+  border: 1px solid #d7dbe0;
+  border-radius: 8px;
+  background: #fff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  outline: none;
+}
+
+.pretty-input textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+
+.pretty-input input:focus,
+.pretty-input textarea:focus,
+.team-field select:focus {
+  border-color: #1976d2;
+  box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.15);
+}
+
+/* Hints/counters */
+.hint {
+  color: #6b7280;
+}
+
+.counter {
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+}
+
+.row-between {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+/* Input avec addon (icône calendrier) */
+.input-with-addon {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.input-with-addon .addon {
+  margin-left: 8px;
+  user-select: none;
+}
+
+/* Timecode + slider */
+.timecode-row .timecode {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.slider {
+  flex: 1;
+  accent-color: #1976d2;
+}
+
+.timecode-value {
+  display: inline-block;
+  min-width: 3.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Images côte à côte, centrées */
+.images-row {
+  display: flex;
+  justify-content: center; /* centre le groupe d’images */
+  align-items: flex-start;
+  gap: 16px; /* marge entre les images */
+  margin: 16px 0 24px; /* marges autour du bloc d’images */
+}
+
+.image-card {
+  flex: 1;
+  max-width: 460px; /* limite la largeur de chaque carte pour un bon centrage */
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.image-card figcaption {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.image-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 240px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #fff;
+}
+
+/* Actions centrées sous le formulaire */
+.actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center; /* centre le bouton + statuts */
+  margin-top: 8px;
+}
+
+/* Bouton principal */
+button.primary {
+  background: #1976d2;
+  color: #fff;
+  border: none;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.primary[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.error {
+  color: #b00020;
+}
+
+.ok {
+  color: #2e7d32;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+
+  .images-row {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .image-card {
+    max-width: 560px;
+    width: 100%;
+  }
+}

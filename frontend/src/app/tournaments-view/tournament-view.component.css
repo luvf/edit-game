@@ -1,0 +1,187 @@
+/* ... existing code ... */
+.overTable {
+  max-width: 1100px; /* largeur max du bloc centré */
+  margin-left: auto; /* centre horizontalement */
+  margin-right: auto; /* centre horizontalement */
+  padding-left: 16px; /* marge interne gauche */
+  padding-right: 16px; /* marge interne droite */
+}
+
+/* Table plus « aérée » avec interlignes entre les rangées */
+#game_list tbody tr td {
+  background: transparent;
+  padding: 16px 18px;
+  font-size: 15px;
+  line-height: 1.4;
+  box-shadow: none; /* pas d’ombre par cellule */
+}
+
+#game_list thead {
+  position: sticky; /* reste visible au scroll */
+  top: 0;
+  z-index: 2;
+}
+
+#game_list thead tr {
+  background: linear-gradient(180deg, #f3f4f6 0%, #eaecef 100%);
+  border-radius: 12px; /* pour harmoniser avec les lignes */
+}
+
+#game_list thead th {
+  padding: 12px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #374151;
+  text-align: center; /* centre tous les titres de colonnes */
+  border-bottom: 1px solid #d1d5db;
+  backdrop-filter: saturate(1.1);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset;
+}
+
+
+/* Une seule « carte » par ligne: arrondi + ombre au niveau du tr */
+#game_list {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 12px; /* espace vertical pour révéler les coins */
+  table-layout: fixed;
+}
+
+#game_list tbody tr {
+  background: #eef2f7; /* fond de la ligne */
+  border-radius: 12px; /* arrondis extérieurs */
+  clip-path: inset(0 round 12px); /* force le rognage des coins (fiable sur tr) */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); /* UNE seule ombre pour la ligne */
+  transition: box-shadow 0.2s ease, transform 0.2s ease, background-color 0.2s ease;
+}
+
+#game_list tbody tr:hover {
+  background: #e5e7eb; /* assombrissement léger au survol */
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.12);
+  transform: translateY(-1px);
+}
+
+/* Coins arrondis du header (première et dernière colonne) */
+#game_list thead th:first-child {
+  border-top-left-radius: 12px;
+  border-bottom-left-radius: 12px;
+}
+
+#game_list thead th:last-child {
+  border-top-right-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+
+
+/* Barre de couleur à gauche: conserve la hauteur sans ajouter d’ombre */
+.image_cell {
+  width: 12px;
+  min-width: 12px;
+  padding: 0;
+}
+
+.image_cell::after {
+  content: '';
+  display: block;
+  height: 36px; /* hauteur visuelle de la ligne */
+}
+
+
+#game_list thead th:nth-child(3),
+#game_list thead th:nth-child(4) {
+  text-align: center;
+}
+
+/* Centrer le contenu des cellules correspondantes */
+#game_list tbody td.tournament_date,
+#game_list tbody td.number_of_games {
+  text-align: center;
+}
+
+/* Optionnel: largeur cohérente de ces colonnes */
+#game_list thead th:nth-child(3),
+#game_list tbody td.tournament_date {
+  width: 160px;
+}
+
+#game_list thead th:nth-child(4),
+#game_list tbody td.number_of_games {
+  width: 160px;
+}
+
+#game_list thead th:first-child,
+#game_list tbody td.image_cell {
+  width: 5em;
+  min-width: 5em;
+}
+
+/* Colonne "Name" réduite à 30em */
+#game_list thead th:nth-child(2),
+#game_list tbody td.tournament_name {
+  width: 30em;
+  max-width: 30em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+#game_list thead th.actions_col,
+#game_list tbody td.actions_col {
+  text-align: center;
+  width: 220px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+
+/* Empiler les boutons verticalement */
+.actions-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center; /* centre les boutons */
+  gap: 8px; /* espace vertical entre boutons */
+}
+
+/* Les boutons prennent une largeur cohérente et s'empilent */
+.btn.action {
+  appearance: none;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color .15s ease, transform .1s ease;
+  display: block;
+  width: 100%;
+  max-width: 180px; /* largeur max du bouton empilé */
+}
+
+.btn.action:hover {
+  background: #1d4ed8;
+}
+
+.btn.action:active {
+  transform: translateY(1px);
+}
+
+/* Empêche l'image d'augmenter la hauteur des lignes du tableau */
+#video_list td {
+  line-height: 1.25em;
+}
+
+#video_list td img {
+  height: 1.25em; /* calé sur la line-height */
+  width: auto;
+  display: inline-block;
+  vertical-align: middle;
+  object-fit: contain;
+  max-width: 100%;
+  /* s'assure qu'aucune contrainte de min-width ne dilate la cellule */
+  min-width: 0;
+}

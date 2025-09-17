@@ -1,0 +1,36 @@
+<button (click)="onBackTournament()" class="publish-btn" color="primary" mat-raised-button>To turnament</button>
+
+<section>
+  <app-miniature-builder
+    (timeCodeChange)="onTimecodesChange($event)"
+    [videoMetadata]="videoMetadata??null">
+  </app-miniature-builder>
+</section>
+
+
+<section>
+  <app-meta-fields
+    (descriptionChange)="onDescriptionChange($event)"
+    (publicationDateChange)="onPublicationDateChange($event)"
+    (vidNameChange)="onVidNameChange($event)"
+    [description]="this.videoMetadataForm.value.description?? null "
+    [publicationDate]="this.videoMetadataForm.value.publication_date ?? null"
+    [vidName]="videoMetadataForm.value.video_name?? null">
+  </app-meta-fields>
+</section>
+<button (click)="onResetDescription()" class="reset-btn" color="primary" mat-raised-button>Reset</button>
+
+<button (click)="onSave()" class="save-btn" color="primary" mat-raised-button>Save</button>
+<button (click)="onPublish()" class="publish-btn" color="primary" mat-raised-button>Publish</button>
+
+
+<!-- ... existing code ...
+
+
+
+
+
+
+
+
+-->
