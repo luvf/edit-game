@@ -82,8 +82,8 @@
     @if (videoMetadata()?._links; as links) {
       <section>
         <app-images-preview
-          [miniatureUrl]="miniatureBuilderForm.value.miniatureUrl ?? null"
-          [baseImageUrl]="miniatureBuilderForm.value.baseImageUrl ?? null"
+          [miniatureUrl]="links.miniature_image?.href ?? ''"
+          [baseImageUrl]="links?.base_image?.href ?? ''"
           [xOffset]="miniatureBuilderForm.value.xOffset ?? 0"
           [yOffset]="miniatureBuilderForm.value.yOffset ?? 0"
           [zoom]="miniatureBuilderForm.value.zoom ?? 1"

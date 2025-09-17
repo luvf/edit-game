@@ -1,6 +1,6 @@
 import {Component, inject, OnInit, signal} from '@angular/core';
 import {CommonModule} from '@angular/common';
-import {FormBuilder, ReactiveFormsModule, Validators} from '@angular/forms';
+import {FormBuilder, FormGroup, ReactiveFormsModule, Validators} from '@angular/forms';
 import {ActivatedRoute, Router} from '@angular/router';
 import {VideoMetadataService} from "../features/video-metadatas/video-metadata";
 import {VideoMetadata} from '../features/video-metadatas/video-metadata.model';
@@ -35,12 +35,6 @@ export class GameViewComponent implements OnInit {
    * HATEOAS parameter: self URL-backed VideoMetadata resource.
    */
   videoMetadata = signal<VideoMetadata | null>(null);
-
-  private route = inject(ActivatedRoute);
-  private router = inject(Router);
-  private videoMetadataService = inject(VideoMetadataService);
-
-  private formBuilder = inject(FormBuilder);
   /**
    * Reactive form holding editable fields of VideoMetadata.
    *
@@ -48,26 +42,37 @@ export class GameViewComponent implements OnInit {
    * - team1/team2 are stored as rel hrefs when present.
    * - timeCode is normalized (0..1) and emitted from the MiniatureBuilder.
    */
-  videoMetadataForm = this.formBuilder.group({
-    team1: ['', [Validators.required]],
-    team2: ['', [Validators.required]],
-    timeCode: [0],
-    description: [''],
-    video_name: [''],
-    publication_date: [''],
-  });
+  videoMetadataForm !: FormGroup;
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
+  private videoMetadataService = inject(VideoMetadataService);
+  private formBuilder = inject(FormBuilder);
 
+  /**
+   * Reads the query param `url`, then loads the VideoMetadata from the API.
+   */
+  ngOnInit(): void {
+    this.videoMetadataForm = this.formBuilder.group({
+      miniatureBuilder: this.formBuilder.group({
+        team1: ['', [Validators.required]],
+        team2: ['', [Validators.required]],
+        timeCode: [0, [Validators.required, Validators.min(0), Validators.max(1)]],
+        xOffset: [0, [Validators.required, Validators.min(0), Validators.max(1)]],
+        yOffset: [0, [Validators.required, Validators.min(0), Validators.max(1)]],
+        zoom: [1, [Validators.required, Validators.min(1), Validators.max(5)]],
+      }),
+      meta_fields: this.formBuilder.group({
+        description: [''],
+        video_name: [''],
+        publication_date: [''],
+      })
+    });
 
-  onVidNameChange(value: string) {
-    this.videoMetadataForm.value.video_name = value;
-  }
-
-  onDescriptionChange(value: string) {
-    this.videoMetadataForm.value.description = value;
-  }
-
-  onPublicationDateChange(value: string) {
-    this.videoMetadataForm.value.publication_date = value;
+    this.route.queryParamMap.subscribe((params) => {
+      const url = params.get('url');
+      if (!url) return;
+      this.loadVideoMetadata(url);
+    });
   }
 
   /**
@@ -125,25 +130,6 @@ export class GameViewComponent implements OnInit {
     });
   }
 
-  /**
-   * Receives normalized time code (0..1) from the MiniatureBuilder.
-   */
-  onTimecodesChange(time_code: number) {
-    this.videoMetadataForm.value.timeCode = time_code;
-  }
-
-  /**
-   * Reads the query param `url`, then loads the VideoMetadata from the API.
-   */
-  ngOnInit(): void {
-    this.route.queryParamMap.subscribe((params) => {
-      const url = params.get('url');
-      if (!url) return;
-      this.loadVideoMetadata(url);
-    });
-
-  }
-
 
   /**
    * Fetches VideoMetadata by URL and initializes the form fields.
@@ -157,11 +143,17 @@ export class GameViewComponent implements OnInit {
         // Initialize ALL form fields with values from VideoMetadata
         this.videoMetadata.set(vm)
         this.videoMetadataForm.patchValue({
-          team1: vm._links?.team1?.href ?? '',
-          team2: vm._links?.team2?.href ?? '',
-          description: vm.description ?? '',
-          video_name: vm.video_name ?? '',
-          publication_date: vm?.publication_date ? this.toDatetimeLocal(vm.publication_date) : '',
+          miniatureBuilder: {
+            team1: vm._links?.team1?.href ?? '',
+            team2: vm._links?.team2?.href ?? '',
+            timeCode: vm.tc,
+          },
+          meta_fields: {
+            description: vm.description ?? '',
+            video_name: vm.video_name ?? '',
+            publication_date: vm?.publication_date ? this.toDatetimeLocal(vm.publication_date) : '',
+          }
+
         });
       },
       error: (e) => console.log(this.stringifyError(e)),
@@ -192,13 +184,14 @@ export class GameViewComponent implements OnInit {
    */
   private buildVmPayload(): Partial<VideoMetadata> {
     const v = this.videoMetadataForm.value;
+    console.log("payload_value", v);
     return {
       //team1: v.team1 ?? undefined,
       //team2: v.team2 ?? undefined,
       //tc: v.timeCode ?? undefined,
-      description: v.description ?? undefined,
-      video_name: v.video_name ?? undefined,
-      publication_date: v.publication_date ?? undefined,
+      description: v.meta_fields.description ?? undefined,
+      video_name: v.meta_fields.video_name ?? undefined,
+      publication_date: v.meta_fields.publication_date ?? undefined,
     } as Partial<VideoMetadata>;
   }
 

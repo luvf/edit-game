@@ -1,4 +1,4 @@
-import {Component, effect, EventEmitter, inject, Input, OnInit, Output, signal} from '@angular/core';
+import {Component, inject, Input, OnInit, signal} from '@angular/core';
 import {CommonModule} from '@angular/common';
 import {MatSlider, MatSliderThumb} from '@angular/material/slider';
 import {MatButton} from '@angular/material/button';
@@ -6,7 +6,7 @@ import {VideoMetadata} from '../../features/video-metadatas/video-metadata.model
 import {TeamLogoService} from '../../features/team-logos/team-logo';
 import {TeamLogo} from '../../features/team-logos/team-logo.model';
 
-import {FormBuilder, Validators} from '@angular/forms';
+import {FormGroup, FormGroupDirective} from '@angular/forms';
 import {TeamSelectComponent} from '../team-select/team-select';
 import {ImagesPreviewComponent} from './image-preview/image-preview';
 import {VideoMetadataService} from '../../features/video-metadatas/video-metadata';
@@ -22,54 +22,23 @@ type ControlKey = 'xOffset' | 'yOffset' | 'zoom' | 'timeCode';
 })
 export class MiniatureBuilder implements OnInit {
   @Input() videoMetadata = signal<VideoMetadata | null>(null);
+  @Input() formGroupName!: string;
 
-  @Output() timeCodeChange = new EventEmitter<number>();
-  @Output() xOffsetChange = new EventEmitter<number>();
-  @Output() yOffsetChange = new EventEmitter<number>();
-  @Output() zoomChange = new EventEmitter<number>();
   teams_logos = signal<TeamLogo[]>([]);
   teamByUrl = signal<Record<string, TeamLogo>>({});
+  miniatureBuilderForm!: FormGroup;
+  private gameFormGroup: FormGroupDirective = inject(FormGroupDirective)
+
   private videoMetadataService = inject(VideoMetadataService);
   private teamLogoService = inject(TeamLogoService);
-  private formBuilder = inject(FormBuilder);
-
-  /**
-   * Reactive form holding all builder controls.
-   *
-   * - team1/team2: selected team logo hrefs
-   * - timeCode: normalized [0..1]
-   * - xOffset/yOffset: normalized [0..1]
-   * - zoom: [1..5]
-   * - miniatureUrl/baseImageUrl: image endpoints
-   */
-  miniatureBuilderForm = this.formBuilder.group({
-    team1: ['', [Validators.required]],
-    team2: ['', [Validators.required]],
-    timeCode: [0, [Validators.required, Validators.min(0), Validators.max(1)]],
-    xOffset: [0, [Validators.required, Validators.min(0), Validators.max(1)]],
-    yOffset: [0, [Validators.required, Validators.min(0), Validators.max(1)]],
-    zoom: [1, [Validators.required, Validators.min(1), Validators.max(5)]],
-    miniatureUrl: ['', [Validators.required]],
-    baseImageUrl: ['', [Validators.required]],
-  });
 
   constructor() {
-    effect(() => {
-      const videoMetadata_object = this.videoMetadata();
-      if (!videoMetadata_object) return;
-      console.log(videoMetadata_object);
-      this.miniatureBuilderForm.patchValue({
-        team1: videoMetadata_object._links?.team1?.href ?? '',
-        team2: videoMetadata_object._links?.team2?.href ?? '',
-        timeCode: videoMetadata_object.tc ?? 0,
-        miniatureUrl: videoMetadata_object._links?.miniature_image?.href ?? '',
-        baseImageUrl: videoMetadata_object._links?.base_image?.href ?? '',
-      });
-    });
+
   }
 
   ngOnInit(): void {
     this.loadTeams();
+    this.miniatureBuilderForm = this.gameFormGroup.control.get(this.formGroupName) as FormGroup
   }
 
   /**
@@ -86,11 +55,6 @@ export class MiniatureBuilder implements OnInit {
     // Update the form
     this.miniatureBuilderForm.patchValue({[key]: value} as any);
 
-    // Emit matching event
-    if (key === 'xOffset') this.xOffsetChange.emit(value);
-    else if (key === 'yOffset') this.yOffsetChange.emit(value);
-    else if (key === 'zoom') this.zoomChange.emit(value);
-    else if (key === 'timeCode') this.timeCodeChange.emit(value);
   }
 
   /**
