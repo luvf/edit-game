@@ -35,6 +35,7 @@ export class GameViewComponent implements OnInit {
    * HATEOAS parameter: self URL-backed VideoMetadata resource.
    */
   videoMetadata = signal<VideoMetadata | null>(null);
+
   /**
    * Reactive form holding editable fields of VideoMetadata.
    *
@@ -42,31 +43,32 @@ export class GameViewComponent implements OnInit {
    * - team1/team2 are stored as rel hrefs when present.
    * - timeCode is normalized (0..1) and emitted from the MiniatureBuilder.
    */
-  videoMetadataForm !: FormGroup;
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private videoMetadataService = inject(VideoMetadataService);
   private formBuilder = inject(FormBuilder);
+  videoMetadataForm: FormGroup = this.formBuilder.group({
+    miniatureBuilder: this.formBuilder.group({
+      team1: ['', [Validators.required]],
+      team2: ['', [Validators.required]],
+      timeCode: [0, [Validators.required, Validators.min(0), Validators.max(1)]],
+      viewport: this.formBuilder.group({
+        xOffset: [0, [Validators.required, Validators.min(0), Validators.max(1)]],
+        yOffset: [0, [Validators.required, Validators.min(0), Validators.max(1)]],
+        zoom: [1, [Validators.required, Validators.min(1), Validators.max(5)]],
+      }),
+    }),
+    meta_fields: this.formBuilder.group({
+      description: ['', [Validators.required]],
+      video_name: ['', [Validators.required]],
+      publication_date: ['', [Validators.required]],
+    })
+  });
 
   /**
    * Reads the query param `url`, then loads the VideoMetadata from the API.
    */
   ngOnInit(): void {
-    this.videoMetadataForm = this.formBuilder.group({
-      miniatureBuilder: this.formBuilder.group({
-        team1: ['', [Validators.required]],
-        team2: ['', [Validators.required]],
-        timeCode: [0, [Validators.required, Validators.min(0), Validators.max(1)]],
-        xOffset: [0, [Validators.required, Validators.min(0), Validators.max(1)]],
-        yOffset: [0, [Validators.required, Validators.min(0), Validators.max(1)]],
-        zoom: [1, [Validators.required, Validators.min(1), Validators.max(5)]],
-      }),
-      meta_fields: this.formBuilder.group({
-        description: [''],
-        video_name: [''],
-        publication_date: [''],
-      })
-    });
 
     this.route.queryParamMap.subscribe((params) => {
       const url = params.get('url');
@@ -75,20 +77,6 @@ export class GameViewComponent implements OnInit {
     });
   }
 
-  /**
-   * Persists editable fields to the backend using PATCH.
-   */
-  onSave() {
-    const vidMetadata = this.videoMetadata();
-    if (!vidMetadata) return;
-
-    const payload = this.buildVmPayload();
-    this.videoMetadataService.update(vidMetadata, payload).subscribe({
-      next: () => {
-      },
-      error: (e) => console.log(this.stringifyError(e)),
-    });
-  }
 
   /**
    * Calls backend action to reset title and description then updates local state.
@@ -115,6 +103,57 @@ export class GameViewComponent implements OnInit {
     });
     this.videoMetadataService.upload_miniature(vidMetadata).subscribe({
       next: () => console.log('miniature upload'),
+      error: (e) => console.log(this.stringifyError(e)),
+    });
+  }
+
+
+  /**
+   * Triggers miniature generation by invoking the backend with the current form payload.
+   * Updates local VideoMetadata on success.
+   */
+  onGenerateClick() {
+    const miniatureBuilder = this.videoMetadataForm.get("miniatureBuilder")?.value;
+    const viewport = this.videoMetadataForm.get(["miniatureBuilder", "viewport"])?.value
+    if (!miniatureBuilder || !viewport) return;
+
+    const payload = {
+      team1: miniatureBuilder.team1,
+      team2: miniatureBuilder.team2,
+      xoffset: Number(viewport.xOffset ?? 0),
+      yoffset: Number(viewport.yoffset ?? 0),
+      zoom: Number(viewport.zoom ?? 1),
+      timeCode: Number(miniatureBuilder.timeCode ?? 0),
+    };
+
+    const vm = this.videoMetadata();
+    if (!vm) {
+      console.warn('VideoMetadata indisponible, génération annulée.');
+      return;
+    }
+
+    this.videoMetadataService.generate_miniature(vm, payload)
+      .subscribe({
+        next: (videoMetadata) => {
+          this.videoMetadata.set(videoMetadata);
+        },
+        error: (e) => {
+          console.error('Erreur lors de generate_miniature', e);
+        },
+      });
+  }
+
+  /**
+   * Persists editable fields to the backend using PATCH.
+   */
+  onSave() {
+    const vidMetadata = this.videoMetadata();
+    if (!vidMetadata) return;
+
+    const payload = this.buildVmPayload();
+    this.videoMetadataService.update(vidMetadata, payload).subscribe({
+      next: () => {
+      },
       error: (e) => console.log(this.stringifyError(e)),
     });
   }
@@ -153,7 +192,6 @@ export class GameViewComponent implements OnInit {
             video_name: vm.video_name ?? '',
             publication_date: vm?.publication_date ? this.toDatetimeLocal(vm.publication_date) : '',
           }
-
         });
       },
       error: (e) => console.log(this.stringifyError(e)),
@@ -183,15 +221,15 @@ export class GameViewComponent implements OnInit {
    * Builds a partial VideoMetadata payload for updates.
    */
   private buildVmPayload(): Partial<VideoMetadata> {
-    const v = this.videoMetadataForm.value;
-    console.log("payload_value", v);
+    const metadataForm = this.videoMetadataForm.value;
+    console.log("payload_value", metadataForm);
     return {
       //team1: v.team1 ?? undefined,
       //team2: v.team2 ?? undefined,
       //tc: v.timeCode ?? undefined,
-      description: v.meta_fields.description ?? undefined,
-      video_name: v.meta_fields.video_name ?? undefined,
-      publication_date: v.meta_fields.publication_date ?? undefined,
+      description: metadataForm.meta_fields.description ?? undefined,
+      video_name: metadataForm.meta_fields.video_name ?? undefined,
+      publication_date: metadataForm.meta_fields.publication_date ?? undefined,
     } as Partial<VideoMetadata>;
   }
 
@@ -208,5 +246,4 @@ export class GameViewComponent implements OnInit {
       return String(e);
     }
   }
-
 }

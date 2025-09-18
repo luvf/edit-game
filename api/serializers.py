@@ -239,4 +239,4 @@ class TeamSerializer(HALMixin[Team], serializers.HyperlinkedModelSerializer[Team
         """Meta."""
 
         model = Team
-        fields: Sequence[str] = ["url", "pk","logo" ,"name", "slug"]
+        fields: Sequence[str] = ["url", "pk", "logo", "name", "slug"]

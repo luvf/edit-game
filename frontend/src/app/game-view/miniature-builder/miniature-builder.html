@@ -1,110 +1,88 @@
-<section class="teams-row">
-  <app-team-select
-    (valueChange)="onTeamChange($event, 1)"
-    [label]="'Team 1'"
-    [teams]="teams_logos()"
-    [value]="miniatureBuilderForm.value.team1??null">
-  </app-team-select>
+<div [formGroup]="miniatureBuilderForm">
 
-  <button (click)="onSwapTeams()" class="swap-btn" matButton="elevated">Swap teams</button>
-
-  <app-team-select
-    (valueChange)="onTeamChange($event,2)"
-    [label]="'Team 2'"
-    [teams]="teams_logos()"
-    [value]="miniatureBuilderForm.value.team2??null">
-  </app-team-select>
-</section>
+  <section class="teams-row"
+  >
+    <app-team-select
+      [teams]="teams_logos()"
+      formControlName="team1"
+      label="Team 1"
+    ></app-team-select>
 
 
-<div class="form-row timecode-row">
-  <label>Time code</label>
-  <div class="timecode">
-    <mat-slider (input)="setControl('timeCode',$event)" max="1" min="0" step="0.001">
-      <input
-        [value]="miniatureBuilderForm.value.timeCode ?? 0"
-        aria-label="Time code"
+    <button (click)="onSwapTeams()" class="swap-btn" matButton="elevated">Swap teams</button>
 
-        class="slider"
-        matSliderThumb
-        type="range"
+    <app-team-select
+      [teams]="teams_logos()"
+      formControlName="team2"
+      label="Team 2"
+    ></app-team-select>
 
-      /></mat-slider>
+  </section>
 
-    <output class="timecode-value">{{ (miniatureBuilderForm.value.timeCode ?? 0) | number:'1.2-4' }}</output>
-  </div>
-  <small class="hint">Ajustez entre 0 et 1 (pas de 0.001).</small>
-</div>
 
-<!-- Sliders xOffset, yOffset, zoom sur une seule ligne -->
-<section class="builder-layout">
-  <div class="left-pane">
-    <div class="triple-sliders">
-      <div class="slider-item">
-        <label>xOffset <span class="value">{{ miniatureBuilderForm.value.xOffset ?? 0 }}</span></label>
-        <mat-slider (input)="setControl('xOffset',$event)" [max]="1" [min]="0" [step]="0.01">
-          <input
-            [value]="miniatureBuilderForm.value.xOffset ?? 0"
-            aria-label="xOffset"
-            matSliderThumb
-            type="range"
-          />
-        </mat-slider>
-      </div>
-
-      <div class="slider-item">
-        <label>yOffset <span class="value">{{ miniatureBuilderForm.value.yOffset ?? 0 }}</span></label>
-        <mat-slider (input)="setControl('yOffset',$event)" [max]="1" [min]="0" [step]="0.01">
-          <input
-            [value]="miniatureBuilderForm.value.yOffset ?? 0"
-            aria-label="yOffset"
-            matSliderThumb
-            type="range"
-          />
-        </mat-slider>
-      </div>
-
-      <div class="slider-item">
-        <label>Zoom <span class="value">{{ (miniatureBuilderForm.value.zoom ?? 1) | number:'1.1-1' }}x</span></label>
-        <mat-slider (input)="setControl('zoom',$event)" [max]="5" [min]="1" [step]="0.01">
-          <input
-            [value]="miniatureBuilderForm.value.zoom ?? 1"
-            aria-label="Zoom"
-            matSliderThumb
-            type="range"
-          />
-        </mat-slider>
-      </div>
+  <div class="form-row timecode-row">
+    <label>Time code</label>
+    <div class="timecode">
+      <mat-slider max="1" min="0" step="0.001">
+        <input formControlName="timeCode" matSliderThumb>
+      </mat-slider>
+      <span>{{ (miniatureBuilderForm.get('timeCode')?.value)| number:'1.2-4' }}</span>
     </div>
+    <small class="hint">Ajustez entre 0 et 1 (pas de 0.001).</small>
   </div>
 
-  <div class="right-pane">
-    @if (videoMetadata()?._links; as links) {
-      <section>
-        <app-images-preview
-          [miniatureUrl]="links.miniature_image?.href ?? ''"
-          [baseImageUrl]="links?.base_image?.href ?? ''"
-          [xOffset]="miniatureBuilderForm.value.xOffset ?? 0"
-          [yOffset]="miniatureBuilderForm.value.yOffset ?? 0"
-          [zoom]="miniatureBuilderForm.value.zoom ?? 1"
-          (xOffsetChange)="setControl('xOffset',$event)"
-          (yOffsetChange)="setControl('yOffset',$event)"
-          (zoomChange)="setControl('zoom',$event)"
-        >
-        </app-images-preview>
-      </section>
-    } @else {
-      <section>
-        <em>Chargement des images…</em>
-      </section>
-    }
-  </div>
+  <!-- Sliders xOffset, yOffset, zoom sur une seule ligne -->
 
-</section>
+  <section class="builder-layout">
 
+    <div class="left-pane">
+      <div class="triple-sliders" formGroupName="viewport">
 
-<div class="actions-row">
-  <button (click)="onGenerateClick()" color="primary" mat-raised-button>
-    Générer miniature
-  </button>
+        <div class="slider-item">
+          <label for="xOffset">xOffset
+            <span class="value">{{ miniatureBuilderForm.get(['viewport', 'xOffset'])?.value ?? 0 }}</span>
+          </label>
+          <mat-slider id="xOffset" min="0" max="1" step="0.001">
+            <input formControlName="xOffset" matSliderThumb>
+          </mat-slider>
+        </div>
+
+        <div class="slider-item">
+          <label for="yOffset">yOffset
+            <span class="value">{{ miniatureBuilderForm.get(['viewport', 'yOffset'])?.value ?? 0 }}</span>
+          </label>
+          <mat-slider id="yOffset" min="0" max="1" step="0.001">
+            <input formControlName="yOffset" matSliderThumb>
+          </mat-slider>
+        </div>
+
+        <div class="slider-item">
+          <label for="zoom">Zoom
+            <span class="value">{{ (miniatureBuilderForm.get(['viewport', 'zoom'])?.value ?? 1) | number:'1.1-1' }}
+              x</span>
+          </label>
+          <mat-slider id="zoom" min="1" max="5" step="0.01">
+            <input formControlName="zoom" matSliderThumb>
+          </mat-slider>
+        </div>
+
+      </div>
+
+    </div>
+
+    <div class="right-pane">
+      <app-images-preview
+        [baseImageUrl]="videoMetadata()?._links?.base_image?.href ?? ''"
+        [miniatureUrl]="videoMetadata()?._links?.miniature_image?.href ?? ''"
+
+        [xOffset]="miniatureBuilderForm.get(['viewport','xOffset'])?.value ?? 0"
+        [yOffset]="miniatureBuilderForm.get(['viewport','yOffset'])?.value ?? 0"
+        [zoom]="miniatureBuilderForm.get(['viewport','zoom'])?.value ?? 1"
+
+        (xOffsetChange)="miniatureBuilderForm.get(['viewport','xOffset'])?.setValue($event)"
+        (yOffsetChange)="miniatureBuilderForm.get(['viewport','yOffset'])?.setValue($event)"
+        (zoomChange)="miniatureBuilderForm.get(['viewport','zoom'])?.setValue($event)">
+      </app-images-preview>
+    </div>
+  </section>
 </div>

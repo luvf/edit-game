@@ -24,23 +24,21 @@ import {TmpImage} from '../../../features/tmp-images/tmp-image.model';
   styleUrl: './image-preview.css'
 })
 export class ImagesPreviewComponent implements OnInit, OnChanges {
-
-
   @Input() miniatureUrl: string | null = null;
-
   @Input() baseImageUrl: string | null = null;
 
-  @Input() xOffset: number = 0;
-  @Input() yOffset: number = 0;
-  @Input() zoom: number = 1;
+  // Valeurs pilotées par le parent (FormGroup 'viewport')
+  @Input() xOffset = 0;
+  @Input() yOffset = 0;
+  @Input() zoom = 1;
 
-  // émettre les changements vers le parent
+  // Remontée des changements vers le parent
   @Output() xOffsetChange = new EventEmitter<number>();
   @Output() yOffsetChange = new EventEmitter<number>();
   @Output() zoomChange = new EventEmitter<number>();
 
-  @ViewChild('baseCanvas', {static: false}) baseCanvas?: ElementRef<HTMLCanvasElement>;
 
+  @ViewChild('baseCanvas', {static: false}) baseCanvas?: ElementRef<HTMLCanvasElement>;
   miniatureImage = signal<TmpImage | null>(null);
   baseImage = signal<TmpImage | null>(null);
   miniatureImageUrl = computed(() => this.miniatureImage()?.image + '?timeStamp=$' + Date.now());
@@ -49,8 +47,9 @@ export class ImagesPreviewComponent implements OnInit, OnChanges {
   readonly overlayWidth = 600
   private tmpImageService = inject(TmpImageService);
   private isDragging = false;
-  private dragOffsetX = 0; // décalage curseur -> coin haut-gauche du rect en coords canvas
+  private dragOffsetX = 0;
   private dragOffsetY = 0;
+
 
   /**
    * On init, fetch miniature and base images independently when URLs are provided.
@@ -70,7 +69,6 @@ export class ImagesPreviewComponent implements OnInit, OnChanges {
         next: (image) => {
           this.baseImage.set(image);
           queueMicrotask(() => this.drawCanvas()); // Try a render after receipt
-
         },
         error: () => this.baseImage.set(null),
       });
@@ -82,13 +80,6 @@ export class ImagesPreviewComponent implements OnInit, OnChanges {
    * the selection rectangle remains within bounds.
    */
   ngOnChanges(changes: SimpleChanges): void {
-    // Redessine si les paramètres changent
-    if (('xOffset' in changes) || ('yOffset' in changes) || ('zoom' in changes) || ('baseImageUrl' in changes)) {
-      // Si le canvas est disponible, on s'assure d'abord que le rect reste dans le cadre
-      const canvas = this.baseCanvas?.nativeElement;
-      if (canvas) this.ensureRectInBounds(canvas.width, canvas.height);
-      this.drawCanvas();
-    }
     if ('miniatureUrl' in changes) {
       if (this.miniatureUrl) {
         this.tmpImageService.get(this.miniatureUrl).subscribe({
@@ -107,7 +98,6 @@ export class ImagesPreviewComponent implements OnInit, OnChanges {
         this.tmpImageService.get(this.baseImageUrl).subscribe({
           next: (image) => {
             this.baseImage.set(image);
-            // Essaye un rendu après réception
             queueMicrotask(() => this.drawCanvas());
           },
           error: () => this.baseImage.set(null),
@@ -115,6 +105,11 @@ export class ImagesPreviewComponent implements OnInit, OnChanges {
       } else {
         this.baseImage.set(null);
       }
+    }
+    if ('xOffset' in changes || 'yOffset' in changes || 'zoom' in changes) {
+      const canvas = this.baseCanvas?.nativeElement;
+      if (canvas) this.ensureRectInBounds(canvas.width, canvas.height);
+      this.drawCanvas();
     }
 
   }
@@ -124,7 +119,6 @@ export class ImagesPreviewComponent implements OnInit, OnChanges {
    */
   onCanvasMouseDown(ev: MouseEvent) {
     const ctxInfo = this.getCanvasCtx();
-
     if (!ctxInfo) return;
     const {canvas} = ctxInfo;
     const pos = this.coordsFromEvent(ev);
@@ -178,23 +172,21 @@ export class ImagesPreviewComponent implements OnInit, OnChanges {
     ev.preventDefault();
     const ctxInfo = this.getCanvasCtx();
     const pos = this.coordsFromEvent(ev as unknown as MouseEvent);
-
     if (!ctxInfo || !pos) return;
     const {canvas} = ctxInfo;
-
 
     const r = this.getRectangle(canvas.width, canvas.height);
     const ax = r.w !== 0 ? (pos.x - r.x) / r.w : 0.5;
     const ay = r.h !== 0 ? (pos.y - r.y) / r.h : 0.5;
 
-    const factor = ev.deltaY < 0 ? 0.9 : 1.1; // zoom in/out based on wheel direction
+    const factor = ev.deltaY < 0 ? 0.9 : 1.1;
     const newZoom = Math.min(5, Math.max(1, this.zoom * factor));
     const oldZoom = this.zoom;
-
     if (newZoom === oldZoom) return;
+
     this.setZoom(newZoom);
 
-    const w2 = (this.imageWidth - this.overlayWidth) / this.zoom; // cohérent avec getRectangle()
+    const w2 = (this.imageWidth - this.overlayWidth) / this.zoom;
     const h2 = this.imageHeight / this.zoom;
 
     const newX = pos.x - ax * w2;
@@ -203,6 +195,7 @@ export class ImagesPreviewComponent implements OnInit, OnChanges {
     this.setFromRectTopLeft(canvas.width, canvas.height, newX, newY);
     this.drawCanvas();
   }
+
 
   /**
    * Returns the 2D drawing context for the base canvas if available.
@@ -276,27 +269,25 @@ export class ImagesPreviewComponent implements OnInit, OnChanges {
    */
   private setFromRectTopLeft(cw: number, ch: number, rectX: number, rectY: number) {
     const z = this.zoom || 1;
-    const rectW = (this.imageWidth - this.overlayWidth) / z; // cohérent avec getRectangle()
+    const rectW = (this.imageWidth - this.overlayWidth) / z;
     const rectH = this.imageHeight / z;
 
-    // Clamp to stay in image bounds
     const clampedX = Math.min(Math.max(rectX, 0), Math.max(0, cw - rectW));
     const clampedY = Math.min(Math.max(rectY, 0), Math.max(0, ch - rectH));
 
-    // Inverse conversion to offset
     const denomX = (cw - (cw - this.overlayWidth) / z);
     const denomY = (ch - ch / z);
     const newXOffset = denomX !== 0 ? (clampedX) / denomX : 0;
     const newYOffset = denomY !== 0 ? (clampedY) / denomY : 0;
 
-    // clamp 0..1
     const x = Math.min(1, Math.max(0, newXOffset));
     const y = Math.min(1, Math.max(0, newYOffset));
     this.xOffset = x;
     this.yOffset = y;
-    this.yOffsetChange.emit(y);
-    this.xOffsetChange.emit(x);
 
+    // Émet aux parents (FormGroup 'viewport' sera mis à jour)
+    this.xOffsetChange.emit(x);
+    this.yOffsetChange.emit(y);
   }
 
   /**
@@ -328,13 +319,15 @@ export class ImagesPreviewComponent implements OnInit, OnChanges {
    * @param newZoom - Desired zoom factor.
    */
   private setZoom(newZoom: number) {
-    const clamped = Math.min(5, Math.max(1, newZoom)); // bond 1..5
+    const clamped = Math.min(5, Math.max(1, newZoom));
     if (clamped === this.zoom) return;
     this.zoom = clamped;
-    this.zoomChange.emit(this.zoom);
 
     const canvas = this.baseCanvas?.nativeElement;
     if (canvas) this.ensureRectInBounds(canvas.width, canvas.height);
+
+    // Notifie le parent
+    this.zoomChange.emit(this.zoom);
   }
 
   /**
@@ -385,4 +378,6 @@ export class ImagesPreviewComponent implements OnInit, OnChanges {
       img.onload?.(null as any);
     }
   }
+
+
 }
