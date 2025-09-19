@@ -20,6 +20,8 @@ class HALMixin(serializers.ModelSerializer[T]):
     Deletes the `url` field.
     """
 
+    hal_embedded: dict[str, type[serializers.Serializer]] = {}
+
     def to_representation(self, instance: T) -> dict[str, Any]:
         """Generate the HAL representation."""
         data = super().to_representation(instance)
@@ -52,6 +54,40 @@ class HALMixin(serializers.ModelSerializer[T]):
 
         if links:
             data["_links"] = links
+            
+        # add _embedded from hal_embedded
+        embedded: dict[str, Any] = {}
+        for name, serializer_cls in (getattr(self, "hal_embedded", {}) or {}).items():
+            # Ignore si le champ n'existe pas sur le serializer ou l'instance
+            if name not in self.fields:
+                continue
+            value = getattr(instance, name, None)
+            if value is None:
+                # rien à embarquer
+                continue
+
+            # Détermine si la relation est multiple (ManyRelatedManager / QuerySet / collection)
+            is_many_relation = False
+            if hasattr(value, "all") and callable(value.all):
+                # Relation inversée ou many-to-many
+                value = value.all()
+                is_many_relation = True
+            elif isinstance(value, (list, tuple, set)):
+                is_many_relation = True
+
+            try:
+                serializer = serializer_cls(value, many=is_many_relation, context=self.context)
+                embedded[name] = serializer.data
+                # Retire le champ original de la payload si présent, pour éviter duplication
+                data.pop(name, None)
+            except Exception:
+                # En cas d'erreur d'embarquement, on laisse la représentation telle quelle
+                continue
+
+        if embedded:
+            data["_embedded"] = embedded
+
+        return data
 
         return data
 
@@ -140,6 +176,7 @@ class YTVideoSerializer(
 ):
     """YTVideo serializer."""
 
+
     class Meta:
         """Meta."""
 
@@ -169,9 +206,10 @@ class TournamentSerializer(
     )
     videos = serializers.HyperlinkedIdentityField(view_name="tournament-videos")
 
+    hal_embedded = {"videos": VideoMetadataSerializer}
+
     class Meta:
         """Meta."""
-
         model = Tournament
         fields: Sequence[str] = [
             "url",
@@ -234,6 +272,7 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
 
 class TeamSerializer(HALMixin[Team], serializers.HyperlinkedModelSerializer[Team]):
     """Team serializer."""
+    hal_embedded = {"logo": TeamLogoSerializer}
 
     class Meta:
         """Meta."""

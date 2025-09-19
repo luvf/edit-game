@@ -2,7 +2,6 @@ import {Component, inject, OnInit, signal} from '@angular/core';
 import {TournamentService} from '../features/tournaments/tournament';
 import {Tournament} from '../features/tournaments/tournament.model';
 import {Router} from '@angular/router';
-import {catchError, of} from 'rxjs';
 
 /**
  * Container view that lists tournaments and provides actions per tournament.
@@ -34,14 +33,14 @@ export class TournamentViewComponent implements OnInit {
    */
   ngOnInit(): void {
     // Load the list (HateoasService.list returns Observable<Tournament[]> in the proposed implementation)
-    this.tournamentService.list().pipe(
-      catchError(err => {
-        console.error('Erreur lors du chargement des tournois', err);
-        return of([] as Tournament[]);
-      })
-    ).subscribe((data: Tournament[]) => {
-      this.tournaments.set(data);
-      data.forEach(t => this.loadGamesCount(t));
+    this.tournamentService.list().subscribe({
+      next: (data: Tournament[]) => {
+        this.tournaments.set(data);
+        data.forEach(t => this.loadGamesCount(t));
+      },
+      error: (e) => {
+        console.error('Erreur lors du chargement des tournois', e);
+      },
     });
   }
 
@@ -95,16 +94,16 @@ export class TournamentViewComponent implements OnInit {
    */
   private loadGamesCount(tournament: Tournament): void {
     // games() suit la relation 'games' et retourne un Observable<Game[]>
-    this.tournamentService.games(tournament).pipe(
-      catchError(err => {
-        console.error(`Erreur lors du chargement des jeux pour tournament ${tournament.pk}`, err);
-        return of([]); // fallback -> 0
-      })
-    ).subscribe(games => {
-      const len = Array.isArray(games) ? games.length : 0;
-      const next = {...this.counts()};
-      next[tournament.pk] = len;
-      this.counts.set(next);
+    this.tournamentService.games(tournament).subscribe({
+      next: (games) => {
+        const len = Array.isArray(games) ? games.length : 0;
+        const next = {...this.counts()};
+        next[tournament.pk] = len;
+        this.counts.set(next);
+      },
+      error: (e) => {
+        console.error(`Erreur lors du chargement des jeux pour tournament ${tournament.pk}`, e);
+      }
     });
   }
 }

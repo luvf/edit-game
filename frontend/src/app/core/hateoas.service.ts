@@ -202,22 +202,26 @@ export class HateoasService<T extends HateoasResource> {
    * @throws Error if the relation cannot be found.
    */
   follow<R = any>(resourceOrUrl: string | T, rel: string): Observable<R> {
+    // Si on nous passe un objet déjà parsé avec le lien, court-circuiter
+    if (resourceOrUrl && typeof resourceOrUrl === 'object') {
+      const maybeLink = (resourceOrUrl as any)?._links?.[rel]?.href as string | undefined;
+      if (maybeLink) {
+        return this.http.get<R>(maybeLink);
+      }
+    }
+
     const url = this.resolveUrl(resourceOrUrl);
     return this.http.get(url).pipe(
-      // retrieve body, parse it find link rel.href and call
       switchMap((body: unknown) => {
         const parsed = this.parse(body);
         const link = parsed.link(rel);
-        if (link && link.href) {
+        if (link?.href) {
           return this.http.get<R>(link.href);
         }
-        // maybe the relation is in _embedded
         const emb = parsed.allEmbeddedResources();
         if (emb && emb[rel]) {
-          // returns directly the embedded resource
           return from([emb[rel] as R]);
         }
-        // no rel found -> Observable vide (ou erreur)
         throw new Error(`Relation '${rel}' introuvable sur ${url}`);
       })
     );
@@ -305,7 +309,7 @@ export class HateoasService<T extends HateoasResource> {
     if (typeof resourceOrUrl === 'string') return resourceOrUrl;
     const links = (resourceOrUrl as any)._links;
     if (links && links.self && links.self.href) return links.self.href;
-    
+
     return this.baseUrl;
   }
 }

@@ -1,7 +1,7 @@
 // TypeScript
 import {Component, inject, OnInit, signal} from '@angular/core';
 import {ActivatedRoute, Router} from '@angular/router';
-import {catchError, of} from 'rxjs';
+import {of} from 'rxjs';
 import {TournamentService} from '../features/tournaments/tournament';
 import {VideoMetadataService} from '../features/video-metadatas/video-metadata';
 import {Tournament} from '../features/tournaments/tournament.model';
@@ -11,6 +11,7 @@ import {TmpImageService} from '../features/tmp-images/tmp-image';
 import {TmpImage} from '../features/tmp-images/tmp-image.model';
 import {MatTableModule} from '@angular/material/table';
 import {YtVideo} from '../features/videos/yt-video.model';
+import {TeamLogoService} from '../features/team-logos/team-logo';
 
 
 /**
@@ -39,6 +40,7 @@ export class TournamentGamesViewComponent implements OnInit {
   private router = inject(Router);
   private tournamentService = inject(TournamentService);
   private videoMetadataService = inject(VideoMetadataService);
+  private teamLogoService = inject(TeamLogoService);
   private tmpImageService = inject(TmpImageService);
 
   /**
@@ -50,31 +52,34 @@ export class TournamentGamesViewComponent implements OnInit {
     if (!tournament_url) return;
 
     // Load the tournament, then its videos (with error handling)
-    this.tournamentService.get(tournament_url).pipe(
-      catchError(err => {
-        console.error('Erreur lors de la récupération du tournoi', err);
-        return of(null);
-      })
-    ).subscribe((current_tournament: Tournament | null) => {
-      if (!current_tournament) return;
-      this.tournament.set(current_tournament);
+    this.tournamentService.get(tournament_url).subscribe({
+        next: (current_tournament: Tournament | null) => {
+          if (!current_tournament) return;
+          this.tournament.set(current_tournament);
 
-      // videos() uses follow() and returns Observable<VideoMetadata[]>
-      this.tournamentService.videos(current_tournament).pipe(
-        catchError(err => {
-          console.error('Erreur lors du chargement des vidéos', err);
-          return of([] as VideoMetadata[]);
-        })
-      ).subscribe((videos: VideoMetadata[]) => {
+
+        },
+        error: (e) => {
+          console.error('Erreur lors de la récupération du tournoi', e);
+          return of(null);
+        },
+      }
+    );
+    // videos() uses follow() and returns Observable<VideoMetadata[]>
+    this.tournamentService.videos(tournament_url).subscribe({
+      next: (videos: VideoMetadata[]) => {
         this.videos.set(videos);
         // Load team names and status for each video, and the miniature
         videos.forEach(v => this.loadVideoStatus(v));
         videos.forEach(v => this.loadTeamsNames(v));
-        videos.forEach(v => {
-          this.loadMiniature(v)
-        })
-      });
-    });
+        videos.forEach(v => this.loadMiniature(v));
+      },
+
+      error: (e) => {
+        console.error('Erreur lors du chargement des vidéos', e);
+        return of([] as VideoMetadata[]);
+      },
+    })
   }
 
   /**
@@ -98,8 +103,7 @@ export class TournamentGamesViewComponent implements OnInit {
    * @param videoMetadata - The video metadata whose miniature to resolve.
    */
   loadMiniature(videoMetadata: VideoMetadata): void {
-    if (!videoMetadata?._links?.miniature_image?.href) return;
-    this.tmpImageService.get(videoMetadata._links?.miniature_image?.href).subscribe({
+    this.videoMetadataService.miniature_image(videoMetadata).subscribe({
       next: (tmpImage: TmpImage | null) => {
         if (!tmpImage) return;
         const next1 = {...this.miniature_names()};
@@ -115,17 +119,16 @@ export class TournamentGamesViewComponent implements OnInit {
    * @param video - The video metadata entry.
    */
   private loadVideoStatus(video: VideoMetadata): void {
-    this.videoMetadataService.linked_yt_videos(video).pipe(
-      catchError(err => {
-        console.error(`Erreur linked_yt_videos pour video ${video.pk}`, err);
-        return of(null as any);
-      })
-    ).subscribe((
-        yt_videos: YtVideo[]) => {
-        for (let yt_vid of yt_videos) {
-          const next1 = {...this.video_status()};
-          next1[video.pk] = this.getYTVideoStatus(yt_vid);
-          this.video_status.set(next1);
+    this.videoMetadataService.linked_yt_videos(video).subscribe({
+        next: (yt_videos: YtVideo[]) => {
+          for (let yt_vid of yt_videos) {
+            const next1 = {...this.video_status()};
+            next1[video.pk] = this.getYTVideoStatus(yt_vid);
+            this.video_status.set(next1);
+          }
+        },
+        error: (e) => {
+          console.error(`Erreur linked_yt_videos pour video ${video.pk}`, e);
         }
       }
     )
@@ -158,29 +161,27 @@ export class TournamentGamesViewComponent implements OnInit {
    * @param video - The video metadata entry.
    */
   private loadTeamsNames(video: VideoMetadata): void {
-    this.videoMetadataService.team1(video).pipe(
-      catchError(err => {
-        console.error(`Erreur team1 pour video ${video.pk}`, err);
-        return of(null as any);
-      })
-    ).subscribe((team1: TeamLogo | null) => {
-      if (team1) {
-        const next1 = {...this.team1_names()};
-        next1[video.pk] = team1.name;
-        this.team1_names.set(next1);
+    this.videoMetadataService.team1(video).subscribe({
+      next: (team1: TeamLogo | null) => {
+        if (team1) {
+          const next1 = {...this.team1_names()};
+          next1[video.pk] = team1.name;
+          this.team1_names.set(next1);
+        }
+      }, error: (e) => {
+        console.error(`Erreur team1 pour video ${video.pk}`, e);
       }
     });
-
-    this.videoMetadataService.team2(video).pipe(
-      catchError(err => {
-        console.error(`Erreur team2 pour video ${video.pk}`, err);
-        return of(null as any);
-      })
-    ).subscribe((team2: TeamLogo | null) => {
-      if (team2) {
-        const next2 = {...this.team2_names()};
-        next2[video.pk] = team2.name;
-        this.team2_names.set(next2);
+    this.videoMetadataService.team2(video).subscribe({
+      next: (team2: TeamLogo | null) => {
+        if (team2) {
+          const next2 = {...this.team2_names()};
+          next2[video.pk] = team2.name;
+          this.team2_names.set(next2);
+        }
+      },
+      error: (e) => {
+        console.error(`Erreur team2 pour video ${video.pk}`, e);
       }
     });
   }

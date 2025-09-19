@@ -6,6 +6,7 @@ import {VideoMetadata} from './video-metadata.model';
 import {Tournament} from '../tournaments/tournament.model';
 import {TeamLogo} from '../team-logos/team-logo.model';
 import {YtVideo} from '../videos/yt-video.model';
+import {TmpImage} from '../tmp-images/tmp-image.model';
 
 
 /**
@@ -70,7 +71,7 @@ export class VideoMetadataService extends HateoasService<VideoMetadata> {
    * @returns An observable emitting the thumbnail URL as string.
    */
   miniature_image(resourceOrUrl: string | VideoMetadata) {
-    return this.follow<string>(resourceOrUrl as any, 'miniature_image');
+    return this.follow<TmpImage>(resourceOrUrl as any, 'miniature_image');
   }
 
   /**
@@ -80,7 +81,7 @@ export class VideoMetadataService extends HateoasService<VideoMetadata> {
    * @returns An observable emitting the base image URL as string.
    */
   base_image(resourceOrUrl: string | VideoMetadata) {
-    return this.follow<string>(resourceOrUrl as any, 'base_image');
+    return this.follow<TmpImage>(resourceOrUrl as any, 'base_image');
   }
 
   /**
