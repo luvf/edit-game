@@ -69,8 +69,12 @@ class YtVideoMetadata:
         date_format = "%Y-%m-%dT%H:%M:%S%z"
 
         fixed_date = datetime.strptime(base_date, date_format).replace(tzinfo=UTC)
+        if data["kind"] == "youtube#video":
+            video_id = data["id"]
+        else:
+            video_id = data["snippet"]["resourceId"]["videoId"]
         return YtVideoMetadata(
-            video_id=data["id"],
+            video_id=video_id,
             title=data["snippet"]["title"],
             description=data["snippet"]["description"],
             date=fixed_date,
@@ -215,10 +219,8 @@ class YTInteraction:
                 for playlist_item in playlist_items_list_response["items"]
             ]
 
-            playlist_items_list_request = (
-                self.service.playlistItems().playlist_items.list_next(  # type: ignore[attr-defined]
-                    playlist_items_list_request, playlist_items_list_response
-                )
+            playlist_items_list_request = self.service.playlistItems().list_next(  # type: ignore[attr-defined]
+                playlist_items_list_request, playlist_items_list_response
             )
 
         return output

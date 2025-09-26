@@ -162,7 +162,7 @@ class VideoMetadata(models.Model):
         game_edit.models.Tournament,
         on_delete=models.SET_NULL,
         null=True,
-        related_name="miniatures",
+        related_name="video_metadatas",
     )
 
     tc = models.FloatField(default=0)
@@ -319,7 +319,7 @@ class YTVideoManager(models.Manager["YTVideo"]):
             | Q(video_name__icontains=OuterRef("title"))
         )
 
-        self.update(linkedVideo=Subquery(games.values("pk")[:1]))
+        self.update(linked_video=Subquery(games.values("pk")[:1]))
 
 
 class YTVideo(models.Model):
@@ -332,7 +332,7 @@ class YTVideo(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="YTlink",
+        related_name="linked_yt_videos",
     )
 
     publication_date = models.DateTimeField(default=date.today)
@@ -386,11 +386,11 @@ class YTVideo(models.Model):
         videos = yt_interaction.get_all_videos()
         for video in videos:
             vid, _ = YTVideo.objects.get_or_create(
-                videoId=video.video_id,
+                video_id=video.video_id,
                 defaults={
                     "title": video.title,
-                    "pub_date": video.date,
-                    "privacyStatus": video.status,
+                    "publication_date": video.date,
+                    "privacy_status": video.status,
                 },
             )
 

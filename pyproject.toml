@@ -7,7 +7,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 license-files = ["LICENSE"]
-license = "GNU Affero General Public License v3.0 only (AGPL-3.0-only)"
+license = "AGPL-3.0-only"
 
 # Dependencies
 

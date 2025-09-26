@@ -1,22 +1,5 @@
 """Api Views."""
 
-"""<Edit game: a software to help edit jugger game videos>
-    Copyright (C) <2025>  <Luca Veyrin-Forrer>
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as published
-    by the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Affero General Public License for more details.
-
-    You should have received a copy of the GNU Affero General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>."""
-
-
 import contextlib
 import random
 import urllib.parse
@@ -75,7 +58,9 @@ class TeamLogoViewSet(viewsets.ModelViewSet[TeamLogo]):
         logo = self.get_object()
         qs = Team.objects.filter(logo=logo).order_by("name")
         serializer = TeamSerializer(
-            qs, many=True, context=self.get_serializer_context()
+            qs,
+            many=True,
+            context=self.get_serializer_context(),
         )
         return Response(serializer.data)
 
@@ -296,11 +281,11 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         created_names = []
         for video in videos:
             if not VideoMetadata.objects.filter(
-                name=video, tournament=tournament
+                name=video.name, tournament=tournament
             ).exists():
-                teams = TeamLogo.identify_team(str(video))
+                teams = TeamLogo.identify_team(str(video.name))
                 new_vid = VideoMetadata.objects.create(
-                    name=video.absolute().as_posix(),
+                    name=video.absolute().name,
                     tournament=tournament,
                     team1=teams[0],
                     team2=teams[1],

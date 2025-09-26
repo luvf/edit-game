@@ -112,7 +112,11 @@ class Team(models.Model):
 
     name = models.CharField(max_length=100)
     logo = models.ForeignKey(
-        "miniatures.TeamLogo", on_delete=models.DO_NOTHING, null=True, blank=True
+        "miniatures.TeamLogo",
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        related_name="teams",
     )
     slug = models.SlugField(default="", null=False)
 

@@ -1,6 +1,7 @@
 """Serializers for the API."""
 
 from collections.abc import Sequence
+from pydoc import locate
 from typing import Any, TypeVar
 
 from rest_framework import serializers
@@ -13,6 +14,19 @@ Model = Cut | Game | Team | Tournament | TeamLogo | TmpImage | VideoMetadata | Y
 T = TypeVar("T", bound=Model)
 
 
+def normalize_to_class(value, namespace: dict) -> type:
+    if isinstance(value, type):
+        return value
+    if isinstance(value, str):
+        cls = locate(value)
+        if cls is not None:
+            return cls
+        obj = namespace.get(value)
+        if isinstance(obj, type):
+            return obj
+    raise TypeError(f"Impossible de résoudre la classe depuis: {value!r}")
+
+
 class HALMixin(serializers.ModelSerializer[T]):
     """Generate a HAL representation of a model.
 
@@ -22,88 +36,101 @@ class HALMixin(serializers.ModelSerializer[T]):
 
     hal_embedded: dict[str, type[serializers.Serializer]] = {}
 
-    def to_representation(self, instance: T) -> dict[str, Any]:
-        """Generate the HAL representation."""
-        data = super().to_representation(instance)
+    def __init__(self, *args, **kwargs):
+        """Init. ensure deepness parameter"""
+        if "hal_embedded" in kwargs and isinstance(
+            kwargs["hal_embedded"], type(self.hal_embedded)
+        ):
+            self.hal_embedded = kwargs.pop("hal_embedded")
+        super().__init__(*args, **kwargs)
+
+    def _build_links(
+        self, data: dict[str, Any]
+    ) -> dict[str, dict[str, str] | list[dict[str, str]]]:
+        """Builds _links section of HAL format."""
         links: dict[str, dict[str, str] | list[dict[str, str]]] = {}
 
-        # self depuis 'url' (puis on le retire de la payload)
         if data.get("url"):
             links["self"] = {"href": data.pop("url")}
 
-        # Collecte des liens pour HyperlinkedIdentityField et HyperlinkedRelatedField
         for name, field in self.fields.items():
             if name == "url":
                 continue
-            try:
-                is_identity = isinstance(field, serializers.HyperlinkedIdentityField)
-                is_related = isinstance(field, serializers.HyperlinkedRelatedField)
-            except Exception:
-                is_identity = False
-                is_related = False
 
-            if is_identity or is_related:
-                if name in data:
-                    href_value = data.pop(name)
-                    if href_value is None:
-                        continue
-                    if isinstance(href_value, list | tuple):
-                        links[name] = [{"href": v} for v in href_value if v]
-                    else:
-                        links[name] = {"href": href_value}
+            is_link_field = isinstance(
+                field,
+                (
+                    serializers.HyperlinkedIdentityField,
+                    serializers.HyperlinkedRelatedField,
+                ),
+            )
 
-        if links:
-            data["_links"] = links
-            
-        # add _embedded from hal_embedded
+            if is_link_field and name in data:
+                href_value = data.pop(name)
+                if href_value is None:
+                    continue
+
+                if isinstance(href_value, (list, tuple)):
+                    links[name] = [{"href": v} for v in href_value if v]
+                else:
+                    links[name] = {"href": href_value}
+        return links
+
+    def _resolve_serializer_class(self, serializer_cls: type | str) -> type:
+        """Resolve class serializer class."""
+        try:
+            import sys
+
+            current_module = sys.modules[self.__module__]
+            namespace = vars(current_module)
+            return normalize_to_class(serializer_cls, namespace)
+        except (TypeError, AttributeError):
+            return serializer_cls
+
+    def _build_embedded(self, instance: T, data: dict[str, Any]) -> dict[str, Any]:
+        """Builds _ebmedded section of HAL format."""
         embedded: dict[str, Any] = {}
+
         for name, serializer_cls in (getattr(self, "hal_embedded", {}) or {}).items():
-            # Ignore si le champ n'existe pas sur le serializer ou l'instance
-            if name not in self.fields:
-                continue
             value = getattr(instance, name, None)
             if value is None:
-                # rien à embarquer
                 continue
+            is_many_relation = (
+                hasattr(value, "all")
+                and callable(value.all)
+                or isinstance(value, (list, tuple, set))
+            )
 
-            # Détermine si la relation est multiple (ManyRelatedManager / QuerySet / collection)
-            is_many_relation = False
-            if hasattr(value, "all") and callable(value.all):
-                # Relation inversée ou many-to-many
+            if is_many_relation and hasattr(value, "all"):
                 value = value.all()
-                is_many_relation = True
-            elif isinstance(value, (list, tuple, set)):
-                is_many_relation = True
 
             try:
-                serializer = serializer_cls(value, many=is_many_relation, context=self.context)
+                serializer_ref = self._resolve_serializer_class(serializer_cls)
+                serializer = serializer_ref(
+                    value, many=is_many_relation, context=self.context, hal_embedded={}
+                )
                 embedded[name] = serializer.data
-                # Retire le champ original de la payload si présent, pour éviter duplication
                 data.pop(name, None)
-            except Exception:
-                # En cas d'erreur d'embarquement, on laisse la représentation telle quelle
-                continue
+            except:
+                pass
 
+        return embedded
+
+    def to_representation(self, instance: T) -> dict[str, Any]:
+        """Generate the HAL representation."""
+        data = super().to_representation(instance)
+
+        # Construction des liens
+        links = self._build_links(data)
+        if links:
+            data["_links"] = links
+
+        # Construction des objets embarqués
+        embedded = self._build_embedded(instance, data)
         if embedded:
             data["_embedded"] = embedded
 
         return data
-
-        return data
-
-
-class TeamLogoSerializer(
-    HALMixin[TeamLogo], serializers.HyperlinkedModelSerializer[TeamLogo]
-):
-    """TeamLogo serializer."""
-
-    teams = serializers.HyperlinkedIdentityField(view_name="teamlogo-teams")
-
-    class Meta:
-        """Meta."""
-
-        model = TeamLogo
-        fields: Sequence[str] = ["url", "pk", "name", "short_name", "image", "teams"]
 
 
 class VideoMetadataSerializer(
@@ -124,13 +151,19 @@ class VideoMetadataSerializer(
     generate_miniature = serializers.HyperlinkedIdentityField(
         view_name="videometadata-generate-miniature"
     )
-
     linked_yt_videos = serializers.HyperlinkedIdentityField(
         view_name="videometadata-linked-yt-videos",
     )
     reset_title_description = serializers.HyperlinkedIdentityField(
         view_name="videometadata-reset-title-description"
     )
+
+    hal_embedded = {
+        "linked_yt_videos": "YTVideoSerializer",
+        "tournament": "TournamentSerializer",
+        "team1": "TeamSerializer",
+        "team2": "TeamSerializer",
+    }
 
     class Meta:
         """Meta."""
@@ -176,6 +209,7 @@ class YTVideoSerializer(
 ):
     """YTVideo serializer."""
 
+    hal_embedded = {"linked_video": "VideoMetadataSerializer"}
 
     class Meta:
         """Meta."""
@@ -186,7 +220,7 @@ class YTVideoSerializer(
             "pk",
             "title",
             "video_id",
-            "linked_video_id",
+            "linked_video",
             "publication_date",
             "privacy_status",
         ]
@@ -204,12 +238,15 @@ class TournamentSerializer(
     youtube_update = serializers.HyperlinkedIdentityField(
         view_name="tournament-youtube-update"
     )
-    videos = serializers.HyperlinkedIdentityField(view_name="tournament-videos")
+    video_metadatas = serializers.HyperlinkedIdentityField(
+        view_name="tournament-videos"
+    )
 
-    hal_embedded = {"videos": VideoMetadataSerializer}
+    hal_embedded = {"video_metadatas": "VideoMetadataSerializer"}
 
     class Meta:
         """Meta."""
+
         model = Tournament
         fields: Sequence[str] = [
             "url",
@@ -222,7 +259,7 @@ class TournamentSerializer(
             "tugeny_link",
             "color",
             "slug",
-            "videos",
+            "video_metadatas",
             "sync_videos",
             "youtube_update",
         ]
@@ -272,10 +309,26 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
 
 class TeamSerializer(HALMixin[Team], serializers.HyperlinkedModelSerializer[Team]):
     """Team serializer."""
-    hal_embedded = {"logo": TeamLogoSerializer}
+
+    hal_embedded = {"logo": "TeamLogoSerializer"}
 
     class Meta:
         """Meta."""
 
         model = Team
         fields: Sequence[str] = ["url", "pk", "logo", "name", "slug"]
+
+
+class TeamLogoSerializer(
+    HALMixin[TeamLogo], serializers.HyperlinkedModelSerializer[TeamLogo]
+):
+    """TeamLogo serializer."""
+
+    teams = serializers.HyperlinkedIdentityField(view_name="teamlogo-teams")
+    hal_embedded = {"teams": "TeamSerializer"}
+
+    class Meta:
+        """Meta."""
+
+        model = TeamLogo
+        fields: Sequence[str] = ["url", "pk", "name", "short_name", "image", "teams"]
