@@ -1,7 +1,7 @@
 import {Component, inject, OnInit, signal} from '@angular/core';
-import {TournamentService} from '../features/tournaments/tournament';
-import {Tournament} from '../features/tournaments/tournament.model';
 import {Router} from '@angular/router';
+import {Tournament} from '../core/models/models';
+import {TournamentService} from '../core/services/tournament.service';
 
 /**
  * Container view that lists tournaments and provides actions per tournament.
@@ -94,7 +94,7 @@ export class TournamentViewComponent implements OnInit {
    */
   private loadGamesCount(tournament: Tournament): void {
     // games() suit la relation 'games' et retourne un Observable<Game[]>
-    this.tournamentService.games(tournament).subscribe({
+    this.tournamentService.video_metadatas(tournament).subscribe({
       next: (games) => {
         const len = Array.isArray(games) ? games.length : 0;
         const next = {...this.counts()};

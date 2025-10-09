@@ -2,11 +2,11 @@ import {Component, inject, OnInit, signal} from '@angular/core';
 import {CommonModule} from '@angular/common';
 import {FormBuilder, FormGroup, ReactiveFormsModule, Validators} from '@angular/forms';
 import {ActivatedRoute, Router} from '@angular/router';
-import {VideoMetadataService} from "../features/video-metadatas/video-metadata";
-import {VideoMetadata} from '../features/video-metadatas/video-metadata.model';
 import {MetaFieldsComponent} from './meta-fields-components/meta-fields-components';
 import {MiniatureBuilder} from './miniature-builder/miniature-builder';
 import {MatButtonModule} from '@angular/material/button';
+import {VideoMetadata} from '../core/models/models';
+import {VideoMetadataService} from '../core/services/video-metadata.service';
 
 
 /**
@@ -84,7 +84,7 @@ export class GameViewComponent implements OnInit {
   onResetDescription() {
     const vidMetadata = this.videoMetadata();
     if (!vidMetadata) return;
-    this.videoMetadataService.reset_title_descriptiont(vidMetadata).subscribe({
+    this.videoMetadataService.reset_title_description(vidMetadata).subscribe({
       next: (vm) => this.videoMetadata.set(vm),
       error: (e) => console.log(this.stringifyError(e)),
     })
@@ -97,7 +97,7 @@ export class GameViewComponent implements OnInit {
     const vidMetadata = this.videoMetadata();
     if (!vidMetadata) return;
 
-    this.videoMetadataService.upload_descripton(vidMetadata).subscribe({
+    this.videoMetadataService.upload_description(vidMetadata).subscribe({
       next: () => console.log('description upload'),
       error: (e) => console.log(this.stringifyError(e)),
     });
@@ -121,7 +121,7 @@ export class GameViewComponent implements OnInit {
       team1: miniatureBuilder.team1,
       team2: miniatureBuilder.team2,
       xoffset: Number(viewport.xOffset ?? 0),
-      yoffset: Number(viewport.yoffset ?? 0),
+      yoffset: Number(viewport.yOffset ?? 0),
       zoom: Number(viewport.zoom ?? 1),
       timeCode: Number(miniatureBuilder.timeCode ?? 0),
     };
@@ -136,6 +136,7 @@ export class GameViewComponent implements OnInit {
       .subscribe({
         next: (videoMetadata) => {
           this.videoMetadata.set(videoMetadata);
+          this.patchForm(videoMetadata);
         },
         error: (e) => {
           console.error('Erreur lors de generate_miniature', e);
@@ -181,21 +182,27 @@ export class GameViewComponent implements OnInit {
       next: (vm: VideoMetadata) => {
         // Initialize ALL form fields with values from VideoMetadata
         this.videoMetadata.set(vm)
-        this.videoMetadataForm.patchValue({
-          miniatureBuilder: {
-            team1: vm._links?.team1?.href ?? '',
-            team2: vm._links?.team2?.href ?? '',
-            timeCode: vm.tc,
-          },
-          meta_fields: {
-            description: vm.description ?? '',
-            video_name: vm.video_name ?? '',
-            publication_date: vm?.publication_date ? this.toDatetimeLocal(vm.publication_date) : '',
-          }
-        });
+        this.patchForm(vm)
+
       },
       error: (e) => console.log(this.stringifyError(e)),
     });
+  }
+
+  private patchForm(vm: VideoMetadata) {
+    this.videoMetadataForm.patchValue({
+      miniatureBuilder: {
+        team1: vm._links?.team1?.href ?? '',
+        team2: vm._links?.team2?.href ?? '',
+        timeCode: vm.tc,
+      },
+      meta_fields: {
+        description: vm.description ?? '',
+        video_name: vm.video_name ?? '',
+        publication_date: vm?.publication_date ? this.toDatetimeLocal(vm.publication_date) : '',
+      }
+    });
+
   }
 
   /**

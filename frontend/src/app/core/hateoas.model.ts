@@ -1,7 +1,6 @@
 /**
  * Union of supported HTTP methods used when invoking HATEOAS link actions.
  */
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 
 /**

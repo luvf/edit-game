@@ -2,17 +2,12 @@
 import {Component, inject, OnInit, signal} from '@angular/core';
 import {ActivatedRoute, Router} from '@angular/router';
 import {of} from 'rxjs';
-import {TournamentService} from '../features/tournaments/tournament';
-import {VideoMetadataService} from '../features/video-metadatas/video-metadata';
-import {Tournament} from '../features/tournaments/tournament.model';
-import {VideoMetadata} from '../features/video-metadatas/video-metadata.model';
-import {TeamLogo} from '../features/team-logos/team-logo.model';
-import {TmpImageService} from '../features/tmp-images/tmp-image';
-import {TmpImage} from '../features/tmp-images/tmp-image.model';
-import {MatTableModule} from '@angular/material/table';
-import {YtVideo} from '../features/videos/yt-video.model';
-import {TeamLogoService} from '../features/team-logos/team-logo';
 
+import {MatTableModule} from '@angular/material/table';
+import {TeamLogo, TmpImage, Tournament, VideoMetadata, Yt_Video} from '../core/models/models';
+import {VideoMetadataService} from '../core/services/video-metadata.service';
+import {TeamLogoService, TmpImageService} from '../core/services/misc-hateoas-models.service';
+import {TournamentService} from '../core/services/tournament.service';
 
 /**
  * Lists games (VideoMetadata) for a given Tournament and displays related info.
@@ -56,8 +51,7 @@ export class TournamentGamesViewComponent implements OnInit {
         next: (current_tournament: Tournament | null) => {
           if (!current_tournament) return;
           this.tournament.set(current_tournament);
-
-
+          this.tournament_loaded(current_tournament);
         },
         error: (e) => {
           console.error('Erreur lors de la récupération du tournoi', e);
@@ -66,20 +60,7 @@ export class TournamentGamesViewComponent implements OnInit {
       }
     );
     // videos() uses follow() and returns Observable<VideoMetadata[]>
-    this.tournamentService.videos(tournament_url).subscribe({
-      next: (videos: VideoMetadata[]) => {
-        this.videos.set(videos);
-        // Load team names and status for each video, and the miniature
-        videos.forEach(v => this.loadVideoStatus(v));
-        videos.forEach(v => this.loadTeamsNames(v));
-        videos.forEach(v => this.loadMiniature(v));
-      },
 
-      error: (e) => {
-        console.error('Erreur lors du chargement des vidéos', e);
-        return of([] as VideoMetadata[]);
-      },
-    })
   }
 
   /**
@@ -88,7 +69,7 @@ export class TournamentGamesViewComponent implements OnInit {
    * @param game - Video metadata entry to open.
    */
   openGame(game: VideoMetadata): void {
-    if (!game?._links?.self?.href) return;
+    if (!game?._links?.self.href) return;
     console.log('openGame');
     this.router.navigate(['/game'], {
       queryParams: {
@@ -113,6 +94,23 @@ export class TournamentGamesViewComponent implements OnInit {
     });
   }
 
+  private tournament_loaded(tournament: Tournament): void {
+    this.tournamentService.video_metadatas(tournament, true).subscribe({
+      next: (videos: VideoMetadata[]) => {
+        this.videos.set(videos);
+        // Load team names and status for each video, and the miniature
+        videos.forEach(v => this.loadVideoStatus(v));
+        videos.forEach(v => this.loadTeamsNames(v));
+        videos.forEach(v => this.loadMiniature(v));
+      },
+
+      error: (e) => {
+        console.error('Erreur lors du chargement des vidéos', e);
+        return of([] as VideoMetadata[]);
+      },
+    })
+  }
+
   /**
    * Loads the YouTube publishing status for a given video and stores a label per pk.
    *
@@ -120,7 +118,7 @@ export class TournamentGamesViewComponent implements OnInit {
    */
   private loadVideoStatus(video: VideoMetadata): void {
     this.videoMetadataService.linked_yt_videos(video).subscribe({
-        next: (yt_videos: YtVideo[]) => {
+        next: (yt_videos: Yt_Video[]) => {
           for (let yt_vid of yt_videos) {
             const next1 = {...this.video_status()};
             next1[video.pk] = this.getYTVideoStatus(yt_vid);
@@ -140,7 +138,7 @@ export class TournamentGamesViewComponent implements OnInit {
    * @param yt_video - The YouTube video entry.
    * @returns Status label string.
    */
-  private getYTVideoStatus(yt_video: YtVideo): string {
+  private getYTVideoStatus(yt_video: Yt_Video): string {
     const date = Date.parse(yt_video.publication_date)
 
     if (yt_video.privacy_status == "public") {

@@ -3,7 +3,7 @@
 <ng-container [formGroup]="videoMetadataForm">
 
   <section>
-    <app-miniature-builder [videoMetadata]="videoMetadata??null" formGroupName="miniatureBuilder">
+    <app-miniature-builder [videoMetadata]="videoMetadata" formGroupName="miniatureBuilder">
     </app-miniature-builder>
   </section>
   <button (click)="onGenerateClick()" color="primary" mat-raised-button>

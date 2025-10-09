@@ -13,8 +13,8 @@ import {
   ViewChild
 } from '@angular/core';
 import {CommonModule} from '@angular/common';
-import {TmpImageService} from '../../../features/tmp-images/tmp-image';
-import {TmpImage} from '../../../features/tmp-images/tmp-image.model';
+import {TmpImage} from '../../../core/models/models';
+import {TmpImageService} from '../../../core/services/misc-hateoas-models.service';
 
 @Component({
   selector: 'app-images-preview',

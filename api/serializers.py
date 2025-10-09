@@ -1,8 +1,9 @@
 """Serializers for the API."""
 
+import sys
 from collections.abc import Sequence
 from pydoc import locate
-from typing import Any, TypeVar
+from typing import Any, ClassVar, TypeVar
 
 from rest_framework import serializers
 
@@ -14,19 +15,6 @@ Model = Cut | Game | Team | Tournament | TeamLogo | TmpImage | VideoMetadata | Y
 T = TypeVar("T", bound=Model)
 
 
-def normalize_to_class(value, namespace: dict) -> type:
-    if isinstance(value, type):
-        return value
-    if isinstance(value, str):
-        cls = locate(value)
-        if cls is not None:
-            return cls
-        obj = namespace.get(value)
-        if isinstance(obj, type):
-            return obj
-    raise TypeError(f"Impossible de résoudre la classe depuis: {value!r}")
-
-
 class HALMixin(serializers.ModelSerializer[T]):
     """Generate a HAL representation of a model.
 
@@ -34,15 +22,15 @@ class HALMixin(serializers.ModelSerializer[T]):
     Deletes the `url` field.
     """
 
-    hal_embedded: dict[str, type[serializers.Serializer]] = {}
+    default_hal_embedded: ClassVar[dict[str, str]] = {}
 
-    def __init__(self, *args, **kwargs):
-        """Init. ensure deepness parameter"""
-        if "hal_embedded" in kwargs and isinstance(
-            kwargs["hal_embedded"], type(self.hal_embedded)
-        ):
-            self.hal_embedded = kwargs.pop("hal_embedded")
+    def __init__(self, *args: Any, hal_embedded:dict[str, str]|None=None, **kwargs: Any) -> None:
+        """Init."""
         super().__init__(*args, **kwargs)
+        if hal_embedded is not None:
+            self.hal_embedded = hal_embedded
+        else:
+            self.hal_embedded = self.default_hal_embedded
 
     def _build_links(
         self, data: dict[str, Any]
@@ -60,8 +48,8 @@ class HALMixin(serializers.ModelSerializer[T]):
             is_link_field = isinstance(
                 field,
                 (
-                    serializers.HyperlinkedIdentityField,
-                    serializers.HyperlinkedRelatedField,
+                    serializers.HyperlinkedIdentityField
+                    | serializers.HyperlinkedRelatedField
                 ),
             )
 
@@ -70,22 +58,25 @@ class HALMixin(serializers.ModelSerializer[T]):
                 if href_value is None:
                     continue
 
-                if isinstance(href_value, (list, tuple)):
+                if isinstance(href_value, (list | tuple)):
                     links[name] = [{"href": v} for v in href_value if v]
                 else:
                     links[name] = {"href": href_value}
         return links
 
-    def _resolve_serializer_class(self, serializer_cls: type | str) -> type:
+    def _resolve_serializer_class(
+        self, serializer_cls: str
+    ) -> None | type[serializers.Serializer[T]]:
         """Resolve class serializer class."""
-        try:
-            import sys
+        current_module = sys.modules[self.__module__]
+        namespace = vars(current_module)
+        cls = namespace.get(serializer_cls)
+        if isinstance(cls, type) and issubclass(cls, serializers.Serializer):
+            return cls
+        cls = locate(serializer_cls)
 
-            current_module = sys.modules[self.__module__]
-            namespace = vars(current_module)
-            return normalize_to_class(serializer_cls, namespace)
-        except (TypeError, AttributeError):
-            return serializer_cls
+        print(f"Unable to resolve {serializer_cls} ")
+        return None
 
     def _build_embedded(self, instance: T, data: dict[str, Any]) -> dict[str, Any]:
         """Builds _ebmedded section of HAL format."""
@@ -98,7 +89,7 @@ class HALMixin(serializers.ModelSerializer[T]):
             is_many_relation = (
                 hasattr(value, "all")
                 and callable(value.all)
-                or isinstance(value, (list, tuple, set))
+                or isinstance(value, (list | tuple | set))
             )
 
             if is_many_relation and hasattr(value, "all"):
@@ -106,13 +97,17 @@ class HALMixin(serializers.ModelSerializer[T]):
 
             try:
                 serializer_ref = self._resolve_serializer_class(serializer_cls)
-                serializer = serializer_ref(
-                    value, many=is_many_relation, context=self.context, hal_embedded={}
-                )
-                embedded[name] = serializer.data
-                data.pop(name, None)
-            except:
-                pass
+                if serializer_ref and issubclass(serializer_ref, HALMixin):
+                    serializer = serializer_ref(
+                        value,
+                        hal_embedded={},
+                        many=is_many_relation,
+                        context=self.context,
+                    )
+                    embedded[name] = serializer.data
+                    data.pop(name, None)
+            except Exception as e:
+                print(f"not able to create embedded object {name}, exception: {e}")
 
         return embedded
 
@@ -158,7 +153,7 @@ class VideoMetadataSerializer(
         view_name="videometadata-reset-title-description"
     )
 
-    hal_embedded = {
+    default_hal_embedded: ClassVar[dict[str, str]] = {
         "linked_yt_videos": "YTVideoSerializer",
         "tournament": "TournamentSerializer",
         "team1": "TeamSerializer",
@@ -209,7 +204,7 @@ class YTVideoSerializer(
 ):
     """YTVideo serializer."""
 
-    hal_embedded = {"linked_video": "VideoMetadataSerializer"}
+    default_hal_embedded: ClassVar[dict[str, str]] = {"linked_video": "VideoMetadataSerializer"}
 
     class Meta:
         """Meta."""
@@ -242,7 +237,9 @@ class TournamentSerializer(
         view_name="tournament-videos"
     )
 
-    hal_embedded = {"video_metadatas": "VideoMetadataSerializer"}
+    default_hal_embedded: ClassVar[dict[str, str]] = {
+        "video_metadatas": "VideoMetadataSerializer"
+    }
 
     class Meta:
         """Meta."""
@@ -310,7 +307,7 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
 class TeamSerializer(HALMixin[Team], serializers.HyperlinkedModelSerializer[Team]):
     """Team serializer."""
 
-    hal_embedded = {"logo": "TeamLogoSerializer"}
+    default_hal_embedded: ClassVar[dict[str, str]] = {"logo": "TeamLogoSerializer"}
 
     class Meta:
         """Meta."""
@@ -325,7 +322,7 @@ class TeamLogoSerializer(
     """TeamLogo serializer."""
 
     teams = serializers.HyperlinkedIdentityField(view_name="teamlogo-teams")
-    hal_embedded = {"teams": "TeamSerializer"}
+    default_hal_embedded: ClassVar[dict[str, str]] = {"teams": "TeamSerializer"}
 
     class Meta:
         """Meta."""

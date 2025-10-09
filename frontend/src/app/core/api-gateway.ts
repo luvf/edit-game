@@ -1,15 +1,18 @@
 import {Injectable} from '@angular/core';
 import {HttpClient} from '@angular/common/http';
 import {ApiDirectoryService} from './api-directory';
+import {
+  CutsService,
+  GamesService,
+  TeamLogoService,
+  TeamService,
+  TmpImageService,
+  YTVideoService
+} from './services/misc-hateoas-models.service';
+import {VideoMetadataService} from './services/video-metadata.service';
+import {HateoasService} from './hateoas.service';
+import {TournamentService} from './services/tournament.service';
 
-import {TeamLogoService} from "../features/team-logos/team-logo";
-import {VideoMetadataService} from '../features/video-metadatas/video-metadata';
-import {TmpImageService} from '../features/tmp-images/tmp-image';
-import {YtVideoService} from '../features/videos/yt-video';
-import {TournamentService} from '../features/tournaments/tournament';
-import {GameService} from '../features/games/game';
-import {TeamService} from '../features/teams/team';
-import {CutService} from '../features/cuts/cut';
 
 @Injectable({providedIn: 'root'})
 export class ApiGatewayService {
@@ -27,59 +30,50 @@ export class ApiGatewayService {
   // Chaque méthode retourne une instance configurée avec l’URL de collection issue de la racine
   teamLogos(): TeamLogoService {
     this.ensureReady();
-    const svc = new TeamLogoService(this.http);
-    svc.setCollectionUrl(this.directory.url('team_logos'));
-    return svc;
+    return this.createService(TeamLogoService, 'team_logos');
   }
 
   videoMetadatas(): VideoMetadataService {
     this.ensureReady();
-    const svc = new VideoMetadataService(this.http);
-    svc.setCollectionUrl(this.directory.url('video_metadatas'));
-    return svc;
+    return this.createService(VideoMetadataService, 'video_metadatas');
   }
 
   tmpImages(): TmpImageService {
     this.ensureReady();
-    const svc = new TmpImageService(this.http);
-    svc.setCollectionUrl(this.directory.url('tmp_images'));
-    return svc;
+    return this.createService(TmpImageService, 'tmp_images');
   }
 
-  ytVideos(): YtVideoService {
+  ytVideos(): YTVideoService {
     this.ensureReady();
-    const svc = new YtVideoService(this.http);
-    svc.setCollectionUrl(this.directory.url('yt_videos'));
-    return svc;
+    return this.createService(YTVideoService, 'yt_videos');
   }
 
   tournaments(): TournamentService {
     this.ensureReady();
-    const svc = new TournamentService(this.http);
-    svc.setCollectionUrl(this.directory.url('tournaments'));
-    return svc;
+    return this.createService(TournamentService, 'tournaments');
   }
 
-  games(): GameService {
+  games(): GamesService {
     this.ensureReady();
-    const svc = new GameService(this.http);
-    svc.setCollectionUrl(this.directory.url('games'));
-    return svc;
+    return this.createService(GamesService, 'games');
   }
 
   teams(): TeamService {
     this.ensureReady();
-    const svc = new TeamService(this.http);
-    svc.setCollectionUrl(this.directory.url('teams'));
-    return svc;
+    return this.createService(TeamService, 'teams');
   }
 
-  cuts(): CutService {
+  cuts(): CutsService {
     this.ensureReady();
-    const svc = new CutService(this.http);
-    svc.setCollectionUrl(this.directory.url('cuts'));
-    return svc;
+    return this.createService(CutsService, 'cuts');
   }
+
+  private createService<T extends HateoasService<any>>(serviceType: new (http: HttpClient) => T, urlKey: string): T {
+    const service = new serviceType(this.http);
+    service.setCollectionUrl(this.directory.url(urlKey));
+    return service
+  }
+
 
   private ensureReady() {
     if (!this.directory.ready()) {

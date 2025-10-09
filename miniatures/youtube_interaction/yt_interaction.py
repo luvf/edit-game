@@ -96,7 +96,7 @@ class YtVideoMetadata:
 
 
 class YTInteraction:
-    """Youtube interaction. main class"""
+    """Youtube interaction. main class."""
 
     API_NAME = "youtube"
     API_VERSION = "v3"

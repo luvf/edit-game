@@ -72,8 +72,8 @@
 
     <div class="right-pane">
       <app-images-preview
-        [baseImageUrl]="videoMetadata()?._links?.base_image?.href ?? ''"
-        [miniatureUrl]="videoMetadata()?._links?.miniature_image?.href ?? ''"
+        [baseImageUrl]="videoMetadata()?._links?.['base_image']?.href ?? ''"
+        [miniatureUrl]="videoMetadata()?._links?.['miniature_image']?.href ?? ''"
 
         [xOffset]="miniatureBuilderForm.get(['viewport','xOffset'])?.value ?? 0"
         [yOffset]="miniatureBuilderForm.get(['viewport','yOffset'])?.value ?? 0"

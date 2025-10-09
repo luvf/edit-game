@@ -1,12 +1,12 @@
 import {Component, forwardRef, Input} from '@angular/core';
 import {CommonModule} from '@angular/common';
-import {TeamLogo} from '../../features/team-logos/team-logo.model';
 import {ControlValueAccessor, NG_VALUE_ACCESSOR, ReactiveFormsModule} from '@angular/forms';
 
 import {MatInputModule} from '@angular/material/input';
 import {MatSelectModule} from '@angular/material/select';
 import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatIconModule} from '@angular/material/icon';
+import {TeamLogo} from '../../core/models/models';
 
 @Component({
   selector: 'app-team-select',

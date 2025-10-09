@@ -101,7 +101,7 @@ class VideoMetadataViewSet(viewsets.ModelViewSet[VideoMetadata]):
         """
         _ = pk, request
         instance: VideoMetadata = self.get_object()
-        yt_vid = instance.YTlink.first()
+        yt_vid = instance.linked_yt_videos.first()
         if not yt_vid:
             return Response(
                 {"detail": "Aucune ressource YouTube liée à cette vidéo."}, status=404
@@ -118,7 +118,7 @@ class VideoMetadataViewSet(viewsets.ModelViewSet[VideoMetadata]):
         """
         _ = pk, request
         instance: VideoMetadata = self.get_object()
-        yt_vid = instance.YTlink.first()
+        yt_vid = instance.linked_yt_videos.first()
         if not yt_vid:
             return Response(
                 {"detail": "Aucune ressource YouTube liée à cette vidéo."}, status=404
@@ -182,7 +182,7 @@ class VideoMetadataViewSet(viewsets.ModelViewSet[VideoMetadata]):
             )
 
         # Paramètres de génération
-        xoffset = float(request.data.get("xoffset", 1))
+        xoffset = float(request.data.get("xoffset", 0))
         yoffset = float(request.data.get("yoffset", 0))
         zoom = float(request.data.get("zoom", 1))
         reset_metadata = False

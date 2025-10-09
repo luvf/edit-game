@@ -2,13 +2,13 @@ import {Component, inject, Input, OnInit, signal} from '@angular/core';
 import {CommonModule} from '@angular/common';
 import {MatSlider, MatSliderThumb} from '@angular/material/slider';
 import {MatButton} from '@angular/material/button';
-import {VideoMetadata} from '../../features/video-metadatas/video-metadata.model';
-import {TeamLogoService} from '../../features/team-logos/team-logo';
-import {TeamLogo} from '../../features/team-logos/team-logo.model';
+
 
 import {FormGroup, FormGroupDirective, ReactiveFormsModule} from '@angular/forms';
 import {TeamSelectComponent} from '../team-select/team-select';
 import {ImagesPreviewComponent} from './image-preview/image-preview';
+import {TeamLogo, VideoMetadata} from '../../core/models/models';
+import {TeamLogoService} from '../../core/services/misc-hateoas-models.service';
 
 
 @Component({
