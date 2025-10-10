@@ -181,36 +181,36 @@ class VideoMetadataViewSet(viewsets.ModelViewSet[VideoMetadata]):
                 resolved_func.cls().get_queryset().get(id=resolved_kwargs["pk"]),
             )
 
-        # Paramètres de génération
-        xoffset = float(request.data.get("xoffset", 0))
-        yoffset = float(request.data.get("yoffset", 0))
-        zoom = float(request.data.get("zoom", 1))
         reset_metadata = False
         # Met à jour éventuellement le time code si fourni
-        if "timeCode" in request.data:
-            with contextlib.suppress(TypeError, ValueError):
-                instance.tc = float(request.data.get("timeCode", instance.tc))
-                instance.save()
-        if "team1" in request.data:
-            with contextlib.suppress(TypeError, ValueError, Http404):
-                new_team = team_from_url(request.data["team1"])
-                if new_team != instance.team1:
-                    reset_metadata = True
+
+        with contextlib.suppress(TypeError, ValueError):
+            instance.miniature_x_offset = float(
+                request.data.get("miniature_x_offset", instance.miniature_x_offset)
+            )
+            instance.miniature_y_offset = float(
+                request.data.get("miniature_y_offset", instance.miniature_y_offset)
+            )
+            instance.miniature_zoom = float(
+                request.data.get("miniature_zoom", instance.miniature_zoom)
+            )
+            instance.time_code = float(request.data.get("timeCode", instance.time_code))
+        with contextlib.suppress(TypeError, ValueError, Http404):
+            new_team = team_from_url(request.data["team1"])
+            if new_team != instance.team1:
+                reset_metadata = True
                 instance.team1 = new_team
-                instance.save()
-        if "team2" in request.data:
-            with contextlib.suppress(TypeError, ValueError, Http404):
-                new_team = team_from_url(request.data["team2"])
-                if new_team != instance.team1:
-                    reset_metadata = True
+            new_team = team_from_url(request.data["team2"])
+            if new_team != instance.team1:
+                reset_metadata = True
                 instance.team2 = new_team
-                instance.save()
+
         if reset_metadata:
             instance.reset_description()
             instance.reset_vid_name()
-            instance.save()
+        instance.save()
         # Génère la miniature
-        instance.generate_miniature(x_offset=xoffset, y_offset=yoffset, zoom=zoom)
+        instance.generate_miniature()
         serializer = VideoMetadataSerializer(instance, context={"request": request})
         return Response(serializer.data)
 
@@ -267,12 +267,12 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
 
     @action(detail=True, methods=[HTTPMethod.POST], url_path="sync_videos")
     def sync_videos(self, request: Request, pk: str | None = None) -> Response:
-        """Synchronise les vidéos 'rendered' avec VideoMetadata.
+        """Synchronize videos in  'rendered' dir with VideoMetadata.
 
         il:
-        - crée les entrées manquantes
-        - génère la miniature par défaut
-        - associe/actualise les liens YouTube
+        - creates missing VideoMetadata
+        - generates default miniature
+        - actualize linked YT video
         """
         _ = pk, request
         tournament: Tournament = self.get_object()
@@ -289,9 +289,9 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
                     tournament=tournament,
                     team1=teams[0],
                     team2=teams[1],
-                    tc=random.random(),
+                    time_code=random.random(),
                 )
-                new_vid.generate_miniature(x_offset=0, y_offset=0, zoom=1)
+                new_vid.generate_miniature()
                 created_names.append(video)
 
         # Mets à jour les liens YT vers les VideoMetadata du tournoi

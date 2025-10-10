@@ -22,7 +22,7 @@
 
   <div class="form-row timecode-row">
     <label>Time code</label>
-    <div class="timecode">
+    <div class="timeCode">
       <mat-slider max="1" min="0" step="0.001">
         <input formControlName="timeCode" matSliderThumb>
       </mat-slider>
@@ -39,30 +39,31 @@
       <div class="triple-sliders" formGroupName="viewport">
 
         <div class="slider-item">
-          <label for="xOffset">xOffset
-            <span class="value">{{ miniatureBuilderForm.get(['viewport', 'xOffset'])?.value ?? 0 }}</span>
+          <label for="miniature_x_offset">x Offset
+            <span class="value">{{ miniatureBuilderForm.get(['viewport', 'miniature_x_offset'])?.value ?? 0 }}</span>
           </label>
-          <mat-slider id="xOffset" min="0" max="1" step="0.001">
-            <input formControlName="xOffset" matSliderThumb>
+          <mat-slider id="miniature_x_offset" min="0" max="1" step="0.001">
+            <input formControlName="miniature_x_offset" matSliderThumb>
           </mat-slider>
         </div>
 
         <div class="slider-item">
-          <label for="yOffset">yOffset
-            <span class="value">{{ miniatureBuilderForm.get(['viewport', 'yOffset'])?.value ?? 0 }}</span>
+          <label for="miniature_y_offset">y offset
+            <span class="value">{{ miniatureBuilderForm.get(['viewport', 'miniature_y_offset'])?.value ?? 0 }}</span>
           </label>
-          <mat-slider id="yOffset" min="0" max="1" step="0.001">
-            <input formControlName="yOffset" matSliderThumb>
+          <mat-slider id="miniature_y_offset" min="0" max="1" step="0.001">
+            <input formControlName="miniature_y_offset" matSliderThumb>
           </mat-slider>
         </div>
 
         <div class="slider-item">
-          <label for="zoom">Zoom
-            <span class="value">{{ (miniatureBuilderForm.get(['viewport', 'zoom'])?.value ?? 1) | number:'1.1-1' }}
+          <label for="miniature_zoom">Zoom
+            <span
+              class="value">{{ (miniatureBuilderForm.get(['viewport', 'miniature_zoom'])?.value ?? 1) | number:'1.1-1' }}
               x</span>
           </label>
-          <mat-slider id="zoom" min="1" max="5" step="0.01">
-            <input formControlName="zoom" matSliderThumb>
+          <mat-slider id="miniature_zoom" min="1" max="5" step="0.01">
+            <input formControlName="miniature_zoom" matSliderThumb>
           </mat-slider>
         </div>
 
@@ -75,13 +76,13 @@
         [baseImageUrl]="videoMetadata()?._links?.['base_image']?.href ?? ''"
         [miniatureUrl]="videoMetadata()?._links?.['miniature_image']?.href ?? ''"
 
-        [xOffset]="miniatureBuilderForm.get(['viewport','xOffset'])?.value ?? 0"
-        [yOffset]="miniatureBuilderForm.get(['viewport','yOffset'])?.value ?? 0"
-        [zoom]="miniatureBuilderForm.get(['viewport','zoom'])?.value ?? 1"
+        [xOffset]="miniatureBuilderForm.get(['viewport','miniature_x_offset'])?.value ?? 0"
+        [yOffset]="miniatureBuilderForm.get(['viewport','miniature_y_offset'])?.value ?? 0"
+        [zoom]="miniatureBuilderForm.get(['viewport','miniature_zoom'])?.value ?? 1"
 
-        (xOffsetChange)="miniatureBuilderForm.get(['viewport','xOffset'])?.setValue($event)"
-        (yOffsetChange)="miniatureBuilderForm.get(['viewport','yOffset'])?.setValue($event)"
-        (zoomChange)="miniatureBuilderForm.get(['viewport','zoom'])?.setValue($event)">
+        (xOffsetChange)="miniatureBuilderForm.get(['viewport','miniature_x_offset'])?.setValue($event)"
+        (yOffsetChange)="miniatureBuilderForm.get(['viewport','miniature_y_offset'])?.setValue($event)"
+        (zoomChange)="miniatureBuilderForm.get(['viewport','miniature_zoom'])?.setValue($event)">
       </app-images-preview>
     </div>
   </section>

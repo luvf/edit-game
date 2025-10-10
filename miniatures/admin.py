@@ -28,7 +28,7 @@ class VidMetadataAdmin(VidMetadataAdminBase):
         "team1",
         "team2",
         "publication_date",
-        "tc",
+        "time_code",
     )
     fields = (
         "name",

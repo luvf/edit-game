@@ -53,9 +53,9 @@ export class GameViewComponent implements OnInit {
       team2: ['', [Validators.required]],
       timeCode: [0, [Validators.required, Validators.min(0), Validators.max(1)]],
       viewport: this.formBuilder.group({
-        xOffset: [0, [Validators.required, Validators.min(0), Validators.max(1)]],
-        yOffset: [0, [Validators.required, Validators.min(0), Validators.max(1)]],
-        zoom: [1, [Validators.required, Validators.min(1), Validators.max(5)]],
+        miniature_x_offset: [0, [Validators.required, Validators.min(0), Validators.max(1)]],
+        miniature_y_offset: [0, [Validators.required, Validators.min(0), Validators.max(1)]],
+        miniature_zoom: [1, [Validators.required, Validators.min(1), Validators.max(5)]],
       }),
     }),
     meta_fields: this.formBuilder.group({
@@ -120,10 +120,10 @@ export class GameViewComponent implements OnInit {
     const payload = {
       team1: miniatureBuilder.team1,
       team2: miniatureBuilder.team2,
-      xoffset: Number(viewport.xOffset ?? 0),
-      yoffset: Number(viewport.yOffset ?? 0),
-      zoom: Number(viewport.zoom ?? 1),
-      timeCode: Number(miniatureBuilder.timeCode ?? 0),
+      miniature_x_offset: Number(viewport.miniature_x_offset ?? 0),
+      miniature_y_offset: Number(viewport.miniature_y_offset ?? 0),
+      miniature_zoom: Number(viewport.miniature_zoom ?? 1),
+      time_code: Number(miniatureBuilder.timeCode ?? 0),
     };
 
     const vm = this.videoMetadata();
@@ -194,7 +194,12 @@ export class GameViewComponent implements OnInit {
       miniatureBuilder: {
         team1: vm._links?.team1?.href ?? '',
         team2: vm._links?.team2?.href ?? '',
-        timeCode: vm.tc,
+        timeCode: vm.time_code,
+        viewport: {
+          miniature_x_offset: vm.miniature_x_offset ?? 0,
+          miniature_y_offset: vm.miniature_y_offset ?? 0,
+          miniature_zoom: vm.miniature_zoom ?? 1,
+        },
       },
       meta_fields: {
         description: vm.description ?? '',

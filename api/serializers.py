@@ -24,7 +24,9 @@ class HALMixin(serializers.ModelSerializer[T]):
 
     default_hal_embedded: ClassVar[dict[str, str]] = {}
 
-    def __init__(self, *args: Any, hal_embedded:dict[str, str]|None=None, **kwargs: Any) -> None:
+    def __init__(
+        self, *args: Any, hal_embedded: dict[str, str] | None = None, **kwargs: Any
+    ) -> None:
         """Init."""
         super().__init__(*args, **kwargs)
         if hal_embedded is not None:
@@ -169,7 +171,10 @@ class VideoMetadataSerializer(
             "pk",
             "name",
             "tournament",
-            "tc",
+            "time_code",
+            "miniature_x_offset",
+            "miniature_y_offset",
+            "miniature_zoom",
             "base_image",
             "miniature_image",
             "team1",
@@ -204,7 +209,9 @@ class YTVideoSerializer(
 ):
     """YTVideo serializer."""
 
-    default_hal_embedded: ClassVar[dict[str, str]] = {"linked_video": "VideoMetadataSerializer"}
+    default_hal_embedded: ClassVar[dict[str, str]] = {
+        "linked_video": "VideoMetadataSerializer"
+    }
 
     class Meta:
         """Meta."""

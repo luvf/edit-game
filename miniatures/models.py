@@ -105,7 +105,7 @@ class VideoMetadataManager(models.Manager["VideoMetadata"]):
             cast(TeamLogo, obj_data["team2"]),
         )
         name = cast(str, obj_data["name"])
-        _ = cast(float, obj_data["tc"])
+        _ = cast(float, obj_data["time_code"])
 
         obj_data["description"] = self.description(tournament, name, team1, team2)
         obj_data["video_name"] = (
@@ -165,7 +165,10 @@ class VideoMetadata(models.Model):
         related_name="video_metadatas",
     )
 
-    tc = models.FloatField(default=0)
+    time_code = models.FloatField(default=0)
+    miniature_x_offset = models.FloatField(default=0)
+    miniature_y_offset = models.FloatField(default=0)
+    miniature_zoom = models.FloatField(default=1)
     base_image = models.ForeignKey(
         TmpImage, on_delete=models.SET_NULL, null=True, related_name="base_image"
     )
@@ -252,13 +255,13 @@ class VideoMetadata(models.Model):
 
         return context
 
-    def generate_miniature(self, x_offset: float, y_offset: float, zoom: float) -> None:
+    def generate_miniature(self) -> None:
         """Generate the miniature image."""
         if self.tournament is None:
             raise ValueError("Tournament is not set")
 
         base_file_name = "_".join(
-            (self.tournament.slug, slugify(self.name[:-4]), str(self.tc))
+            (self.tournament.slug, slugify(self.name[:-4]), str(self.time_code))
         )
 
         if (
@@ -272,7 +275,7 @@ class VideoMetadata(models.Model):
             or base_file_name + "_base.jpeg" != self.base_image.image.file
         ):
             base_image = get_frame(
-                self.tournament.get_rendered_path() / self.name, self.tc
+                self.tournament.get_rendered_path() / self.name, self.time_code
             )
             self.base_image = TmpImage(name=base_file_name + "_base.jpeg")
             self.base_image.from_pil(base_image)
@@ -280,7 +283,11 @@ class VideoMetadata(models.Model):
         else:
             base_image = self.base_image.image
 
-        rescale = Rescale(x_offset=x_offset, y_offset=y_offset, zoom=zoom)
+        rescale = Rescale(
+            x_offset=self.miniature_x_offset,
+            y_offset=self.miniature_y_offset,
+            zoom=self.miniature_zoom,
+        )
 
         if self.team1 is None or self.team2 is None:
             raise ValueError("Teams are not set")
@@ -376,11 +383,14 @@ class YTVideo(models.Model):
         self.save()
 
     @classmethod
-    def youtube_update(cls, tournament: Tournament) -> None:
+    def youtube_update(
+        cls, tournament: Tournament, *, sync_local_videos: bool = False
+    ) -> None:
         """Update all the videos from the tournament.
 
         Args:
             tournament: Tournament object where the videos are uploaded.
+            sync_local_videos: if True, update the local videos with the ones on youtube
         """
         yt_interaction = YTInteraction()
         videos = yt_interaction.get_all_videos()
@@ -399,10 +409,12 @@ class YTVideo(models.Model):
                 vid.publication_date = video.date
                 vid.privacy_status = video.status
 
-            filtered_videos_metadata = VideoMetadata.objects.filter(
-                (Q(name=vid.title) & Q(tournament=tournament)) | Q(video_name=vid.title)
-            )
+            if sync_local_videos:
+                filtered_videos_metadata = VideoMetadata.objects.filter(
+                    (Q(name=vid.title) & Q(tournament=tournament))
+                    | Q(video_name=vid.title)
+                )
 
-            if vid.linked_video is None and filtered_videos_metadata.exists():
-                vid.linked_video = filtered_videos_metadata[0]
+                if vid.linked_video is None and filtered_videos_metadata.exists():
+                    vid.linked_video = filtered_videos_metadata[0]
             vid.save()
