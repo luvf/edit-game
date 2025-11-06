@@ -25,7 +25,7 @@ dependencies = [
     "google-api-python-client-stubs == 1.*",
     "google_auth_oauthlib == 1.2",
     "google-auth-oauthlib-stubs == 1.2.*",
-    "ffmpeg-python == 0.2",
+    "ffmpeg-python == 0.2.*",
     "moviepy == 2.0.0.dev2",
     "torch == 2.3",
     "torchaudio ==2.3",
