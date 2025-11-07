@@ -21,12 +21,14 @@
 
 
   <div class="form-row timecode-row">
-    <label>Time code</label>
+
     <div class="timeCode">
-      <mat-slider max="1" min="0" step="0.001">
+      <label for="timeCode">Time code
+        <span>{{ (miniatureBuilderForm.get('timeCode')?.value)| number:'1.2-4' }}</span>
+      </label>
+      <mat-slider id="timeCode" max="1" min="0" step="0.001">
         <input formControlName="timeCode" matSliderThumb>
       </mat-slider>
-      <span>{{ (miniatureBuilderForm.get('timeCode')?.value)| number:'1.2-4' }}</span>
     </div>
     <small class="hint">Ajustez entre 0 et 1 (pas de 0.001).</small>
   </div>

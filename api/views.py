@@ -194,7 +194,7 @@ class VideoMetadataViewSet(viewsets.ModelViewSet[VideoMetadata]):
             instance.miniature_zoom = float(
                 request.data.get("miniature_zoom", instance.miniature_zoom)
             )
-            instance.time_code = float(request.data.get("timeCode", instance.time_code))
+            instance.time_code = float(request.data.get("time_code", instance.time_code))
         with contextlib.suppress(TypeError, ValueError, Http404):
             new_team = team_from_url(request.data["team1"])
             if new_team != instance.team1:
