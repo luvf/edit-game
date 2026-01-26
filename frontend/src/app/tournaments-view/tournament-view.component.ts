@@ -1,7 +1,9 @@
-import {Component, inject, OnInit, signal} from '@angular/core';
+import {AfterViewInit, Component, inject, OnInit, signal, ViewChild} from '@angular/core';
 import {Router} from '@angular/router';
 import {Tournament} from '../core/models/models';
 import {TournamentService} from '../core/services/tournament.service';
+import {MatTableDataSource, MatTableModule} from '@angular/material/table';
+import {MatSort, MatSortModule} from '@angular/material/sort';
 
 /**
  * Container view that lists tournaments and provides actions per tournament.
@@ -16,14 +18,19 @@ import {TournamentService} from '../core/services/tournament.service';
 @Component({
   selector: 'app-tournaments_view',
   templateUrl: './tournament-view.component.html',
+    imports: [MatTableModule, MatSortModule],
+
   styleUrl: './tournament-view.component.css',
 })
-export class TournamentViewComponent implements OnInit {
+export class TournamentViewComponent implements OnInit, AfterViewInit {
   tournaments = signal<Tournament []>([]);
   counts = signal<Record<string, number>>({});
+  dataSource = new MatTableDataSource<Tournament>([]);
+  displayedColumns = ['color', 'name', 'date', 'nb_matches', 'actions'];
 
   private tournamentService = inject(TournamentService);
   private router = inject(Router);
+  @ViewChild(MatSort) sort!: MatSort;
 
 
   /**
@@ -36,6 +43,7 @@ export class TournamentViewComponent implements OnInit {
     this.tournamentService.list().subscribe({
       next: (data: Tournament[]) => {
         this.tournaments.set(data);
+        this.dataSource.data = data;
         data.forEach(t => this.loadGamesCount(t));
       },
       error: (e) => {
@@ -44,6 +52,26 @@ export class TournamentViewComponent implements OnInit {
     });
   }
 
+  ngAfterViewInit(): void {
+    this.sort.active = 'date';
+    this.sort.direction = 'desc';
+    this.dataSource.sort = this.sort;
+    this.sort.sortChange.emit({active: this.sort.active, direction: this.sort.direction});
+    this.dataSource.sortingDataAccessor = (item, property) => {
+      switch (property) {
+        case 'nb_matches':
+          return this.counts()[item.pk] ?? 0;
+        case 'date':
+          return item.date ? new Date(item.date).getTime() : 0;
+        case 'name':
+          return item.name?.toLowerCase() ?? '';
+        case 'color':
+          return item.color?.toLowerCase() ?? '';
+        default:
+          return (item as unknown as Record<string, string | number>)[property] ?? '';
+      }
+    };
+  }
 
   /**
    * Triggers the 'sync_videos' action on a tournament.
@@ -74,6 +102,12 @@ export class TournamentViewComponent implements OnInit {
       }
     });
   }
+  goToVideoEditing(tournament: Tournament): void {
+    if (!tournament?._links?.self) return;
+    this.router.navigate(['/tournament/video-editing'], {
+      queryParams: {url: tournament._links.self.href},
+    });
+  }
 
   /**
    * Navigates to the tournament games view using the tournament self link.
@@ -100,6 +134,7 @@ export class TournamentViewComponent implements OnInit {
         const next = {...this.counts()};
         next[tournament.pk] = len;
         this.counts.set(next);
+        this.dataSource.data = [...this.dataSource.data];
       },
       error: (e) => {
         console.error(`Erreur lors du chargement des jeux pour tournament ${tournament.pk}`, e);
@@ -107,4 +142,3 @@ export class TournamentViewComponent implements OnInit {
     });
   }
 }
-

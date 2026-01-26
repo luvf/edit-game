@@ -4,7 +4,6 @@ import {ApiDirectoryService} from './api-directory';
 import {
   CutsService,
   GamesService,
-  TeamLogoService,
   TeamService,
   TmpImageService,
   YTVideoService
@@ -25,12 +24,6 @@ export class ApiGatewayService {
   // À appeler au démarrage (ou via APP_INITIALIZER)
   init(rootUrl: string) {
     return this.directory.load(rootUrl);
-  }
-
-  // Chaque méthode retourne une instance configurée avec l’URL de collection issue de la racine
-  teamLogos(): TeamLogoService {
-    this.ensureReady();
-    return this.createService(TeamLogoService, 'team_logos');
   }
 
   videoMetadatas(): VideoMetadataService {

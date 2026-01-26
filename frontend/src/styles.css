@@ -2,3 +2,54 @@
 
 html, body { height: 100%; }
 body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }
+
+/* Make Material sort arrows visible on the tournaments table. */
+.tournaments-table .mat-sort-header-container,
+.tournament-games-table .mat-sort-header-container,
+.tournament-edit-games-table .mat-sort-header-container {
+  justify-content: center;
+}
+
+.tournaments-table .mat-sort-header-arrow,
+.tournament-games-table .mat-sort-header-arrow,
+.tournament-edit-games-table .mat-sort-header-arrow {
+  opacity: 1;
+  transform: translateY(0);
+  color: #1f2937;
+}
+
+/* Center text in all tournament-related tables. */
+.tournaments-table th,
+.tournaments-table td,
+.tournament-games-table th,
+.tournament-games-table td,
+.tournament-edit-games-table th,
+.tournament-edit-games-table td {
+  text-align: center;
+}
+
+/* Low-contrast vertical ticks that don't span full cell height. */
+.tournaments-table th,
+.tournaments-table td,
+.tournament-games-table th,
+.tournament-games-table td,
+.tournament-edit-games-table th,
+.tournament-edit-games-table td {
+  position: relative;
+}
+
+.tournaments-table th:not(:last-child)::after,
+.tournaments-table td:not(:last-child)::after,
+.tournament-games-table th:not(:last-child)::after,
+.tournament-games-table td:not(:last-child)::after,
+.tournament-edit-games-table th:not(:last-child)::after,
+.tournament-edit-games-table td:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 20%;
+  width: 2px;
+  height: 60%;
+  background-color: #e5e7eb;
+  opacity: 0.75;
+}

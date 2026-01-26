@@ -1,12 +1,12 @@
 // TypeScript
-import {Component, inject, OnInit, signal} from '@angular/core';
+import {AfterViewInit, Component, inject, OnInit, signal, ViewChild} from '@angular/core';
 import {ActivatedRoute, Router} from '@angular/router';
 import {of} from 'rxjs';
 
-import {MatTableModule} from '@angular/material/table';
-import {TeamLogo, TmpImage, Tournament, VideoMetadata, Yt_Video} from '../core/models/models';
+import {MatTableDataSource, MatTableModule} from '@angular/material/table';
+import {MatSort, MatSortModule} from '@angular/material/sort';
+import {Team, TmpImage, Tournament, VideoMetadata, Yt_Video} from '../core/models/models';
 import {VideoMetadataService} from '../core/services/video-metadata.service';
-import {TeamLogoService, TmpImageService} from '../core/services/misc-hateoas-models.service';
 import {TournamentService} from '../core/services/tournament.service';
 
 /**
@@ -20,23 +20,23 @@ import {TournamentService} from '../core/services/tournament.service';
 @Component({
   styleUrl: './tournament-games-view.css',
   selector: 'app-tournament-games-view',
-  imports: [MatTableModule],
+  imports: [MatTableModule, MatSortModule],
   templateUrl: './tournament-games-view.html',
 })
-export class TournamentGamesViewComponent implements OnInit {
+export class TournamentGamesViewComponent implements OnInit, AfterViewInit {
   videos = signal<VideoMetadata[]>([]);
   team1_names = signal<Record<string, string>>({});
   team2_names = signal<Record<string, string>>({});
   video_status = signal<Record<string, string>>({});
   miniature_names = signal<Record<string, string>>({});
   tournament = signal<Tournament | null>(null);
+  dataSource = new MatTableDataSource<VideoMetadata>([]);
   displayedColumns = ['miniature', 'name', 'teams', 'status', 'description'];
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private tournamentService = inject(TournamentService);
   private videoMetadataService = inject(VideoMetadataService);
-  private teamLogoService = inject(TeamLogoService);
-  private tmpImageService = inject(TmpImageService);
+  @ViewChild(MatSort) sort!: MatSort;
 
   /**
    * Initializes by reading the tournament URL and loading its videos.
@@ -61,6 +61,27 @@ export class TournamentGamesViewComponent implements OnInit {
     );
     // videos() uses follow() and returns Observable<VideoMetadata[]>
 
+  }
+
+  ngAfterViewInit(): void {
+    this.dataSource.sort = this.sort;
+    this.dataSource.sortingDataAccessor = (item, property) => {
+      switch (property) {
+        case 'teams': {
+          const team1 = this.team1_names()[item.pk] ?? '';
+          const team2 = this.team2_names()[item.pk] ?? '';
+          return `${team1} vs ${team2}`.toLowerCase();
+        }
+        case 'status':
+          return this.video_status()[item.pk]?.toLowerCase() ?? '';
+        case 'description':
+          return item.description?.toLowerCase() ?? '';
+        case 'name':
+          return item.name?.toLowerCase() ?? '';
+        default:
+          return (item as unknown as Record<string, string | number>)[property] ?? '';
+      }
+    };
   }
 
   /**
@@ -93,11 +114,16 @@ export class TournamentGamesViewComponent implements OnInit {
       },
     });
   }
-
+  /*
+  * loads viedos datas after the tournaent is loaded
+  *
+  * @param tournament - The tournament to load videos for.
+  * */
   private tournament_loaded(tournament: Tournament): void {
     this.tournamentService.video_metadatas(tournament, true).subscribe({
       next: (videos: VideoMetadata[]) => {
         this.videos.set(videos);
+        this.dataSource.data = videos;
         // Load team names and status for each video, and the miniature
         videos.forEach(v => this.loadVideoStatus(v));
         videos.forEach(v => this.loadTeamsNames(v));
@@ -123,6 +149,7 @@ export class TournamentGamesViewComponent implements OnInit {
             const next1 = {...this.video_status()};
             next1[video.pk] = this.getYTVideoStatus(yt_vid);
             this.video_status.set(next1);
+            this.dataSource.data = [...this.dataSource.data];
           }
         },
         error: (e) => {
@@ -160,22 +187,24 @@ export class TournamentGamesViewComponent implements OnInit {
    */
   private loadTeamsNames(video: VideoMetadata): void {
     this.videoMetadataService.team1(video).subscribe({
-      next: (team1: TeamLogo | null) => {
+      next: (team1: Team | null) => {
         if (team1) {
           const next1 = {...this.team1_names()};
           next1[video.pk] = team1.name;
           this.team1_names.set(next1);
+          this.dataSource.data = [...this.dataSource.data];
         }
       }, error: (e) => {
         console.error(`Erreur team1 pour video ${video.pk}`, e);
       }
     });
     this.videoMetadataService.team2(video).subscribe({
-      next: (team2: TeamLogo | null) => {
+      next: (team2: Team | null) => {
         if (team2) {
           const next2 = {...this.team2_names()};
           next2[video.pk] = team2.name;
           this.team2_names.set(next2);
+          this.dataSource.data = [...this.dataSource.data];
         }
       },
       error: (e) => {

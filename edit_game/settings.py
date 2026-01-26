@@ -39,8 +39,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django_cleanup.apps.CleanupConfig",
     "corsheaders",
-    "miniatures.apps.MiniaturesConfig",
-    "game_edit.apps.GameEditConfig",
+    "core.apps.CoreConfig",
     "api.apps.ApiConfig",
     "rest_framework",
     "colorfield",
@@ -66,7 +65,7 @@ ROOT_URLCONF = "edit_game.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [BASE_DIR / "templates", BASE_DIR / "miniatures/templates"],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -147,11 +146,9 @@ MEDIA_URL = "medias/"
 STATIC_URL = "static/"
 
 STATICFILES_DIRS = [
-    BASE_DIR / "miniatures/tmp",
-    BASE_DIR / "miniatures/scripts",
-    BASE_DIR / "game_edit/previews",
     BASE_DIR / "static",
 ]
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field

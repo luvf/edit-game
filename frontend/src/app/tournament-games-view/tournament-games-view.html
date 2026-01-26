@@ -1,4 +1,4 @@
-<table [dataSource]="videos()" class="mat-elevation-z8" mat-table>
+<table [dataSource]="dataSource" class="mat-elevation-z8 tournament-games-table" mat-table matSort>
 
   <!--- Note that these columns can be defined in any order.
         The actual rendered columns are set as a property on the row definition" -->
@@ -16,30 +16,29 @@
 
   <!-- Name Column -->
   <ng-container matColumnDef="name">
-    <th *matHeaderCellDef mat-header-cell> Name</th>
+    <th *matHeaderCellDef mat-header-cell mat-sort-header> Name</th>
     <td *matCellDef="let video" mat-cell> {{ video.name }}</td>
   </ng-container>
 
-  <!-- Weight Column -->
+  <!-- teams Column -->
   <ng-container matColumnDef="teams">
-    <th *matHeaderCellDef mat-header-cell> teams</th>
+    <th *matHeaderCellDef mat-header-cell mat-sort-header> teams</th>
     <td *matCellDef="let video" mat-cell>{{ team1_names()[video.pk] }} vs {{ team2_names()[video.pk] }}</td>
   </ng-container>
 
   <!-- status collumn Column -->
   <ng-container matColumnDef="status">
-    <th *matHeaderCellDef mat-header-cell> status</th>
+    <th *matHeaderCellDef mat-header-cell mat-sort-header> status</th>
     <td *matCellDef="let video" mat-cell>{{ video_status()[video.pk] }}</td>
   </ng-container>
 
 
   <!-- Symbol Column -->
   <ng-container matColumnDef="description">
-    <th *matHeaderCellDef mat-header-cell> description</th>
+    <th *matHeaderCellDef mat-header-cell mat-sort-header> description</th>
     <td *matCellDef="let video" mat-cell> {{ video.description }}</td>
   </ng-container>
 
   <tr *matHeaderRowDef="displayedColumns" mat-header-row></tr>
   <tr (click)="openGame(row)" *matRowDef="let row; columns: displayedColumns;" mat-row></tr>
 </table>
-

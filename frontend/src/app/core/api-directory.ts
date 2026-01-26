@@ -4,7 +4,6 @@ import {tap} from 'rxjs/operators';
 import {Observable} from 'rxjs';
 
 export interface ApiRoot {
-  team_logos: string;
   video_metadatas: string;
   tmp_images: string;
   yt_videos: string;

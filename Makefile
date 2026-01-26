@@ -17,19 +17,19 @@ test:
 	uv run pytest tests --cov src --cov-report term --cov-report=html --cov-report xml --junit-xml=tests-results.xml
 
 format-check:
-	uv run ruff format --check edit_game  jugger_video_manipulation miniatures api
+	uv run ruff format --check jugger_video_manipulation api core
 
 format-fix:
-	uv run ruff format edit_game  jugger_video_manipulation miniatures api game_edit
+	uv run ruff format jugger_video_manipulation api core
 
 lint-check:
-	uv run ruff check edit_game  jugger_video_manipulation miniatures api game_edit
+	uv run ruff check jugger_video_manipulation api core
 
 lint-fix:
-	uv run ruff check edit_game  jugger_video_manipulation miniatures api game_edit --fix
+	uv run ruff check jugger_video_manipulation api core --fix
 
 type-check:
-	uv run mypy edit_game miniatures api game_edit
+	uv run mypy api core
 
 
 

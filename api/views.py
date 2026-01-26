@@ -24,7 +24,6 @@ from rest_framework.response import Response
 from api.serializers import (
     CutSerializer,
     GameSerializer,
-    TeamLogoSerializer,
     TeamSerializer,
     TmpImageSerializer,
     TournamentSerializer,
@@ -33,36 +32,10 @@ from api.serializers import (
 )
 
 # Create your views here.
-from game_edit.models import Cut, Game, Team, Tournament
+from core.models import Cut, Game, Team, TmpImage, Tournament, VideoMetadata, YTVideo
 from jugger_video_manipulation.build_miniature import get_video_file_names
-from miniatures.models import TeamLogo, TmpImage, VideoMetadata, YTVideo
 
 type PermissionClass = type[BasePermission] | OperandHolder | SingleOperandHolder
-
-
-class TeamLogoViewSet(viewsets.ModelViewSet[TeamLogo]):
-    """Team Logo viewset.
-
-    Actions:
-        -teams: returns the teams associated with this logo.
-    """
-
-    serializer_class = TeamLogoSerializer
-    queryset = TeamLogo.objects.all()
-    permission_classes: Sequence[PermissionClass] = [AllowAny]
-
-    @action(detail=True, methods=[HTTPMethod.GET], url_path="teams")
-    def teams(self, request: Request, pk: str | None = None) -> Response:
-        """Returns the teams associated with this logo."""
-        _ = pk, request
-        logo = self.get_object()
-        qs = Team.objects.filter(logo=logo).order_by("name")
-        serializer = TeamSerializer(
-            qs,
-            many=True,
-            context=self.get_serializer_context(),
-        )
-        return Response(serializer.data)
 
 
 class VideoMetadataViewSet(viewsets.ModelViewSet[VideoMetadata]):
@@ -173,11 +146,11 @@ class VideoMetadataViewSet(viewsets.ModelViewSet[VideoMetadata]):
         _ = pk
         instance: VideoMetadata = self.get_object()
 
-        def team_from_url(url: str) -> TeamLogo:
+        def team_from_url(url: str) -> Team:
             path = urllib.parse.urlparse(url).path
             resolved_func, unused_args, resolved_kwargs = resolve(path)
             return cast(
-                TeamLogo,
+                Team,
                 resolved_func.cls().get_queryset().get(id=resolved_kwargs["pk"]),
             )
 
@@ -194,7 +167,9 @@ class VideoMetadataViewSet(viewsets.ModelViewSet[VideoMetadata]):
             instance.miniature_zoom = float(
                 request.data.get("miniature_zoom", instance.miniature_zoom)
             )
-            instance.time_code = float(request.data.get("time_code", instance.time_code))
+            instance.time_code = float(
+                request.data.get("time_code", instance.time_code)
+            )
         with contextlib.suppress(TypeError, ValueError, Http404):
             new_team = team_from_url(request.data["team1"])
             if new_team != instance.team1:
@@ -265,6 +240,28 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         )
         return Response(serializer.data)
 
+    @action(detail=True, methods=[HTTPMethod.POST], url_path="generate_games")
+    def generate_games(self, request: Request, pk: str | None = None) -> Response:
+        """génère les games d'un tournois pour l'edition.
+
+        it:
+        - creates missing Games
+        - generates default edits
+        """
+        _ = pk, request
+        tournament: Tournament = self.get_object()
+        _ = tournament.generate_games()
+
+        game_qs = Game.objects.filter(tournament=tournament).order_by("name")
+        game_ser = GameSerializer(
+            game_qs, many=True, context=self.get_serializer_context()
+        )
+        return Response(
+            {
+                "games": game_ser.data,
+            }
+        )
+
     @action(detail=True, methods=[HTTPMethod.POST], url_path="sync_videos")
     def sync_videos(self, request: Request, pk: str | None = None) -> Response:
         """Synchronize videos in  'rendered' dir with VideoMetadata.
@@ -280,10 +277,11 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         videos = get_video_file_names(tournament.get_rendered_path().absolute())
         created_names = []
         for video in videos:
+            # Creates missing video metadata and default miniature
             if not VideoMetadata.objects.filter(
                 name=video.name, tournament=tournament
             ).exists():
-                teams = TeamLogo.identify_team(str(video.name))
+                teams = Team.identify_team(str(video.name))
                 new_vid = VideoMetadata.objects.create(
                     name=video.absolute().name,
                     tournament=tournament,
@@ -348,6 +346,14 @@ class GameViewSet(viewsets.ModelViewSet[Game]):
         qs = Cut.objects.filter(game=game).order_by("name")
         serializer = CutSerializer(qs, many=True, context=self.get_serializer_context())
         return Response(serializer.data)
+
+    @action(detail=True, methods=[HTTPMethod.POST], url_path="generate_proxy")
+    def generate_proxy(self, request: Request, pk: str | None = None) -> Response:
+        """Generate the proxy video."""
+        _ = pk, request
+        game = self.get_object()
+        game.generate_proxy()
+        return Response({"status": "ok"})
 
 
 class TeamViewSet(viewsets.ModelViewSet[Team]):

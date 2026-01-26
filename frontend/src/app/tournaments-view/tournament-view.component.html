@@ -1,34 +1,45 @@
-<div class="overTable">
-  <table id="game_list">
-    <thead>
-      <tr>
-        <th>color</th>
-        <th>Name</th>
-        <th>Date</th>
-        <th>number of records</th>
-        <th>actions</th>
+<table [dataSource]="dataSource" class="mat-elevation-z8 tournaments-table" mat-table matSort>
 
-      </tr>
-    </thead>
-    <tbody>
-      @for (tournament of tournaments(); track tournament.slug) {
-      <tr class="clickable-row" (click)="openTournamentGames(tournament)">
-          <td class="image_cell" style="background-color: {{ tournament.color }}"></td>
-          <td class="tournament_name">{{ tournament.name }}</td>
-          <td class="tournament_date">{{ tournament.date }}</td>
-          <td class="number_of_games">{{ counts()[tournament.pk] }}</td>
-          <td class="actions_col">
-          <div class="actions-stack">
-            <button class="btn action" (click)="onSyncVideos(tournament); $event.stopPropagation()">Sync videos</button>
-            <button class="btn action" (click)="onYoutubeUpdate(tournament); $event.stopPropagation()">YouTube update</button>
-          </div>
+  <ng-container matColumnDef="color">
+    <th *matHeaderCellDef mat-header-cell mat-sort-header> color</th>
+    <td *matCellDef="let tournament" mat-cell>
+      <div class="image_cell" style="background-color: {{ tournament.color }}"></div>
+    </td>
 
-          </td>
-      </tr>
-    } @empty {
-      <tr><td colspan="4">There are no items.</td></tr>
-    }
+  </ng-container>
 
-     </tbody>
+  <ng-container matColumnDef="name">
+    <th *matHeaderCellDef mat-header-cell mat-sort-header> Name</th>
+    <td *matCellDef="let tournament" mat-cell>{{ tournament.name }}</td>
+  </ng-container>
+
+  <ng-container matColumnDef="date">
+    <th *matHeaderCellDef mat-header-cell mat-sort-header> date</th>
+    <td *matCellDef="let tournament" mat-cell>{{ tournament.date }}</td>
+  </ng-container>
+
+  <ng-container matColumnDef="nb_matches">
+    <th *matHeaderCellDef mat-header-cell mat-sort-header> nombre de matchs</th>
+    <td *matCellDef="let tournament" mat-cell>{{ counts()[tournament.pk] }}</td>
+  </ng-container>
+
+  <ng-container matColumnDef="actions">
+    <th *matHeaderCellDef mat-header-cell> action</th>
+    <td *matCellDef="let tournament" mat-cell>
+      <div class="actions-stack">
+        <button class="btn action" (click)="onSyncVideos(tournament); $event.stopPropagation()">Sync videos</button>
+        <button class="btn action" (click)="onYoutubeUpdate(tournament); $event.stopPropagation()">YouTube update
+        </button>
+        <button class="btn action" (click)="goToVideoEditing(tournament); $event.stopPropagation()">Video Editing        </button>
+
+
+      </div>
+
+    </td>
+    <tr *matHeaderRowDef="displayedColumns" mat-header-row></tr>
+    <tr (click)="openTournamentGames(row)" *matRowDef="let row; columns: displayedColumns;" mat-row></tr>
+
+  </ng-container>
+
+
 </table>
-  number of tournaments {{tournaments().length}}

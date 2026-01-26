@@ -2,7 +2,7 @@
 import {HttpClient, HttpHeaders} from '@angular/common/http';
 import {Injectable} from '@angular/core';
 import halfred, {Resource} from 'halfred';
-import {from, map, Observable, switchMap} from 'rxjs';
+import {from, map, Observable, switchMap, throwError} from 'rxjs';
 import {BaseHalModel} from './models/models';
 
 /**
@@ -223,7 +223,7 @@ export class HateoasService<T extends BaseHalModel> {
         if (emb && emb[rel]) {
           return from([emb[rel] as R]);
         }
-        throw new Error(`Relation '${rel}' introuvable sur ${url}`);
+         return  throwError(() => new Error(`Relation '${rel}' introuvable sur ${url}`));
       })
     );
   }
@@ -256,7 +256,7 @@ export class HateoasService<T extends BaseHalModel> {
         const parsed = this.parse(bodyGet);
         const link = parsed.link(rel);
         if (!link || !link.href) {
-          throw new Error(`Action/link '${rel}' introuvable sur ${url}`);
+          return  throwError(() => new  Error(`Action/link '${rel}' introuvable sur ${url}`));
         }
 
         // fix the body and header depending on the verb.
@@ -321,9 +321,9 @@ export class HateoasService<T extends BaseHalModel> {
     method: HttpMethod = 'POST'
   ): Observable<R> {
     if (!resource._links)
-      throw new Error(`'_links' introuvable sur ${resource}`);
+      return  throwError(() => new Error(`'_links' introuvable sur ${resource}`));
     if (!resource._links.hasOwnProperty(rel)) {
-      throw new Error(`Relation '${rel}' introuvable sur ${resource}`);
+      return  throwError(() =>  new Error(`Relation '${rel}' introuvable sur ${resource}`));
     }
     const link = resource._links[rel];
     if (link && "href" in link) {    // fix the body and header depending on the verb.
@@ -348,15 +348,15 @@ export class HateoasService<T extends BaseHalModel> {
       // Use HttpClient.request to support all verbs and return Observable<R>
       return this.http.request<R>(method, link.href, options);
     } else {
-      throw new Error(`relation '${rel}' est de type list}}`);
+      return  throwError(() =>  new Error(`relation '${rel}' est de type list}}`));
     }
   }
 
   protected follow_resource<R = BaseHalModel>(resource: T, rel: string, reload: boolean = false): Observable<R> {
     if (!resource._links)
-      throw new Error(`'_links' introuvable sur ${resource}`);
+      return  throwError(() => new Error(`'_links' introuvable sur ${resource}`));
     if (!resource._links.hasOwnProperty(rel)) {
-      throw new Error(`Relation '${rel}' introuvable sur ${resource}`);
+      return  throwError(() => new Error(`Relation '${rel}' introuvable sur ${resource}`));
     }
     if (!reload && resource._embedded && resource._embedded.hasOwnProperty(rel)) {
       return from([resource._embedded[rel] as R]);
@@ -366,7 +366,7 @@ export class HateoasService<T extends BaseHalModel> {
       const link = linkOrLinks.href;
       return this.http.get<R>(link);
     } else {
-      throw new Error(`relation '${rel}' est introuvable ou de type list}}`);
+      return  throwError(() => new Error(`relation '${rel}' est introuvable ou de type list}}`));
     }
   }
 }

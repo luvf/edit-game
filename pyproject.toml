@@ -12,7 +12,7 @@ license = "AGPL-3.0-only"
 # Dependencies
 
 dependencies = [
-    "pandas[feather] == 2.*",
+    "accelerate == 1.*",
     "django == 5.*",
     "django-stubs == 5.*",
     "djangorestframework == 3.16",
@@ -27,8 +27,10 @@ dependencies = [
     "google-auth-oauthlib-stubs == 1.2.*",
     "ffmpeg-python == 0.2.*",
     "moviepy == 2.0.0.dev2",
+    "pandas[feather] == 2.*",
     "torch == 2.3",
     "torchaudio ==2.3",
+    "transformers == 4.*",
     "PyYAML == 6.*",
     "scipy == 1.*",
 ]
@@ -213,9 +215,8 @@ module = [
     # Ignore missing library stubs for the following packages;
     # see https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-library-stubs-or-py-typed-marker
     # and https://mypy.readthedocs.io/en/stable/config_file.html#using-a-pyproject-toml-file
-    "game_edit.migrations.*",
-    "miniatures.migrations.*",
     "jugger_video_manipulation.*",
-    "colorfield.*"
+    "colorfield.*",
+    "*.migrations.*"
 ]
 ignore_missing_imports = true

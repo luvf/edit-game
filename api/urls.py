@@ -5,7 +5,6 @@ from rest_framework.routers import DefaultRouter
 from api.views import (
     CutViewSet,
     GameViewSet,
-    TeamLogoViewSet,
     TeamViewSet,
     TmpImageViewSet,
     TournamentsViewSet,
@@ -15,7 +14,6 @@ from api.views import (
 
 # Create your views here.
 router = DefaultRouter()
-router.register(r"team_logos", TeamLogoViewSet, basename="teamlogo")
 router.register(r"video_metadatas", VideoMetadataViewSet, basename="videometadata")
 router.register(r"tmp_images", TmpImageViewSet, basename="tmpimage")
 router.register(r"yt_videos", YTVideoViewSet, basename="ytvideo")

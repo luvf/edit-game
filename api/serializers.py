@@ -1,16 +1,17 @@
 """Serializers for the API."""
 
+import json
 import sys
 from collections.abc import Sequence
 from pydoc import locate
 from typing import Any, ClassVar, TypeVar
 
+from django.core.files.base import ContentFile
 from rest_framework import serializers
 
-from game_edit.models import Cut, Game, Team, Tournament
-from miniatures.models import TeamLogo, TmpImage, VideoMetadata, YTVideo
+from core.models import Cut, Game, Team, TmpImage, Tournament, VideoMetadata, YTVideo
 
-Model = Cut | Game | Team | Tournament | TeamLogo | TmpImage | VideoMetadata | YTVideo
+Model = Cut | Game | Tournament | Team | TmpImage | VideoMetadata | YTVideo
 
 T = TypeVar("T", bound=Model)
 
@@ -243,6 +244,9 @@ class TournamentSerializer(
     video_metadatas = serializers.HyperlinkedIdentityField(
         view_name="tournament-videos"
     )
+    generate_games = serializers.HyperlinkedIdentityField(
+        view_name="tournament-generate-games"
+    )
 
     default_hal_embedded: ClassVar[dict[str, str]] = {
         "video_metadatas": "VideoMetadataSerializer"
@@ -263,6 +267,7 @@ class TournamentSerializer(
             "tugeny_link",
             "color",
             "slug",
+            "generate_games",
             "video_metadatas",
             "sync_videos",
             "youtube_update",
@@ -274,6 +279,16 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
 
     cuts = serializers.HyperlinkedIdentityField(view_name="game-cuts")
 
+    generate_proxy = serializers.HyperlinkedIdentityField(
+        view_name="game-generate-proxy"
+    )
+
+    default_hal_embedded: ClassVar[dict[str, str]] = {
+        "tournament": "TournamentSerializer",
+        "team1": "TeamSerializer",
+        "team2": "TeamSerializer",
+    }
+
     class Meta:
         """Meta."""
 
@@ -282,7 +297,7 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
             "url",
             "pk",
             "name",
-            "source_name",
+            "files",
             "tournament",
             "rendered",
             "team1",
@@ -290,11 +305,44 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
             "json_file",
             "source_proxy",
             "cuts",
+            "generate_proxy",
         ]
 
 
 class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
     """Cut serializer."""
+
+    def update(self, instance: Cut, validated_data: dict[str, Any]) -> Cut:
+        """Update a cut, handling JSON payloads for json_file."""
+        json_file_value = validated_data.pop("json_file", None)
+
+        # Si le client envoie un JSON déjà parsé (dict/list), on le sérialise
+        if isinstance(json_file_value, dict | list):
+            json_file_value = json.dumps(json_file_value, ensure_ascii=False)
+
+        # Cas spécial : on reçoit une string => on la transforme en fichier
+        if isinstance(json_file_value, str):
+            try:
+                json.loads(json_file_value)
+            except json.JSONDecodeError as exc:
+                raise serializers.ValidationError(
+                    {"json_file": "Le contenu fourni n'est pas un JSON valide."}
+                ) from exc
+
+            filename = f"cut_{instance.pk}_data.json"
+            content = ContentFile(json_file_value.encode("utf-8"))
+            instance.json_file.save(filename, content, save=False)
+
+        # Cas normal : on reçoit un vrai fichier uploadé
+        elif json_file_value is not None:
+            instance.json_file = json_file_value
+
+        # Appliquer les autres champs
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        instance.save()
+        return instance
 
     class Meta:
         """Meta."""
@@ -314,25 +362,8 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
 class TeamSerializer(HALMixin[Team], serializers.HyperlinkedModelSerializer[Team]):
     """Team serializer."""
 
-    default_hal_embedded: ClassVar[dict[str, str]] = {"logo": "TeamLogoSerializer"}
-
     class Meta:
         """Meta."""
 
         model = Team
-        fields: Sequence[str] = ["url", "pk", "logo", "name", "slug"]
-
-
-class TeamLogoSerializer(
-    HALMixin[TeamLogo], serializers.HyperlinkedModelSerializer[TeamLogo]
-):
-    """TeamLogo serializer."""
-
-    teams = serializers.HyperlinkedIdentityField(view_name="teamlogo-teams")
-    default_hal_embedded: ClassVar[dict[str, str]] = {"teams": "TeamSerializer"}
-
-    class Meta:
-        """Meta."""
-
-        model = TeamLogo
-        fields: Sequence[str] = ["url", "pk", "name", "short_name", "image", "teams"]
+        fields: Sequence[str] = ["url", "pk", "name", "short_name", "image", "slug"]
