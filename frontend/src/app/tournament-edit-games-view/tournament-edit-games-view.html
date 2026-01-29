@@ -1,0 +1,76 @@
+<div class="edit-games-container">
+
+  <div class="proxy-global-actions">
+    <mat-form-field appearance="outline" class="proxy-quality">
+      <mat-label>Render quality</mat-label>
+      <mat-select [(ngModel)]="proxyQuality">
+        <mat-option value="low">low</mat-option>
+        <mat-option value="medium">medium</mat-option>
+        <mat-option value="high">high</mat-option>
+      </mat-select>
+    </mat-form-field>
+    <button mat-stroked-button color="primary" (click)="onGenerateAllProxy()">
+      Render all
+    </button>
+    <button mat-stroked-button color="primary" (click)="onQueueAllProxy()">
+      Add all to queue
+    </button>
+  </div>
+
+  <div class="table-responsive">
+    <table mat-table [dataSource]="dataSource" class="mat-elevation-z8 tournament-edit-games-table" matSort>
+      <!-- Colonne Nom -->
+      <ng-container matColumnDef="name">
+        <th *matHeaderCellDef mat-header-cell mat-sort-header>Name</th>
+        <td *matCellDef="let game" mat-cell>{{ game.name }}</td>
+      </ng-container>
+
+      <!-- Colonne file name -->
+      <ng-container matColumnDef="file_name">
+        <th *matHeaderCellDef mat-header-cell mat-sort-header>File Name</th>
+        <td *matCellDef="let game" mat-cell>{{ game.source_name }}</td>
+      </ng-container>
+
+      <!-- Colonne team1 name -->
+      <ng-container matColumnDef="teams">
+        <th *matHeaderCellDef mat-header-cell mat-sort-header>teams</th>
+        <td *matCellDef="let video" mat-cell>{{ team1_names()[video.pk] }} vs {{ team2_names()[video.pk] }}</td>
+
+
+      </ng-container>
+
+      <!-- Colonne rendered -->
+      <ng-container matColumnDef="rendered">
+        <th *matHeaderCellDef mat-header-cell mat-sort-header>rendered</th>
+        <td *matCellDef="let game" mat-cell> @if ((game.source_proxy?.trim()?.length ?? 0) > 0) {
+          <span class="proxy-ok" title="Proxy présent">✅</span>
+        } @else {
+          <span class="proxy-ko" title="Proxy absent">❌</span>
+        }</td>
+      </ng-container>
+
+      <!-- Nouvelle colonne proxy (binaire) -->
+      <ng-container matColumnDef="proxy">
+        <th *matHeaderCellDef mat-header-cell mat-sort-header>Proxy</th>
+        <td *matCellDef="let game" mat-cell>
+          @if ((game.source_proxy?.trim()?.length ?? 0) > 0) {
+            <span class="proxy-ok" title="Proxy présent">✅</span>
+          } @else {
+            <span class="proxy-ko" title="Proxy absent">❌</span>
+          }
+        </td>
+      </ng-container>
+
+      <!-- Lignes de définition du tableau -->
+      <tr mat-header-row *matHeaderRowDef="['name','file_name','teams', 'rendered','proxy']"></tr>
+      <tr mat-row *matRowDef="let row; columns: ['name','file_name','teams', 'rendered','proxy'];"
+          class="clickable-row" (click)="openGameEdit(row)"></tr>
+    </table>
+
+    @if (games().length === 0) {
+      <div class="empty-state">
+        <p>Aucun match à modifier pour le moment.</p>
+      </div>
+    }
+  </div>
+</div>

@@ -1,6 +1,6 @@
 /* ... existing code ... */
 .overTable {
-  max-width: 1100px; /* largeur max du bloc centré */
+  width: min(100%, calc(100% - var(--table-side-margin)));
   margin-left: auto; /* centre horizontalement */
   margin-right: auto; /* centre horizontalement */
   padding-left: 16px; /* marge interne gauche */
@@ -113,8 +113,8 @@
 
 #game_list thead th:first-child,
 #game_list tbody td.image_cell {
-  width: 5em;
-  min-width: 5em;
+  width: 4em;
+  min-width: 4em;
 }
 
 /* Colonne "Name" réduite à 30em */
@@ -131,9 +131,18 @@
 #game_list thead th.actions_col,
 #game_list tbody td.actions_col {
   text-align: center;
-  width: 220px;
+  width: 180px;
   white-space: nowrap;
   vertical-align: middle;
+}
+
+.tournaments-table .mat-column-color {
+  width: 4em;
+  min-width: 4em;
+}
+
+.tournaments-table .mat-column-actions {
+  width: 180px;
 }
 
 
@@ -141,32 +150,12 @@
 .actions-stack {
   display: flex;
   flex-direction: row;
-  gap: 8px; /* espace vertical entre boutons */
+  gap: 8px;
+  flex-wrap: nowrap;
 }
 
-/* Les boutons prennent une largeur cohérente et s'empilent */
-.btn.action {
-  appearance: none;
-  border: 0;
-  border-radius: 8px;
-  padding: 8px 10px;
-  background: #2563eb;
-  color: #fff;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color .15s ease, transform .1s ease;
-  display: block;
-  width: 100%;
-  max-width: 180px; /* largeur max du bouton empilé */
-}
-
-.btn.action:hover {
-  background: #1d4ed8;
-}
-
-.btn.action:active {
-  transform: translateY(1px);
+.actions-stack button {
+  white-space: nowrap;
 }
 
 /* Empêche l'image d'augmenter la hauteur des lignes du tableau */

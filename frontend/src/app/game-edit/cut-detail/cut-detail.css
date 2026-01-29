@@ -1,0 +1,257 @@
+.cut-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cut-queue-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
+.cut-queue-label select {
+  padding: 4px 6px;
+}
+
+.cut-valid {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #c62828;
+  display: inline-block;
+  margin-right: 4px;
+}
+
+.cut-valid.is-valid {
+  background: #2e7d32;
+}
+
+.cut-valid.is-invalid {
+  background: #c62828;
+}
+
+.cut-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.cut-tabs {
+  display: none;
+}
+
+:host ::ng-deep .cut-tabs .mat-mdc-tab-header {
+  border-bottom: none;
+  margin-bottom: 12px;
+}
+
+:host ::ng-deep .cut-tabs .mat-mdc-tab-list {
+  background: #f3f4f6;
+  border-radius: 8px;
+  padding: 4px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+
+:host ::ng-deep .cut-tabs .mat-mdc-tab {
+  min-height: 14px;
+  border-radius: 6px;
+  opacity: 0.75;
+}
+
+:host ::ng-deep .cut-tabs .mdc-tab__content {
+  padding: 2px 8px;
+}
+
+:host ::ng-deep .cut-tabs .mdc-tab__text-label {
+  font-size: 12px;
+  line-height: 14px;
+}
+
+:host ::ng-deep .cut-tabs .mat-mdc-tab.mdc-tab--active {
+  background: #ffffff;
+  opacity: 1;
+}
+
+:host ::ng-deep .cut-tabs .mdc-tab-indicator {
+  display: none;
+}
+
+.section-title {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  margin-bottom: 6px;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.list-header {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.list-footer {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.form-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.form-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: nowrap;
+  justify-content: center;
+}
+
+.form-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
+  flex: 0 0 auto;
+  width: fit-content;
+}
+
+.label-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 110px;
+  margin-right: 0;
+}
+
+.timecode {
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  opacity: 0.7;
+}
+
+.duration-between {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  height: 32px;
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.03em;
+  opacity: 0.85;
+  padding: 0 8px;
+  margin: 0 8px 2px;
+  min-width: 68px;
+  text-align: center;
+}
+
+.duration-between.invalid {
+  border: 1px solid #c62828;
+  border-radius: 6px;
+  padding: 2px 7px;
+}
+
+.form-row input,
+.form-row select {
+  height: 32px;
+  padding: 4px 8px;
+  font-size: 13px;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+}
+
+.form-row input.invalid {
+  border-color: #c62828;
+  box-shadow: 0 0 0 1px rgba(198, 40, 40, 0.3);
+}
+
+.input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 140px;
+  margin-right: 0;
+}
+
+.input-row input {
+  flex: 1 1 auto;
+}
+
+.frame-button {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #d0d0d0;
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.frame-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #d32f2f;
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  transform: translateY(12px);
+}
+
+.row-actions button {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.form-row input[type="number"] {
+  max-width: 90px;
+}
+
+.form-row select {
+  max-width: 120px;
+}
+
+.cut-error {
+  color: #b00020;
+}
+
+.cut-empty {
+  opacity: 0.65;
+}
+
+@container side-panel (max-width: 1000px) {
+  .cut-detail {
+    display: none;
+  }
+
+  .cut-tabs {
+    display: block;
+  }
+}

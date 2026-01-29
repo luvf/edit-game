@@ -1,1 +1,1 @@
-"""Core management commands."""
+"""Management commands for core app."""

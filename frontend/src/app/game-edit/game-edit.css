@@ -1,0 +1,71 @@
+.game-edit {
+  padding: 24px;
+}
+
+.game-edit header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.back-link {
+  margin-left: auto;
+}
+
+.game-fields {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 8px 16px;
+  margin: 16px 0 0;
+}
+
+.game-fields dt {
+  font-weight: 600;
+}
+
+.game-fields dd {
+  margin: 0;
+}
+
+.name-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  align-items: baseline;
+}
+
+.name-row .name-field {
+  min-width: 240px;
+  max-width: 420px;
+  flex: 0 1 420px;
+}
+
+.name-row .source-name {
+  opacity: 0.7;
+}
+
+.save-row {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.proxy-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: center;
+  margin: 20px 0;
+}
+
+.proxy-quality {
+  min-width: 200px;
+}
+
+.proxy-tools button[mat-raised-button] {
+  height: 56px;
+}
+
+.loading {
+  margin-top: 16px;
+  opacity: 0.7;
+}

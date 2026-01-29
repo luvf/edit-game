@@ -1,0 +1,25 @@
+.edit-games-container {
+  width: min(100%, calc(100% - var(--table-side-margin)));
+  margin: 0 auto;
+  padding: 0 12px;
+}
+
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.proxy-global-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.proxy-quality {
+  width: 160px;
+}

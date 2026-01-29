@@ -16,6 +16,13 @@ type HateoasParsed<T> = T & { _parsed?: Resource };
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
+export interface PaginatedResult<T> {
+  items: T[];
+  count: number;
+  next?: string | null;
+  previous?: string | null;
+}
+
 
 /**
  * Generic HATEOAS service providing convenience methods to work with HAL/JSON APIs.
@@ -76,11 +83,20 @@ export class HateoasService<T extends BaseHalModel> {
           });
         }
 
-        // 2) Case HAL: we parse with halfred
+        // 2) Case REST pagination: { count, next, previous, results }
+        const paginated = body as { results?: any[] };
+        if (paginated?.results && Array.isArray(paginated.results)) {
+          return paginated.results.map((item: any) => {
+            (item as HateoasParsed<T>)._parsed = this.parse(item);
+            return item as T;
+          });
+        }
+
+        // 3) Case HAL: we parse with halfred
         const parsed = this.parse(body);
         const original = (parsed as any).original ? parsed.original() : (body as any);
 
-        // 3) extract with _embedded for any key and normalize the array
+        // 4) extract with _embedded for any key and normalize the array
         let items: any[] = [];
         const embedded = original?._embedded;
         if (embedded && typeof embedded === 'object') {
@@ -97,13 +113,65 @@ export class HateoasService<T extends BaseHalModel> {
           }
         }
 
-        // 4) Returns empty if no elements, otherwise attactch _parsed and cast
+        // 5) Returns empty if no elements, otherwise attactch _parsed and cast
         if (items.length === 0) return [];
 
         return items.map((item: any) => {
           (item as HateoasParsed<T>)._parsed = this.parse(item);
           return item as T;
         });
+      })
+    );
+  }
+
+  listPaginated(url: string = this.baseUrl): Observable<PaginatedResult<T>> {
+    return this.http.get(url).pipe(
+      map(body => {
+        if (Array.isArray(body)) {
+          const items = (body as any[]).map((item: any) => {
+            (item as HateoasParsed<T>)._parsed = this.parse(item);
+            return item as T;
+          });
+          return {items, count: items.length};
+        }
+
+        const paginated = body as { results?: any[]; count?: number; next?: string | null; previous?: string | null };
+        if (paginated?.results && Array.isArray(paginated.results)) {
+          const items = paginated.results.map((item: any) => {
+            (item as HateoasParsed<T>)._parsed = this.parse(item);
+            return item as T;
+          });
+          return {
+            items,
+            count: typeof paginated.count === 'number' ? paginated.count : items.length,
+            next: paginated.next ?? null,
+            previous: paginated.previous ?? null,
+          };
+        }
+
+        const parsed = this.parse(body);
+        const original = (parsed as any).original ? parsed.original() : (body as any);
+        let items: any[] = [];
+        const embedded = original?._embedded;
+        if (embedded && typeof embedded === 'object') {
+          const keys = Object.keys(embedded);
+          for (const k of keys) {
+            const val = embedded[k];
+            if (Array.isArray(val)) {
+              items = val;
+              break;
+            } else if (val && typeof val === 'object') {
+              items = [val];
+              break;
+            }
+          }
+        }
+
+        const normalized = items.map((item: any) => {
+          (item as HateoasParsed<T>)._parsed = this.parse(item);
+          return item as T;
+        });
+        return {items: normalized, count: normalized.length};
       })
     );
   }

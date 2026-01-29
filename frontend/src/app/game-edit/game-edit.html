@@ -1,0 +1,56 @@
+<div class="game-edit">
+  <header>
+    <h1>Game edit</h1>
+  </header>
+
+  @if (game(); as game) {
+    <dl class="game-fields">
+      <dt>Name</dt>
+      <dd class="name-row">
+        <mat-form-field appearance="outline" class="name-field">
+          <mat-label>Name</mat-label>
+          <input matInput [(ngModel)]="nameDraft">
+        </mat-form-field>
+        <span class="source-name">files: {{ game.files }}</span>
+      </dd>
+
+      <dt>Rendered</dt>
+      <dd>{{ game.rendered }}</dd>
+
+      <dt>JSON file</dt>
+      <dd>{{ game.json_file }}</dd>
+
+      <dt></dt>
+      <dd class="save-row">
+        <button mat-raised-button color="primary" type="button" (click)="onSaveName()">
+          Save
+        </button>
+      </dd>
+
+      <dt>Source proxy</dt>
+      <dd>{{ game.source_proxy }}</dd>
+
+    </dl>
+
+    <div class="proxy-tools">
+      <mat-form-field appearance="outline" class="proxy-quality">
+        <mat-label>Proxy quality</mat-label>
+        <mat-select [(ngModel)]="proxyQuality">
+          <mat-option value="low">low</mat-option>
+          <mat-option value="medium">medium</mat-option>
+          <mat-option value="high">high</mat-option>
+        </mat-select>
+      </mat-form-field>
+      <button mat-raised-button color="primary" type="button" (click)="onGenerateProxy()">
+        Generate proxy
+      </button>
+      <button mat-raised-button color="accent" type="button" (click)="onQueueProxy()">
+        Add proxy to queue
+      </button>
+    </div>
+
+    <app-game-edit-cuts [game]="game"></app-game-edit-cuts>
+  } @else {
+    <p class="loading">Chargement...</p>
+  }
+</div>

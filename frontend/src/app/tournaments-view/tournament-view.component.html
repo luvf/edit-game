@@ -1,3 +1,4 @@
+<div class="overTable">
 <table [dataSource]="dataSource" class="mat-elevation-z8 tournaments-table" mat-table matSort>
 
   <ng-container matColumnDef="color">
@@ -27,12 +28,15 @@
     <th *matHeaderCellDef mat-header-cell> action</th>
     <td *matCellDef="let tournament" mat-cell>
       <div class="actions-stack">
-        <button class="btn action" (click)="onSyncVideos(tournament); $event.stopPropagation()">Sync videos</button>
-        <button class="btn action" (click)="onYoutubeUpdate(tournament); $event.stopPropagation()">YouTube update
+        <button mat-stroked-button color="primary" (click)="onSyncVideos(tournament); $event.stopPropagation()">
+          Sync videos
         </button>
-        <button class="btn action" (click)="goToVideoEditing(tournament); $event.stopPropagation()">Video Editing        </button>
-
-
+        <button mat-stroked-button color="primary" (click)="onYoutubeUpdate(tournament); $event.stopPropagation()">
+          YouTube update
+        </button>
+        <button mat-stroked-button color="primary" (click)="goToVideoEditing(tournament); $event.stopPropagation()">
+          Video Editing
+        </button>
       </div>
 
     </td>
@@ -43,3 +47,4 @@
 
 
 </table>
+</div>

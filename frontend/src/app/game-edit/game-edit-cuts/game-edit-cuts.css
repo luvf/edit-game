@@ -1,0 +1,140 @@
+.edit-layout {
+  display: grid;
+  grid-template-columns: 2fr 3fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.video-slot {
+  width: 100%;
+  max-width: 100%;
+  padding: 0;
+  background: #fafafa;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.source-proxy-video {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  background: #000;
+}
+
+.video-controls {
+  display: flex;
+  gap: 8px;
+  padding: 0 12px;
+  flex-wrap: wrap;
+}
+
+.video-metrics {
+  display: flex;
+  gap: 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  opacity: 0.75;
+}
+
+.side-panel {
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  container-type: inline-size;
+  container-name: side-panel;
+}
+
+.cuts-header {
+  padding: 12px 12px 0;
+}
+
+.tab-content {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cut-add {
+  align-self: flex-start;
+}
+
+.cut-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cut-create-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.cut-type {
+  width: 200px;
+}
+
+.cut-add {
+  padding: 10px 18px;
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+.cut-tab-label {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+}
+
+.cut-delete {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.cut-delete:hover {
+  color: #ffffff;
+  background: #dc2626;
+}
+
+.cut-render {
+  margin-top: auto;
+  align-self: flex-start;
+}
+
+.cuts-empty {
+  margin: 0 12px 12px;
+  opacity: 0.7;
+}
+
+.cut-json-label {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.cut-json-file {
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .edit-layout {
+    grid-template-columns: 1fr;
+  }
+}

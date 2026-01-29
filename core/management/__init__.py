@@ -1,1 +1,1 @@
-"""Core management."""
+"""Management package for core app."""

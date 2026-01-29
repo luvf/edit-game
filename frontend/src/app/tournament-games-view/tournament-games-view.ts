@@ -1,5 +1,5 @@
 // TypeScript
-import {AfterViewInit, Component, inject, OnInit, signal, ViewChild} from '@angular/core';
+import {AfterViewInit, Component, inject, OnDestroy, OnInit, signal, ViewChild} from '@angular/core';
 import {ActivatedRoute, Router} from '@angular/router';
 import {of} from 'rxjs';
 
@@ -8,6 +8,7 @@ import {MatSort, MatSortModule} from '@angular/material/sort';
 import {Team, TmpImage, Tournament, VideoMetadata, Yt_Video} from '../core/models/models';
 import {VideoMetadataService} from '../core/services/video-metadata.service';
 import {TournamentService} from '../core/services/tournament.service';
+import {NavService} from '../core/services/nav.service';
 
 /**
  * Lists games (VideoMetadata) for a given Tournament and displays related info.
@@ -23,7 +24,7 @@ import {TournamentService} from '../core/services/tournament.service';
   imports: [MatTableModule, MatSortModule],
   templateUrl: './tournament-games-view.html',
 })
-export class TournamentGamesViewComponent implements OnInit, AfterViewInit {
+export class TournamentGamesViewComponent implements OnInit, AfterViewInit, OnDestroy {
   videos = signal<VideoMetadata[]>([]);
   team1_names = signal<Record<string, string>>({});
   team2_names = signal<Record<string, string>>({});
@@ -36,6 +37,7 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit {
   private router = inject(Router);
   private tournamentService = inject(TournamentService);
   private videoMetadataService = inject(VideoMetadataService);
+  private navService = inject(NavService);
   @ViewChild(MatSort) sort!: MatSort;
 
   /**
@@ -51,6 +53,7 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit {
         next: (current_tournament: Tournament | null) => {
           if (!current_tournament) return;
           this.tournament.set(current_tournament);
+          this.updateNav(tournament_url);
           this.tournament_loaded(current_tournament);
         },
         error: (e) => {
@@ -61,6 +64,10 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit {
     );
     // videos() uses follow() and returns Observable<VideoMetadata[]>
 
+  }
+
+  ngOnDestroy(): void {
+    this.navService.clear();
   }
 
   ngAfterViewInit(): void {
@@ -213,5 +220,14 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit {
     });
   }
 
+  private updateNav(tournamentUrl: string): void {
+    this.navService.setLinks([
+      {
+        label: 'Video Editing',
+        routerLink: ['/tournament/video-editing'],
+        queryParams: {url: tournamentUrl},
+      },
+    ]);
+  }
 
 }

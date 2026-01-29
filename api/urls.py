@@ -5,6 +5,7 @@ from rest_framework.routers import DefaultRouter
 from api.views import (
     CutViewSet,
     GameViewSet,
+    RenderQueueItemViewSet,
     TeamViewSet,
     TmpImageViewSet,
     TournamentsViewSet,
@@ -22,6 +23,7 @@ router.register(r"tournaments", TournamentsViewSet, basename="tournament")
 router.register(r"games", GameViewSet, basename="game")
 router.register(r"teams", TeamViewSet, basename="team")
 router.register(r"cuts", CutViewSet, basename="cut")
+router.register(r"render-queue", RenderQueueItemViewSet, basename="renderqueue")
 
 
 urlpatterns = router.urls

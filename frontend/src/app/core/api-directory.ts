@@ -11,6 +11,7 @@ export interface ApiRoot {
   games: string;
   teams: string;
   cuts: string;
+  render_queue: string;
 
   [k: string]: string;
 }

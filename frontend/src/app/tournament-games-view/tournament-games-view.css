@@ -1,6 +1,7 @@
 
 .table {
-  width: 100%;
+  width: min(100%, calc(100% - var(--table-side-margin)));
+  margin: 0 auto;
 }
 
 /* ... existing code ... */

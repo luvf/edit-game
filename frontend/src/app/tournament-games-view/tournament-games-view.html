@@ -1,3 +1,4 @@
+<div class="table">
 <table [dataSource]="dataSource" class="mat-elevation-z8 tournament-games-table" mat-table matSort>
 
   <!--- Note that these columns can be defined in any order.
@@ -42,3 +43,4 @@
   <tr *matHeaderRowDef="displayedColumns" mat-header-row></tr>
   <tr (click)="openGame(row)" *matRowDef="let row; columns: displayedColumns;" mat-row></tr>
 </table>
+</div>

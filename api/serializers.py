@@ -9,9 +9,27 @@ from typing import Any, ClassVar, TypeVar
 from django.core.files.base import ContentFile
 from rest_framework import serializers
 
-from core.models import Cut, Game, Team, TmpImage, Tournament, VideoMetadata, YTVideo
+from core.models import (
+    Cut,
+    Game,
+    RenderQueueItem,
+    Team,
+    TmpImage,
+    Tournament,
+    VideoMetadata,
+    YTVideo,
+)
 
-Model = Cut | Game | Tournament | Team | TmpImage | VideoMetadata | YTVideo
+Model = (
+    Cut
+    | Game
+    | Tournament
+    | Team
+    | TmpImage
+    | VideoMetadata
+    | YTVideo
+    | RenderQueueItem
+)
 
 T = TypeVar("T", bound=Model)
 
@@ -278,6 +296,7 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
     """Game serializer."""
 
     cuts = serializers.HyperlinkedIdentityField(view_name="game-cuts")
+    create_cut = serializers.HyperlinkedIdentityField(view_name="game-create-cut")
 
     generate_proxy = serializers.HyperlinkedIdentityField(
         view_name="game-generate-proxy"
@@ -305,12 +324,15 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
             "json_file",
             "source_proxy",
             "cuts",
+            "create_cut",
             "generate_proxy",
         ]
 
 
 class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
     """Cut serializer."""
+
+    render = serializers.HyperlinkedIdentityField(view_name="cut-render")
 
     def update(self, instance: Cut, validated_data: dict[str, Any]) -> Cut:
         """Update a cut, handling JSON payloads for json_file."""
@@ -354,8 +376,72 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
             "name",
             "type_cut",
             "json_file",
+            "rendered_video",
             "game",
             "slug",
+            "render",
+        ]
+
+
+class RenderQueueItemSerializer(
+    HALMixin[RenderQueueItem], serializers.HyperlinkedModelSerializer[RenderQueueItem]
+):
+    """Render queue serializer."""
+
+    url = serializers.HyperlinkedIdentityField(view_name="renderqueue-detail")
+    run = serializers.HyperlinkedIdentityField(view_name="renderqueue-run")
+    reset = serializers.HyperlinkedIdentityField(view_name="renderqueue-reset")
+    cut = serializers.SerializerMethodField()
+    game = serializers.SerializerMethodField()
+    cut_name = serializers.CharField(source="cut.name", read_only=True)
+    game_name = serializers.CharField(source="game.name", read_only=True)
+
+    def get_cut(self, obj: RenderQueueItem) -> int | None:
+        """Return the cut id for a queue item.
+
+        Args:
+            obj: render queue item
+        Returns:
+            cut id or None
+        """
+        if obj.cut is None:
+            return None
+        return obj.cut.pk
+
+    def get_game(self, obj: RenderQueueItem) -> int | None:
+        """Return the game id for a queue item.
+
+        Args:
+            obj: render queue item
+        Returns:
+            game id or None
+        """
+        if obj.game is None:
+            return None
+        return obj.game.pk
+
+    class Meta:
+        """Meta."""
+
+        model = RenderQueueItem
+        fields: Sequence[str] = [
+            "url",
+            "run",
+            "reset",
+            "pk",
+            "job_type",
+            "cut",
+            "cut_name",
+            "game",
+            "game_name",
+            "preset",
+            "status",
+            "output_filename",
+            "command",
+            "error",
+            "created_at",
+            "started_at",
+            "finished_at",
         ]
 
 

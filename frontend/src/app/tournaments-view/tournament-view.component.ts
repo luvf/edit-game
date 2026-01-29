@@ -4,6 +4,8 @@ import {Tournament} from '../core/models/models';
 import {TournamentService} from '../core/services/tournament.service';
 import {MatTableDataSource, MatTableModule} from '@angular/material/table';
 import {MatSort, MatSortModule} from '@angular/material/sort';
+import {MatButtonModule} from '@angular/material/button';
+import {PaginatedResult} from '../core/hateoas.service';
 
 /**
  * Container view that lists tournaments and provides actions per tournament.
@@ -18,19 +20,22 @@ import {MatSort, MatSortModule} from '@angular/material/sort';
 @Component({
   selector: 'app-tournaments_view',
   templateUrl: './tournament-view.component.html',
-    imports: [MatTableModule, MatSortModule],
+    imports: [MatTableModule, MatSortModule, MatButtonModule],
 
   styleUrl: './tournament-view.component.css',
 })
 export class TournamentViewComponent implements OnInit, AfterViewInit {
   tournaments = signal<Tournament []>([]);
   counts = signal<Record<string, number>>({});
+  total = signal(0);
   dataSource = new MatTableDataSource<Tournament>([]);
   displayedColumns = ['color', 'name', 'date', 'nb_matches', 'actions'];
 
   private tournamentService = inject(TournamentService);
   private router = inject(Router);
   @ViewChild(MatSort) sort!: MatSort;
+  private loadingMore = false;
+  private pageSize = 20;
 
 
   /**
@@ -39,17 +44,7 @@ export class TournamentViewComponent implements OnInit, AfterViewInit {
    * Note: HateoasService.list returns Observable<Tournament[]> based on the provided implementation.
    */
   ngOnInit(): void {
-    // Load the list (HateoasService.list returns Observable<Tournament[]> in the proposed implementation)
-    this.tournamentService.list().subscribe({
-      next: (data: Tournament[]) => {
-        this.tournaments.set(data);
-        this.dataSource.data = data;
-        data.forEach(t => this.loadGamesCount(t));
-      },
-      error: (e) => {
-        console.error('Erreur lors du chargement des tournois', e);
-      },
-    });
+    this.loadFirstPage();
   }
 
   ngAfterViewInit(): void {
@@ -72,6 +67,7 @@ export class TournamentViewComponent implements OnInit, AfterViewInit {
       }
     };
   }
+
 
   /**
    * Triggers the 'sync_videos' action on a tournament.
@@ -140,5 +136,64 @@ export class TournamentViewComponent implements OnInit, AfterViewInit {
         console.error(`Erreur lors du chargement des jeux pour tournament ${tournament.pk}`, e);
       }
     });
+  }
+
+  private loadFirstPage(): void {
+    this.tournamentService.listPage(0, this.pageSize).subscribe({
+      next: (data) => {
+        this.replaceItems(data);
+        if (data.next) {
+          this.loadNextPages(data.next);
+        }
+      },
+      error: (e) => {
+        console.error('Erreur lors du chargement des tournois', e);
+      },
+    });
+  }
+
+  private loadNextPages(nextUrl: string): void {
+    if (this.loadingMore) {
+      return;
+    }
+    this.loadingMore = true;
+    this.tournamentService.listPaginated(nextUrl).subscribe({
+      next: (data) => {
+        this.appendItems(data.items);
+        this.total.set(data.count);
+        this.loadingMore = false;
+        if (data.next) {
+          this.loadNextPages(data.next);
+        }
+      },
+      error: (e) => {
+        this.loadingMore = false;
+        console.error('Erreur lors du chargement des tournois', e);
+      },
+    });
+  }
+
+  private replaceItems(data: PaginatedResult<Tournament>): void {
+    this.tournaments.set(data.items);
+    this.dataSource.data = data.items;
+    this.total.set(data.count);
+    this.counts.set({});
+    data.items.forEach(t => this.loadGamesCount(t));
+  }
+
+  private appendItems(items: Tournament[]): void {
+    if (items.length === 0) {
+      return;
+    }
+    const existing = this.tournaments();
+    const seen = new Set(existing.map(item => item.pk));
+    const appended = items.filter(item => !seen.has(item.pk));
+    if (appended.length === 0) {
+      return;
+    }
+    const merged = [...existing, ...appended];
+    this.tournaments.set(merged);
+    this.dataSource.data = merged;
+    appended.forEach(t => this.loadGamesCount(t));
   }
 }

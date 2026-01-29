@@ -1,0 +1,65 @@
+<div class="edit-layout">
+  <mat-card class="video-slot">
+    @if ((sourceProxy?.trim()?.length ?? 0) > 0) {
+      <video #proxyVideo class="source-proxy-video" controls [attr.src]="sourceProxy"></video>
+      <div class="video-controls">
+        <button mat-stroked-button type="button" (click)="seekBy(-5)">-5</button>
+        <button mat-stroked-button type="button" (click)="seekBy(-1)">-1</button>
+        <button mat-stroked-button type="button" (click)="seekBy(1)">+1</button>
+        <button mat-stroked-button type="button" (click)="seekBy(5)">+5</button>
+      </div>
+      <div class="video-metrics">
+        <div>Frame: {{ currentFrame() }}</div>
+        <div>Timecode: {{ currentTimecode() }}</div>
+      </div>
+    }
+  </mat-card>
+  <mat-card class="side-panel">
+    <mat-tab-group>
+      @for (cut of cuts(); track cut.pk ?? cut.slug ?? $index) {
+        <mat-tab>
+          <ng-template mat-tab-label>
+            <span class="cut-tab-label">{{ cut.name ?? cut.slug ?? ('Cut ' + ($index + 1)) }}</span>
+            <button type="button" class="cut-delete" (click)="onDeleteCut(cut, $event)">×</button>
+          </ng-template>
+          <div class="tab-content">
+            <app-cut-detail
+              [cut]="cut"
+              [currentFrame]="currentFrame()"
+              [seekToFrame]="seekToFrame"
+            ></app-cut-detail>
+            <button mat-stroked-button color="primary" class="cut-render" type="button"
+                    (click)="onRenderCut(cut)">
+              Generate
+            </button>
+          </div>
+        </mat-tab>
+      }
+      <mat-tab label="+">
+        <div class="tab-content">
+          <mat-form-field appearance="outline">
+            <mat-label>Nom du cut</mat-label>
+            <input matInput type="text" [(ngModel)]="newCutName">
+          </mat-form-field>
+          <div class="cut-create-row">
+            <mat-form-field appearance="outline" class="cut-type">
+              <mat-label>Type de cut</mat-label>
+              <mat-select [(ngModel)]="selectedCutType">
+                @for (template of cutTemplates(); track template.code) {
+                  <mat-option [value]="template.code">{{ template.label }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+            <button mat-stroked-button color="primary" class="cut-add" type="button"
+                    (click)="onGenerateCut()">
+              Creer
+            </button>
+          </div>
+          @if (!cuts().length) {
+            <p class="cuts-empty">No cuts yet.</p>
+          }
+        </div>
+      </mat-tab>
+    </mat-tab-group>
+  </mat-card>
+</div>

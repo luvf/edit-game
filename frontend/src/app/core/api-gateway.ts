@@ -4,6 +4,7 @@ import {ApiDirectoryService} from './api-directory';
 import {
   CutsService,
   GamesService,
+  RenderQueueService,
   TeamService,
   TmpImageService,
   YTVideoService
@@ -59,6 +60,11 @@ export class ApiGatewayService {
   cuts(): CutsService {
     this.ensureReady();
     return this.createService(CutsService, 'cuts');
+  }
+
+  renderQueue(): RenderQueueService {
+    this.ensureReady();
+    return this.createService(RenderQueueService, 'render_queue');
   }
 
   private createService<T extends HateoasService<any>>(serviceType: new (http: HttpClient) => T, urlKey: string): T {

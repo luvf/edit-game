@@ -21,6 +21,7 @@ dependencies = [
     "django-colorfield == 0.11",
     "django-cors-headers == 4.7",
     "django-debug-toolbar ==4.4",
+    "django-q == 1.*",
     "google-api-python-client == 2.*",
     "google-api-python-client-stubs == 1.*",
     "google_auth_oauthlib == 1.2",
@@ -197,6 +198,7 @@ check_untyped_defs = true
 
 # Make __init__.py file optional for package definitions; if missing, mypy requires __init__.py at packages roots, see https://mypy.readthedocs.io/en/stable/running_mypy.html#mapping-file-paths-to-modules
 explicit_package_bases = true
+exclude = "core/migrations/.*"
 
 
 plugins = ["mypy_django_plugin.main"]

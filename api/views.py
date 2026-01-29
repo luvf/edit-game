@@ -1,15 +1,20 @@
 """Api Views."""
 
 import contextlib
+import json
 import random
 import urllib.parse
 from collections.abc import Sequence
 from http import HTTPMethod
 from typing import cast
 
+from django.core.files.base import ContentFile
 from django.db.models import Q
 from django.http import Http404
 from django.urls import resolve
+
+# Create your views here.
+from django.utils.text import slugify
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import (
@@ -21,18 +26,28 @@ from rest_framework.permissions import (
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from api.pagination import StandardResultsSetPagination
 from api.serializers import (
     CutSerializer,
     GameSerializer,
+    RenderQueueItemSerializer,
     TeamSerializer,
     TmpImageSerializer,
     TournamentSerializer,
     VideoMetadataSerializer,
     YTVideoSerializer,
 )
-
-# Create your views here.
-from core.models import Cut, Game, Team, TmpImage, Tournament, VideoMetadata, YTVideo
+from core.models import (
+    Cut,
+    Game,
+    RenderQueueItem,
+    Team,
+    TmpImage,
+    Tournament,
+    VideoMetadata,
+    YTVideo,
+)
+from core.tasks import run_async_task
 from jugger_video_manipulation.build_miniature import get_video_file_names
 
 type PermissionClass = type[BasePermission] | OperandHolder | SingleOperandHolder
@@ -226,7 +241,8 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
     """
 
     serializer_class = TournamentSerializer
-    queryset = Tournament.objects.all()
+    queryset = Tournament.objects.order_by("-date")
+    pagination_class = StandardResultsSetPagination
     permission_classes: Sequence[PermissionClass] = [AllowAny]
 
     @action(detail=True, methods=[HTTPMethod.GET], url_path="games")
@@ -234,7 +250,7 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         """Get the games associated with this tournament."""
         _ = pk, request
         tournament = self.get_object()
-        qs = Game.objects.filter(tournament=tournament).order_by("name")
+        qs = Game.objects.filter(tournament=tournament).order_by("-pk")
         serializer = GameSerializer(
             qs, many=True, context=self.get_serializer_context()
         )
@@ -252,7 +268,7 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         tournament: Tournament = self.get_object()
         _ = tournament.generate_games()
 
-        game_qs = Game.objects.filter(tournament=tournament).order_by("name")
+        game_qs = Game.objects.filter(tournament=tournament).order_by("-pk")
         game_ser = GameSerializer(
             game_qs, many=True, context=self.get_serializer_context()
         )
@@ -296,7 +312,9 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         YTVideo.objects.update_linked_video(tournament)
 
         # Retourne l'état courant
-        vids_qs = VideoMetadata.objects.filter(tournament=tournament).order_by("name")
+        vids_qs = VideoMetadata.objects.filter(tournament=tournament).order_by(
+            "-publication_date", "-pk"
+        )
         vids_ser = VideoMetadataSerializer(
             vids_qs, many=True, context=self.get_serializer_context()
         )
@@ -312,7 +330,9 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         """Get the videos associated with this tournament."""
         _ = pk, request
         tournament = self.get_object()
-        qs = VideoMetadata.objects.filter(tournament=tournament).order_by("name")
+        qs = VideoMetadata.objects.filter(tournament=tournament).order_by(
+            "-publication_date", "-pk"
+        )
         serializer = VideoMetadataSerializer(
             qs, many=True, context=self.get_serializer_context()
         )
@@ -350,10 +370,44 @@ class GameViewSet(viewsets.ModelViewSet[Game]):
     @action(detail=True, methods=[HTTPMethod.POST], url_path="generate_proxy")
     def generate_proxy(self, request: Request, pk: str | None = None) -> Response:
         """Generate the proxy video."""
-        _ = pk, request
+        _ = pk
         game = self.get_object()
-        game.generate_proxy()
-        return Response({"status": "ok"})
+        preset = request.data.get("quality") or "low"
+        to_queue_value = request.data.get("to_queue")
+        to_queue = (
+            str(to_queue_value).strip().lower() in {"1", "true", "yes", "y", "on"}
+            if to_queue_value is not None
+            else True
+        )
+
+        try:
+            item = game.generate_proxy(preset=preset, to_queue=to_queue)
+        except ValueError as exc:
+            return Response({"status": "failed", "error": str(exc)}, status=400)
+        except Exception as exc:
+            return Response({"status": "failed", "error": str(exc)}, status=500)
+
+        serializer = RenderQueueItemSerializer(
+            item, context=self.get_serializer_context()
+        )
+        return Response(serializer.data)
+
+    @action(detail=True, methods=[HTTPMethod.POST], url_path="create-cut")
+    def create_cut(self, request: Request, pk: str | None = None) -> Response:
+        """Create a new cut for the game."""
+        _ = pk
+        game = self.get_object()
+        name = request.data.get("name") or "New cut"
+        slug = request.data.get("slug") or slugify(name)
+        type_cut = request.data.get("type_cut") or "MAN"
+        cut = Cut.objects.create(game=game, name=name, slug=slug, type_cut=type_cut)
+        default_json = json.dumps({"points": [], "overlays": []})
+        filename = f"cut_{cut.pk}_data.json"
+        cut.json_file.save(
+            filename, ContentFile(default_json.encode("utf-8")), save=True
+        )
+        serializer = CutSerializer(cut, context=self.get_serializer_context())
+        return Response(serializer.data)
 
 
 class TeamViewSet(viewsets.ModelViewSet[Team]):
@@ -370,3 +424,76 @@ class CutViewSet(viewsets.ModelViewSet[Cut]):
     serializer_class = CutSerializer
     queryset = Cut.objects.all()
     permission_classes: Sequence[PermissionClass] = [AllowAny]
+
+    @action(detail=True, methods=[HTTPMethod.POST], url_path="render")
+    def render(self, request: Request, pk: str | None = None) -> Response:
+        """Render the cut immediately or enqueue it."""
+        _ = pk
+        cut = self.get_object()
+        preset = request.data.get("preset") or "medium"
+        to_queue_value = request.data.get("to_queue")
+        to_queue = (
+            str(to_queue_value).strip().lower() in {"1", "true", "yes", "y", "on"}
+            if to_queue_value is not None
+            else False
+        )
+
+        try:
+            if to_queue:
+                item = cut.to_queue(preset=preset)
+            else:
+                item = cut.render(preset=preset)
+        except Exception as exc:
+            return Response({"status": "failed", "error": str(exc)}, status=500)
+        serializer = RenderQueueItemSerializer(
+            item, context=self.get_serializer_context()
+        )
+        return Response(serializer.data)
+
+    @action(detail=False, methods=[HTTPMethod.GET], url_path="cut-types")
+    def cut_types(self, request: Request) -> Response:
+        """Return available cut templates."""
+        _ = request
+        return Response(
+            [{"code": code, "label": label} for code, label in Cut.CUT_TYPES]
+        )
+
+
+class RenderQueueItemViewSet(viewsets.ModelViewSet[RenderQueueItem]):
+    """Render queue viewset."""
+
+    serializer_class = RenderQueueItemSerializer
+    queryset = RenderQueueItem.objects.select_related(
+        "renderqueueitemcut__cut", "renderqueueitemproxy__game"
+    ).order_by("created_at")
+    permission_classes: Sequence[PermissionClass] = [AllowAny]
+
+    http_method_names = ("get", "head", "options", "post", "delete")
+
+    @action(detail=True, methods=[HTTPMethod.POST], url_path="run")
+    def run(self, request: Request, pk: str | None = None) -> Response:
+        """Run a queued render job immediately."""
+        _ = request, pk
+        item = self.get_object()
+        try:
+            item.run_now()
+            run_async_task("core.tasks.process_render_queue")
+        except ValueError:
+            return Response({"status": "running"}, status=409)
+        except Exception as exc:
+            return Response({"status": "failed", "error": str(exc)}, status=500)
+        serializer = RenderQueueItemSerializer(
+            item, context=self.get_serializer_context()
+        )
+        return Response(serializer.data)
+
+    @action(detail=True, methods=[HTTPMethod.POST], url_path="reset")
+    def reset(self, request: Request, pk: str | None = None) -> Response:
+        """Reset a render queue item to pending."""
+        _ = request, pk
+        item = self.get_object()
+        item.reset()
+        serializer = RenderQueueItemSerializer(
+            item, context=self.get_serializer_context()
+        )
+        return Response(serializer.data)
