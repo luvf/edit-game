@@ -1,8 +1,8 @@
 """Core models package."""
 
-from core.models.game import (
-    Cut,
-    Game,
+from core.models.cut import Cut
+from core.models.game import Game
+from core.models.render_queue import (
     RenderQueueItem,
     RenderQueueItemCut,
     RenderQueueItemProxy,

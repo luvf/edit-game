@@ -77,6 +77,18 @@
   flex-wrap: wrap;
 }
 
+.cut-xml-upload {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cut-xml-filename {
+  font-size: 13px;
+  opacity: 0.7;
+}
+
 .cut-type {
   width: 200px;
 }

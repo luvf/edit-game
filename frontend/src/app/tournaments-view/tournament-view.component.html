@@ -37,6 +37,10 @@
         <button mat-stroked-button color="primary" (click)="goToVideoEditing(tournament); $event.stopPropagation()">
           Video Editing
         </button>
+        <button *ngIf="tournament._links?.archive" mat-stroked-button color="primary"
+                (click)="onArchive(tournament); $event.stopPropagation()">
+          Archive
+        </button>
       </div>
 
     </td>

@@ -20,7 +20,8 @@ import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatInputModule} from '@angular/material/input';
 import {MatSelectModule} from '@angular/material/select';
 import {CutsService, GamesService} from '../../core/services/misc-hateoas-models.service';
-import {Cut, Game} from '../../core/models/models';
+import {TournamentService} from '../../core/services/tournament.service';
+import {Cut, Game, Tournament} from '../../core/models/models';
 import {CutDetailComponent} from '../cut-detail/cut-detail';
 
 type CutTemplate = {
@@ -56,6 +57,9 @@ export class GameEditCutsComponent implements AfterViewInit, OnChanges, OnDestro
   cutTemplates = signal<CutTemplate[]>([]);
   newCutName = signal('');
   selectedCutType = signal<string | null>(null);
+  xmlFile = signal<File | null>(null);
+  renderedFiles = signal<string[]>([]);
+  selectedRendered = signal<string | null>(null);
 
   @ViewChild('proxyVideo') proxyVideo?: ElementRef<HTMLVideoElement>;
   protected readonly length = length;
@@ -63,18 +67,21 @@ export class GameEditCutsComponent implements AfterViewInit, OnChanges, OnDestro
   private fallbackListener?: () => void;
   private gameService = inject(GamesService);
   private cutService = inject(CutsService);
+  private tournamentService = inject(TournamentService);
 
 
   ngOnInit(): void {
     this.loadCutTemplates();
     if (!this.game) return;
     this.loadCuts();
+    this.loadRenderedFiles();
     this.sourceProxy = this.game?.source_proxy;
   }
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['cuts'] || changes['game']) {
       this.loadCuts();
+      this.loadRenderedFiles();
     }
     if (changes['sourceProxy']) {
       if (!this.sourceProxy?.trim()) {
@@ -120,6 +127,14 @@ export class GameEditCutsComponent implements AfterViewInit, OnChanges, OnDestro
     const selectedType = this.selectedCutType();
     const template = this.cutTemplates().find((item) => item.code === selectedType);
     if (!template) return;
+    if (template.code === 'XML' && !this.xmlFile()) {
+      console.error('Fichier XML manquant.');
+      return;
+    }
+    if (template.code === 'VID' && !this.selectedRendered()) {
+      console.error('Source rendered manquante.');
+      return;
+    }
     const name = this.newCutName().trim() || template.label;
     const payload = {
       name,
@@ -130,9 +145,39 @@ export class GameEditCutsComponent implements AfterViewInit, OnChanges, OnDestro
       next: (cut) => {
         this.cuts.set([...this.cuts(), cut]);
         this.newCutName.set('');
+        const file = this.xmlFile();
+        if (template.code === 'XML' && file) {
+          this.cutService.gen_from_xml(cut, file).subscribe({
+            next: (updated) => {
+              this.cuts.set(
+                this.cuts().map((item) => (item.pk === updated.pk ? updated : item))
+              );
+              this.xmlFile.set(null);
+            },
+            error: (e) => console.error("Erreur lors de l'upload XML", e),
+          });
+        } else if (template.code === 'VID') {
+          const filename = this.selectedRendered();
+          if (!filename) return;
+          this.cutService.gen_from_rendered(cut, {filename}).subscribe({
+            next: (updated) => {
+              this.cuts.set(
+                this.cuts().map((item) => (item.pk === updated.pk ? updated : item))
+              );
+              this.selectedRendered.set(null);
+            },
+            error: (e) => console.error("Erreur lors du cut depuis rendered", e),
+          });
+        }
       },
       error: (e) => console.error('Erreur lors de la création du cut', e),
     });
+  }
+
+  onXmlFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement | null;
+    const file = input?.files?.[0] ?? null;
+    this.xmlFile.set(file);
   }
 
   onDeleteCut(cut: Cut, event?: MouseEvent): void {
@@ -171,6 +216,31 @@ export class GameEditCutsComponent implements AfterViewInit, OnChanges, OnDestro
         }
       },
       error: (e) => console.error('Erreur lors du chargement des templates de cuts', e),
+    });
+  }
+
+  private loadRenderedFiles(): void {
+    if (!this.game) return;
+    const embedded = this.game._embedded;
+    const embeddedTournament = embedded?.['tournament'] as Tournament | undefined;
+    const tournamentLink = this.game._links?.tournament?.href;
+    if (embeddedTournament?._links?.self) {
+      this.tournamentService.rendered(embeddedTournament, true).subscribe({
+        next: (files) => this.renderedFiles.set(files),
+        error: (e) => console.error('Erreur lors du chargement des rendered', e),
+      });
+      return;
+    }
+    if (!tournamentLink) return;
+    this.tournamentService.get(tournamentLink).subscribe({
+      next: (tournament) => {
+        if (!tournament) return;
+        this.tournamentService.rendered(tournament, true).subscribe({
+          next: (files) => this.renderedFiles.set(files),
+          error: (e) => console.error('Erreur lors du chargement des rendered', e),
+        });
+      },
+      error: (e) => console.error('Erreur lors du chargement du tournoi', e),
     });
   }
 

@@ -93,19 +93,22 @@ def process_render_queue() -> None:
             # Execute render outside the transaction to avoid long-held locks.
             item.concrete().run()
         except Exception as exc:
-            item.refresh_from_db(fields=["status"])
-            if item.status != RenderQueueItem.Status.RUNNING:
+            updated = RenderQueueItem.objects.filter(
+                pk=item.pk, status=RenderQueueItem.Status.RUNNING
+            ).update(
+                status=RenderQueueItem.Status.FAILED,
+                error=str(exc),
+                finished_at=timezone.now(),
+            )
+            if not updated:
                 continue
-            item.status = RenderQueueItem.Status.FAILED
-            item.error = str(exc)
-            item.finished_at = timezone.now()
-            item.save(update_fields=["status", "error", "finished_at"])
             continue
 
-        item.refresh_from_db(fields=["status"])
-        if item.status != RenderQueueItem.Status.RUNNING:
+        updated = RenderQueueItem.objects.filter(
+            pk=item.pk, status=RenderQueueItem.Status.RUNNING
+        ).update(
+            status=RenderQueueItem.Status.DONE,
+            finished_at=timezone.now(),
+        )
+        if not updated:
             continue
-        # Mark success only if nothing else altered the item mid-run.
-        item.status = RenderQueueItem.Status.DONE
-        item.finished_at = timezone.now()
-        item.save(update_fields=["status", "finished_at"])

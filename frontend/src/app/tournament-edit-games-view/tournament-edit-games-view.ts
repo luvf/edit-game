@@ -37,6 +37,7 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
   games = signal<Game[]>([]);
   team1_names = signal<Record<string, string>>({});
   team2_names = signal<Record<string, string>>({});
+  cuts_count = signal<Record<number, number>>({});
   dataSource = new MatTableDataSource<Game>([]);
   proxyQuality = signal<'low' | 'medium' | 'high'>('medium');
 
@@ -96,6 +97,8 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
         }
         case 'name':
           return item.name?.toLowerCase() ?? '';
+        case 'cuts':
+          return this.cuts_count()[item.pk] ?? 0;
         default:
           return (item as unknown as Record<string, string | number>)[property] ?? '';
       }
@@ -163,6 +166,7 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
         this.games.set(videos);
         this.dataSource.data = videos;
         videos.forEach(v => this.loadTeamsNames(v));
+        videos.forEach(v => this.loadCutsCount(v));
 
         // Load team names and status for each video, and the miniature
         //videos.forEach(v => this.Action(v));
@@ -203,6 +207,20 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
       error: (e) => {
         console.error(`Erreur team2 pour video ${game.pk}`, e);
       }
+    });
+  }
+
+  private loadCutsCount(game: Game): void {
+    this.GameService.cuts(game).subscribe({
+      next: (cuts) => {
+        const nextCounts = {...this.cuts_count()};
+        nextCounts[game.pk] = Array.isArray(cuts) ? cuts.length : 0;
+        this.cuts_count.set(nextCounts);
+        this.dataSource.data = [...this.dataSource.data];
+      },
+      error: (e) => {
+        console.error(`Erreur cuts pour video ${game.pk}`, e);
+      },
     });
   }
 

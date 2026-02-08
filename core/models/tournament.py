@@ -11,6 +11,7 @@ from typing import Any, cast
 
 from colorfield.fields import ColorField
 from django.apps import apps
+from django.conf import settings
 from django.db import models
 from django.db.models import F, Q, Value
 from django.db.models.functions import Length
@@ -30,13 +31,26 @@ class Tournament(models.Model):
     JTR = models.CharField(max_length=200, default="", blank=True)
     tugeny_link = models.CharField(max_length=200, default="", blank=True)
     color = ColorField(default="#0000")
-    source_dir = models.CharField(max_length=200, default="-")
+    drive_dir = models.CharField(
+        max_length=200, default=str(settings.TOURNAMENTS_BASE_DIR)
+    )
+    tournament_dir = models.CharField(max_length=200, default="", blank=True)
     slug = models.SlugField(default="", null=False)
 
     class Meta:
         """Model metadata."""
 
         db_table = "game_edit_tournament"
+
+    @property
+    def source_dir(self) -> str:
+        """Get the source directory from drive and tournament directories."""
+        drive = self.drive_dir or ""
+        if self.tournament_dir:
+            return str(Path(drive) / self.tournament_dir)
+        if drive:
+            return str(Path(drive))
+        return str(Path(self.tournament_dir))
 
     @property
     def source_dir_path(self) -> Path:

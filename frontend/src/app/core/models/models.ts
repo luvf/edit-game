@@ -53,6 +53,8 @@ export interface TournamentLinks extends HalLinks {
   sync_videos?: Link;
   youtube_update?: Link;
   generate_games?:Link;
+  rendered?: Link;
+  archive?: Link;
 
   videos?: Link;
 }
@@ -66,6 +68,7 @@ export interface Tournament extends BaseHalModel {
   tugeny_link: string;
   color: string;
   slug: string;
+  is_archived?: boolean;
   _links?: TournamentLinks & Curies;
 }
 
@@ -150,6 +153,8 @@ export interface CutLinks extends HalLinks {
   self: Link;
   render?:Link;
   game?: Link;
+  gen_from_xml?: Link;
+  gen_from_rendered?: Link;
 
 }
 

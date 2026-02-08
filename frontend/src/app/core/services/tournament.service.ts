@@ -40,6 +40,10 @@ export class TournamentService extends HateoasService<Tournament> {
     return this.follow_resource<VideoMetadata[]>(resource, 'video_metadatas', reload);
   }
 
+  rendered(resource: Tournament, reload: boolean = false) {
+    return this.follow_resource<string[]>(resource, 'rendered', reload);
+  }
+
   generate_games(resource: Tournament, body: unknown = {}) {
     return this.invoke_resource(resource, 'generate_games', body);
   }
@@ -50,6 +54,10 @@ export class TournamentService extends HateoasService<Tournament> {
 
   youtubeUpdate(resource: Tournament, body: unknown = {}) {
     return this.invoke_resource(resource, 'youtube_update', body);
+  }
+
+  archive(resource: Tournament, body: unknown = {}) {
+    return this.invoke_resource(resource, 'archive', body);
   }
 
   listPage(pageIndex: number, pageSize: number): Observable<PaginatedResult<Tournament>> {

@@ -39,6 +39,12 @@
 
       </ng-container>
 
+      <!-- Colonne cuts -->
+      <ng-container matColumnDef="cuts">
+        <th *matHeaderCellDef mat-header-cell mat-sort-header>Cuts</th>
+        <td *matCellDef="let game" mat-cell>{{ cuts_count()[game.pk] ?? 0 }}</td>
+      </ng-container>
+
       <!-- Colonne rendered -->
       <ng-container matColumnDef="rendered">
         <th *matHeaderCellDef mat-header-cell mat-sort-header>rendered</th>
@@ -62,8 +68,8 @@
       </ng-container>
 
       <!-- Lignes de définition du tableau -->
-      <tr mat-header-row *matHeaderRowDef="['name','file_name','teams', 'rendered','proxy']"></tr>
-      <tr mat-row *matRowDef="let row; columns: ['name','file_name','teams', 'rendered','proxy'];"
+      <tr mat-header-row *matHeaderRowDef="['name','file_name','teams','cuts','rendered','proxy']"></tr>
+      <tr mat-row *matRowDef="let row; columns: ['name','file_name','teams','cuts','rendered','proxy'];"
           class="clickable-row" (click)="openGameEdit(row)"></tr>
     </table>
 

@@ -14,6 +14,8 @@ from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+TOURNAMENTS_BASE_DIR = Path("/mnt/video/juggerData/tournois")
+TOURNAMENTS_ARCHIVE_DIR = Path("/mnt/jugger/tournois")
 
 
 # Quick-start development settings - unsuitable for production

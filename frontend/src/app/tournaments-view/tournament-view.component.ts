@@ -1,4 +1,5 @@
 import {AfterViewInit, Component, inject, OnInit, signal, ViewChild} from '@angular/core';
+import {CommonModule} from '@angular/common';
 import {Router} from '@angular/router';
 import {Tournament} from '../core/models/models';
 import {TournamentService} from '../core/services/tournament.service';
@@ -20,7 +21,7 @@ import {PaginatedResult} from '../core/hateoas.service';
 @Component({
   selector: 'app-tournaments_view',
   templateUrl: './tournament-view.component.html',
-    imports: [MatTableModule, MatSortModule, MatButtonModule],
+    imports: [CommonModule, MatTableModule, MatSortModule, MatButtonModule],
 
   styleUrl: './tournament-view.component.css',
 })
@@ -95,6 +96,16 @@ export class TournamentViewComponent implements OnInit, AfterViewInit {
       },
       error: (e) => {
         console.error('youtube_update failed', e);
+      }
+    });
+  }
+
+  onArchive(tournament: Tournament): void {
+    this.tournamentService.archive(tournament, {}).subscribe({
+      next: () => {
+      },
+      error: (e) => {
+        console.error('archive failed', e);
       }
     });
   }

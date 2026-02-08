@@ -4,10 +4,13 @@ import contextlib
 import json
 import random
 import urllib.parse
+import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from http import HTTPMethod
+from pathlib import Path
 from typing import cast
 
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db.models import Q
 from django.http import Http404
@@ -237,6 +240,7 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         - games[GET]: returns the games associated with this tournament.
         - sync_videos[POST]:get the videos associated with this tournament.
         - videos[GET]: returns the videos associated with this tournament.
+        - rendered[GET]: returns rendered filenames for this tournament.
         - youtube_update[POST]: Trigger update of YouTube videos.
     """
 
@@ -338,6 +342,18 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         )
         return Response(serializer.data)
 
+    @action(detail=True, methods=[HTTPMethod.GET], url_path="rendered")
+    def rendered(self, request: Request, pk: str | None = None) -> Response:
+        """List rendered filenames for this tournament."""
+        _ = pk, request
+        tournament = self.get_object()
+        rendered_dir = tournament.get_rendered_path().absolute()
+        if not rendered_dir.exists():
+            return Response([])
+        files = get_video_file_names(rendered_dir)
+        names = sorted({file.name for file in files})
+        return Response(names)
+
     @action(detail=True, methods=[HTTPMethod.POST], url_path="youtube-update")
     def youtube_update(self, request: Request, pk: str | None = None) -> Response:
         """Trigger update of YouTube videos for this tournament (titres/infos côté YT)."""
@@ -345,6 +361,15 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         tournament: Tournament = self.get_object()
         YTVideo.youtube_update(tournament)
         return Response({"status": "ok"})
+
+    @action(detail=True, methods=[HTTPMethod.POST], url_path="archive")
+    def archive(self, request: Request, pk: str | None = None) -> Response:
+        """Move the tournament source directory to the archive drive."""
+        _ = pk, request
+        tournament: Tournament = self.get_object()
+        tournament.drive_dir = str(settings.TOURNAMENTS_ARCHIVE_DIR)
+        tournament.save(update_fields=["drive_dir"])
+        return Response({"status": "ok", "source_dir": tournament.source_dir})
 
 
 class GameViewSet(viewsets.ModelViewSet[Game]):
@@ -448,6 +473,67 @@ class CutViewSet(viewsets.ModelViewSet[Cut]):
         serializer = RenderQueueItemSerializer(
             item, context=self.get_serializer_context()
         )
+        return Response(serializer.data)
+
+    @action(detail=True, methods=[HTTPMethod.POST], url_path="gen-from-xml")
+    def gen_from_xml(self, request: Request, pk: str | None = None) -> Response:
+        """Generate cut JSON payload from an XML file."""
+        _ = pk
+        cut = self.get_object()
+        xml_file = request.FILES.get("xml_file")
+        if not xml_file:
+            return Response(
+                {"status": "failed", "error": "xml_file is required."}, status=400
+            )
+
+        try:
+            payload = cut.gen_from_xml(xml_file.read())
+            cut.set_json(payload)
+        except ET.ParseError as exc:
+            return Response({"status": "failed", "error": str(exc)}, status=400)
+        except Exception as exc:
+            return Response({"status": "failed", "error": str(exc)}, status=500)
+
+        serializer = CutSerializer(cut, context=self.get_serializer_context())
+        return Response(serializer.data)
+
+    @action(detail=True, methods=[HTTPMethod.POST], url_path="gen-from-rendered")
+    def gen_from_rendered(self, request: Request, pk: str | None = None) -> Response:
+        """Generate cut JSON payload from a rendered video path or filename."""
+        _ = pk
+        cut = self.get_object()
+        raw_path = request.data.get("path") or request.data.get("filename")
+        if not raw_path:
+            return Response(
+                {"status": "failed", "error": "path or filename is required."},
+                status=400,
+            )
+
+        if not cut.game or not cut.game.tournament:
+            return Response(
+                {"status": "failed", "error": "Cut has no tournament context."},
+                status=400,
+            )
+
+        candidate = Path(str(raw_path)).expanduser()
+        rendered_dir = cut.game.tournament.get_rendered_path().absolute()
+        if request.data.get("filename"):
+            candidate = rendered_dir / Path(str(raw_path)).name
+        elif not candidate.is_absolute():
+            candidate = rendered_dir / candidate
+        if not candidate.exists():
+            return Response(
+                {"status": "failed", "error": f"File not found: {candidate}"},
+                status=404,
+            )
+
+        try:
+            payload = cut.gen_from_rendered(candidate)
+            cut.set_json(payload)
+        except Exception as exc:
+            return Response({"status": "failed", "error": str(exc)}, status=500)
+
+        serializer = CutSerializer(cut, context=self.get_serializer_context())
         return Response(serializer.data)
 
     @action(detail=False, methods=[HTTPMethod.GET], url_path="cut-types")

@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from pydoc import locate
 from typing import Any, ClassVar, TypeVar
 
+from django.conf import settings
 from django.core.files.base import ContentFile
 from rest_framework import serializers
 
@@ -259,9 +260,12 @@ class TournamentSerializer(
     youtube_update = serializers.HyperlinkedIdentityField(
         view_name="tournament-youtube-update"
     )
+    archive = serializers.HyperlinkedIdentityField(view_name="tournament-archive")
+    is_archived = serializers.SerializerMethodField()
     video_metadatas = serializers.HyperlinkedIdentityField(
         view_name="tournament-videos"
     )
+    rendered = serializers.HyperlinkedIdentityField(view_name="tournament-rendered")
     generate_games = serializers.HyperlinkedIdentityField(
         view_name="tournament-generate-games"
     )
@@ -285,11 +289,25 @@ class TournamentSerializer(
             "tugeny_link",
             "color",
             "slug",
+            "is_archived",
             "generate_games",
             "video_metadatas",
+            "rendered",
             "sync_videos",
             "youtube_update",
+            "archive",
         ]
+
+    def get_is_archived(self, obj: Tournament) -> bool:
+        return obj.drive_dir == str(settings.TOURNAMENTS_ARCHIVE_DIR)
+
+    def to_representation(self, instance: Tournament) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if self.get_is_archived(instance):
+            links = data.get("_links")
+            if isinstance(links, dict):
+                links.pop("archive", None)
+        return data
 
 
 class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game]):
@@ -333,6 +351,10 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
     """Cut serializer."""
 
     render = serializers.HyperlinkedIdentityField(view_name="cut-render")
+    gen_from_xml = serializers.HyperlinkedIdentityField(view_name="cut-gen-from-xml")
+    gen_from_rendered = serializers.HyperlinkedIdentityField(
+        view_name="cut-gen-from-rendered"
+    )
 
     def update(self, instance: Cut, validated_data: dict[str, Any]) -> Cut:
         """Update a cut, handling JSON payloads for json_file."""
@@ -380,6 +402,8 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
             "game",
             "slug",
             "render",
+            "gen_from_xml",
+            "gen_from_rendered",
         ]
 
 

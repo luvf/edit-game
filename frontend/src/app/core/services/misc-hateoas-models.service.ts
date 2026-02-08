@@ -2,7 +2,7 @@ import {Injectable} from '@angular/core';
 import {HttpClient} from '@angular/common/http';
 import {Cut, Game, RenderQueueItem, Team, TmpImage, Yt_Video} from '../models/models';
 import {HateoasService} from '../hateoas.service';
-import {Observable} from 'rxjs';
+import {map, Observable, throwError} from 'rxjs';
 
 /**
 /**
@@ -61,6 +61,27 @@ export class CutsService extends HateoasService<Cut> {
 
   render_cut(resource: Cut, body: unknown = {}):Observable<RenderQueueItem> {
     return this.invoke_resource<RenderQueueItem>(resource, 'render', body);
+  }
+
+  gen_from_xml(resource: Cut, xmlFile: File): Observable<Cut> {
+    const link = resource._links?.gen_from_xml;
+    if (!link || !('href' in link)) {
+      return throwError(() => new Error("Relation 'gen_from_xml' introuvable sur le cut."));
+    }
+    const formData = new FormData();
+    formData.append('xml_file', xmlFile);
+    return this.http.post(link.href, formData).pipe(
+      map((resp) => {
+        const parsed = this.parse(resp);
+        const result = (parsed as any).original ? (parsed as any).original() as Cut : (resp as Cut);
+        (result as any)._parsed = parsed;
+        return result;
+      })
+    );
+  }
+
+  gen_from_rendered(resource: Cut, body: {path?: string; filename?: string} = {}): Observable<Cut> {
+    return this.invoke_resource<Cut>(resource, 'gen_from_rendered', body);
   }
 }
 
