@@ -50,6 +50,18 @@ export class VideoMetadataService extends HateoasService<VideoMetadata> {
     return this.follow_resource<Yt_Video[]>(resource, 'linked_yt_videos', reload);
   }
 
+  set_yt_video(resource: VideoMetadata, ytVideo: Yt_Video | string | null) {
+    const ytVideoValue = typeof ytVideo === 'string'
+      ? ytVideo
+      : ytVideo?._links?.self?.href ?? ytVideo?.pk ?? null;
+    return this.invoke_resource<{yt_video: Yt_Video | null}>(
+      resource,
+      'set_yt_video',
+      {yt_video: ytVideoValue},
+      'PATCH'
+    );
+  }
+
   /**
    * Invokes the 'generate_miniature' action to produce a thumbnail with given parameters.
    *

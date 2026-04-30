@@ -55,6 +55,7 @@ export interface TournamentLinks extends HalLinks {
   generate_games?:Link;
   rendered?: Link;
   archive?: Link;
+  video_metadatas?: Link;
 
   videos?: Link;
 }
@@ -83,6 +84,7 @@ export interface VideoMetadataLinks extends HalLinks {
   reset_url?: Link;
   upload_description?: Link;
   upload_miniature?: Link;
+  set_yt_video?: Link;
 }
 
 export interface VideoMetadata extends BaseHalModel {
@@ -102,7 +104,7 @@ export interface VideoMetadata extends BaseHalModel {
 
 export interface Yt_VideoLinks extends HalLinks {
   self: Link;
-  video_metadata?: Link;
+  linked_video?: Link;
 }
 
 export interface Yt_Video extends BaseHalModel {

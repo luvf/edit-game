@@ -100,11 +100,19 @@ class HALMixin(serializers.ModelSerializer[T]):
         print(f"Unable to resolve {serializer_cls} ")
         return None
 
-    def _build_embedded(self, instance: T, data: dict[str, Any]) -> dict[str, Any]:
+    def _build_embedded(
+        self,
+        instance: T,
+        data: dict[str, Any],
+        *,
+        allowed: set[str] | None = None,
+    ) -> dict[str, Any]:
         """Builds _ebmedded section of HAL format."""
         embedded: dict[str, Any] = {}
 
         for name, serializer_cls in (getattr(self, "hal_embedded", {}) or {}).items():
+            if allowed is not None and name not in allowed:
+                continue
             value = getattr(instance, name, None)
             if value is None:
                 continue
@@ -136,6 +144,16 @@ class HALMixin(serializers.ModelSerializer[T]):
     def to_representation(self, instance: T) -> dict[str, Any]:
         """Generate the HAL representation."""
         data = super().to_representation(instance)
+        request = self.context.get("request") if hasattr(self, "context") else None
+        params = request.query_params if request is not None else {}
+        no_embed = str(params.get("no_embed", "")).lower() in {"1", "true", "yes"}
+        embed_param = str(params.get("embed", "")).strip()
+        fields_param = str(params.get("fields", "")).strip()
+        allowed_embeds = None
+        if embed_param:
+            allowed_embeds = {
+                item.strip() for item in embed_param.split(",") if item.strip()
+            }
 
         # Construction des liens
         links = self._build_links(data)
@@ -143,9 +161,20 @@ class HALMixin(serializers.ModelSerializer[T]):
             data["_links"] = links
 
         # Construction des objets embarqués
-        embedded = self._build_embedded(instance, data)
-        if embedded:
-            data["_embedded"] = embedded
+        if not no_embed:
+            embedded = self._build_embedded(instance, data, allowed=allowed_embeds)
+            if embedded:
+                data["_embedded"] = embedded
+
+        if fields_param:
+            allowed_fields = {
+                item.strip() for item in fields_param.split(",") if item.strip()
+            }
+            filtered: dict[str, Any] = {}
+            for key, value in data.items():
+                if key in allowed_fields or key in {"_links", "_embedded"}:
+                    filtered[key] = value
+            data = filtered
 
         return data
 
@@ -170,6 +199,9 @@ class VideoMetadataSerializer(
     )
     linked_yt_videos = serializers.HyperlinkedIdentityField(
         view_name="videometadata-linked-yt-videos",
+    )
+    set_yt_video = serializers.HyperlinkedIdentityField(
+        view_name="videometadata-set-yt-video",
     )
     reset_title_description = serializers.HyperlinkedIdentityField(
         view_name="videometadata-reset-title-description"
@@ -208,6 +240,7 @@ class VideoMetadataSerializer(
             "find_ytvid",
             "generate_miniature",
             "linked_yt_videos",
+            "set_yt_video",
             "reset_title_description",
         ]
 
@@ -270,9 +303,7 @@ class TournamentSerializer(
         view_name="tournament-generate-games"
     )
 
-    default_hal_embedded: ClassVar[dict[str, str]] = {
-        "video_metadatas": "VideoMetadataSerializer"
-    }
+    default_hal_embedded: ClassVar[dict[str, str]] = {}
 
     class Meta:
         """Meta."""

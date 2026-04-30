@@ -35,6 +35,18 @@ export class YTVideoService extends HateoasService<Yt_Video> {
     super(http);
     this.setCollectionUrl('http://localhost:8000/api/yt_videos/')
   }
+
+  latest(limit: number = 20): Observable<Yt_Video[]> {
+    return this.list().pipe(
+      map((videos) => videos
+        .sort((a, b) => {
+          const dateDiff = Date.parse(b.publication_date) - Date.parse(a.publication_date);
+          return dateDiff || b.pk - a.pk;
+        })
+        .slice(0, limit)
+      )
+    );
+  }
 }
 
 

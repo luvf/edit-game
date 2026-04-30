@@ -12,7 +12,7 @@ from typing import cast
 
 from django.conf import settings
 from django.core.files.base import ContentFile
-from django.db.models import Q
+from django.db.models import Model, Q
 from django.http import Http404
 from django.urls import resolve
 
@@ -54,6 +54,15 @@ from core.tasks import run_async_task
 from jugger_video_manipulation.build_miniature import get_video_file_names
 
 type PermissionClass = type[BasePermission] | OperandHolder | SingleOperandHolder
+
+
+def _model_from_url[T: Model](url: str, model_cls: type[T]) -> T:
+    path = urllib.parse.urlparse(url).path
+    resolved_func, _, resolved_kwargs = resolve(path)
+    obj = resolved_func.cls().get_queryset().get(pk=resolved_kwargs["pk"])
+    if not isinstance(obj, model_cls):
+        raise Http404
+    return cast(T, obj)
 
 
 class VideoMetadataViewSet(viewsets.ModelViewSet[VideoMetadata]):
@@ -146,9 +155,33 @@ class VideoMetadataViewSet(viewsets.ModelViewSet[VideoMetadata]):
         """Retourne toutes les vidéos YouTube liées à ce VideoMetadata."""
         _ = pk
         instance = self.get_object()
-        qs = YTVideo.objects.filter(linked_video=instance)
+        qs = YTVideo.objects.filter(linked_video=instance).order_by(
+            "-publication_date", "-pk"
+        )
         serializer = YTVideoSerializer(qs, many=True, context={"request": request})
         return Response(serializer.data)
+
+    @action(detail=True, methods=[HTTPMethod.PATCH], url_path="set-yt-video")
+    def set_yt_video(self, request: Request, pk: str | None = None) -> Response:
+        """Link the selected YouTube video to this VideoMetadata."""
+        _ = pk
+        instance: VideoMetadata = self.get_object()
+        yt_video_url = request.data.get("yt_video")
+
+        if yt_video_url in (None, ""):
+            YTVideo.objects.filter(linked_video=instance).update(linked_video=None)
+            return Response({"yt_video": None})
+
+        yt_video = _model_from_url(yt_video_url, YTVideo)
+
+        YTVideo.objects.filter(linked_video=instance).exclude(pk=yt_video.pk).update(
+            linked_video=None
+        )
+        yt_video.linked_video = instance
+        yt_video.save(update_fields=["linked_video"])
+
+        serializer = YTVideoSerializer(yt_video, context={"request": request})
+        return Response({"yt_video": serializer.data})
 
     @action(
         detail=True,
@@ -163,14 +196,6 @@ class VideoMetadataViewSet(viewsets.ModelViewSet[VideoMetadata]):
         """
         _ = pk
         instance: VideoMetadata = self.get_object()
-
-        def team_from_url(url: str) -> Team:
-            path = urllib.parse.urlparse(url).path
-            resolved_func, unused_args, resolved_kwargs = resolve(path)
-            return cast(
-                Team,
-                resolved_func.cls().get_queryset().get(id=resolved_kwargs["pk"]),
-            )
 
         reset_metadata = False
         # Met à jour éventuellement le time code si fourni
@@ -189,12 +214,12 @@ class VideoMetadataViewSet(viewsets.ModelViewSet[VideoMetadata]):
                 request.data.get("time_code", instance.time_code)
             )
         with contextlib.suppress(TypeError, ValueError, Http404):
-            new_team = team_from_url(request.data["team1"])
+            new_team = _model_from_url(request.data["team1"], Team)
             if new_team != instance.team1:
                 reset_metadata = True
                 instance.team1 = new_team
-            new_team = team_from_url(request.data["team2"])
-            if new_team != instance.team1:
+            new_team = _model_from_url(request.data["team2"], Team)
+            if new_team != instance.team2:
                 reset_metadata = True
                 instance.team2 = new_team
 

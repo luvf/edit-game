@@ -2,8 +2,7 @@ import {Injectable} from '@angular/core';
 import {HttpClient} from '@angular/common/http';
 import {Game, Tournament, VideoMetadata} from '../models/models';
 import {Observable} from 'rxjs';
-import {HateoasService} from '../hateoas.service';
-import {PaginatedResult} from '../hateoas.service';
+import {HateoasService, PaginatedResult} from '../hateoas.service';
 
 
 /**
@@ -33,10 +32,26 @@ export class TournamentService extends HateoasService<Tournament> {
   }
 
   games(resource: Tournament, reload: boolean = false): Observable<Game[]> {
+    const link = resource._links?.games;
+    if (link && "href" in link) {
+      const url = this.withQuery(link.href, {
+        no_embed: "1",
+        fields: "pk,name,files,source_proxy",
+      });
+      return this.http.get<Game[]>(url);
+    }
     return this.follow_resource<Game[]>(resource, 'games', reload);
   }
 
-  video_metadatas(resource: Tournament, reload: boolean = false) {
+  video_metadatas(resource: Tournament, reload: boolean = false):Observable<VideoMetadata[]> {
+    const link = resource._links?.video_metadatas;
+    if (link && "href" in link) {
+      const url = this.withQuery(link.href, {
+        no_embed: "1",
+        fields: "pk,name,description",
+      });
+      return this.http.get<VideoMetadata[]>(url);
+    }
     return this.follow_resource<VideoMetadata[]>(resource, 'video_metadatas', reload);
   }
 
@@ -62,7 +77,16 @@ export class TournamentService extends HateoasService<Tournament> {
 
   listPage(pageIndex: number, pageSize: number): Observable<PaginatedResult<Tournament>> {
     const page = pageIndex + 1;
-    const url = `${this.baseUrl}?page=${page}&page_size=${pageSize}`;
+    const fields = encodeURIComponent('pk,name,date,color,is_archived');
+    const url = `${this.baseUrl}?page=${page}&page_size=${pageSize}&no_embed=1&fields=${fields}`;
     return super.listPaginated(url);
+  }
+
+  private withQuery(url: string, params: Record<string, string>): string {
+    const query = new URLSearchParams(params).toString();
+    if (!query) {
+      return url;
+    }
+    return `${url}${url.includes("?") ? "&" : "?"}${query}`;
   }
 }
