@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import subprocess
 import uuid
-from collections.abc import Iterable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import ffmpeg  # type: ignore[import-untyped]
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 def _ensure_dir(path: Path) -> None:
@@ -149,10 +152,7 @@ def build_cut_points_from_rendered_frames(
     hash_size: int = 64,
     ignore_bottom_fraction: float = 1 / 3,
     use_chapters: bool = True,
-    chapter_search_factor: float = 2.0,
-    chapter_min_gap_seconds: float = 30.0,
     chapter_start_offset_seconds: float = 1.0,
-    unordered: bool = False,
     force_unchaptered: bool = False,
     tmp_dir: str | Path = "core/tmp",
 ) -> list[dict[str, int | str]]:
@@ -254,21 +254,23 @@ def build_cut_points_from_rendered_frames(
         skip_start_idx = int(target_start_skip_seconds * sample_fps)
         points: list[dict[str, int | str]] = []
         print(f"Chapters detected: {len(chapters)}")
-        for start_sec, end_sec in tqdm(chapters, desc="Chapter match", ascii=True):
-            start_sec += chapter_start_offset_seconds
-            if end_sec <= start_sec:
+        for start_second, end_second in tqdm(
+            chapters, desc="Chapter match", ascii=True
+        ):
+            start_sec = start_second + chapter_start_offset_seconds
+            if end_second <= start_sec:
                 continue
             target_start_idx = int(start_sec * sample_fps)
             if start_sec <= target_start_skip_seconds:
                 target_start_idx = max(skip_start_idx, target_start_idx)
-            target_end_idx = min(len(target_hashes), int(end_sec * sample_fps))
+            target_end_idx = min(len(target_hashes), int(end_second * sample_fps))
             if target_end_idx <= target_start_idx:
                 continue
             chapter_len = target_end_idx - target_start_idx
             if chapter_len <= 0:
                 continue
 
-            mid_sec = (start_sec + end_sec) / 2.0
+            mid_sec = (start_sec + end_second) / 2.0
             window_start = mid_sec - 2.5
             window_times = [window_start + offset for offset in range(5)]
             target_indices: list[int] = []
@@ -324,7 +326,7 @@ def build_cut_points_from_rendered_frames(
                 start_frame = round(matched_start * sample_interval_seconds * fps)
                 end_frame = round(matched_end * sample_interval_seconds * fps)
                 if end_frame > start_frame:
-                    target_duration = end_sec - start_sec
+                    target_duration = end_second - start_sec
                     cut_duration = (end_frame - start_frame) / fps
                     print(
                         "Chapter match score:",

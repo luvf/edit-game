@@ -10,12 +10,13 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
-from typing import Any, ClassVar, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
 from django.db.models import Q
+from django.utils.text import slugify
 
 from jugger_video_manipulation.cut_json_parser import CutJsonParser
 
@@ -28,7 +29,7 @@ class RenderQueueItem(models.Model):
     """Queue item for cut renders."""
 
     PRESET_ARGS: ClassVar[dict[str, str]] = {
-        "low": "-c:v libx265 -preset fast -crf 32 -vf scale=640x360 -ar 16000",
+        "low": "-c:v libx265  -preset fast -crf 32 -vf scale=640x360 -ar 16000",
         "medium": "-c:v libx265 -preset medium -crf 23",
         "high": "-c:v libx265 -preset slow -x265-params lossless=1 -vf scale=3840:2160",
     }
@@ -156,9 +157,7 @@ class RenderQueueItem(models.Model):
         if returncode != 0:
             details = (stderr or stdout or "").strip()
             if details:
-                raise RuntimeError(
-                    f"ffmpeg failed (code {returncode}): {details}"
-                )
+                raise RuntimeError(f"ffmpeg failed (code {returncode}): {details}")
             raise RuntimeError(f"ffmpeg failed with code {returncode}.")
 
     def run(self) -> None:
@@ -197,7 +196,16 @@ class RenderQueueItem(models.Model):
             if not ffprobe_path:
                 continue
             result = subprocess.run(
-                [ffprobe_path, "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", str(src_path)],
+                [
+                    ffprobe_path,
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=nw=1:nk=1",
+                    str(src_path),
+                ],
                 check=False,
                 capture_output=True,
                 text=True,
@@ -326,7 +334,7 @@ class RenderQueueItemCut(RenderQueueItem):
     def build_out_filename(self) -> str:
         """Build the output filename for cut renders."""
         game = self._require_game()
-        stem = Path(game.files[0]).stem
+        stem = slugify(Path(game.files[0]).stem)
         return f"{stem}_{self.cut.name}_{self.preset}.mp4"
 
     @property
@@ -362,7 +370,7 @@ class RenderQueueItemCut(RenderQueueItem):
             vf = f"select='{select_expr}',setpts=N/FRAME_RATE/TB"
             self.command = (
                 f"ffmpeg {hwaccel} -y -f concat -safe 0 -i {concat_file} "
-                f'-vf "{vf}" {preset_args} {out_file}'
+                f'-vf "{vf} -movflags faststart" {preset_args} {out_file}'
             )
             return self.command
         self.command = (
@@ -417,7 +425,7 @@ class RenderQueueItemProxy(RenderQueueItem):
 
     def build_out_filename(self) -> str:
         """Build the output filename for proxy renders."""
-        stem = Path(self.game.files[0]).stem
+        stem = slugify(Path(self.game.files[0]).stem)
         return f"{stem}_{self.preset}.mp4"
 
     @property
@@ -442,7 +450,7 @@ class RenderQueueItemProxy(RenderQueueItem):
         hwaccel = self._hwaccel_args()
         self.command = (
             f"ffmpeg {hwaccel} -y -f concat -safe 0 -i {concat_file} "
-            f"{preset_args} {out_file}"
+            f"-movflags faststart {preset_args}  {out_file}"
         )
         return self.command
 

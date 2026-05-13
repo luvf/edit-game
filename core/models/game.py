@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.db import models
+
+if TYPE_CHECKING:
+    from core.models.render_queue import RenderQueueItem
 
 
 class Game(models.Model):
@@ -55,13 +58,39 @@ class Game(models.Model):
         with self.json_file_path.open("w") as f:
             json.dump(json_data, f, indent=4)
 
+    def normalize_source_proxy(self) -> bool:
+        """Clear source_proxy when the referenced file no longer exists.
+
+        If source_proxy is a broken symlink, the symlink is deleted too.
+
+        Returns True when the model was updated.
+        """
+        source_proxy_name = self.source_proxy.name
+        if not source_proxy_name:
+            return False
+
+        source_proxy_path = self.source_proxy_path
+        if source_proxy_path.is_symlink() and not source_proxy_path.exists():
+            source_proxy_path.unlink(missing_ok=True)
+            self.source_proxy = ""
+            self.save(update_fields=["source_proxy"])
+            return True
+
+        storage = self.source_proxy.storage
+        if storage.exists(source_proxy_name):
+            return False
+
+        self.source_proxy = ""
+        self.save(update_fields=["source_proxy"])
+        return True
+
     def generate_proxy(
         self,
         preset: str = "low",
         *,
         overwrite: bool = False,
         to_queue: bool = False,
-    ) -> "RenderQueueItem":
+    ) -> RenderQueueItem:
         """Create a proxy render queue item handled by RenderQueueItemProxy.
 
         Behavior:

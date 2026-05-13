@@ -7,6 +7,10 @@ import {MatTableDataSource, MatTableModule} from '@angular/material/table';
 import {MatSort, MatSortModule} from '@angular/material/sort';
 import {MatButtonModule} from '@angular/material/button';
 import {PaginatedResult} from '../core/hateoas.service';
+import {FormsModule} from '@angular/forms';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatInputModule} from '@angular/material/input';
+import {CreateTournament} from '../create-tournament/create-tournament';
 
 /**
  * Container view that lists tournaments and provides actions per tournament.
@@ -21,7 +25,18 @@ import {PaginatedResult} from '../core/hateoas.service';
 @Component({
   selector: 'app-tournaments_view',
   templateUrl: './tournament-view.component.html',
-    imports: [CommonModule, MatTableModule, MatSortModule, MatButtonModule],
+  standalone: true,
+  imports: [
+    CommonModule,
+    FormsModule,
+    MatTableModule,
+    MatSortModule,
+    MatButtonModule,
+    MatFormFieldModule,
+    MatInputModule,
+    CreateTournament,
+
+  ],
 
   styleUrl: './tournament-view.component.css',
 })
@@ -31,10 +46,11 @@ export class TournamentViewComponent implements OnInit, AfterViewInit {
   total = signal(0);
   dataSource = new MatTableDataSource<Tournament>([]);
   displayedColumns = ['color', 'name', 'date', 'nb_matches', 'actions'];
+  @ViewChild(MatSort) sort!: MatSort;
+
 
   private tournamentService = inject(TournamentService);
   private router = inject(Router);
-  @ViewChild(MatSort) sort!: MatSort;
   private loadingMore = false;
   private pageSize = 20;
 
@@ -68,7 +84,6 @@ export class TournamentViewComponent implements OnInit, AfterViewInit {
       }
     };
   }
-
 
   /**
    * Triggers the 'sync_videos' action on a tournament.
@@ -109,6 +124,7 @@ export class TournamentViewComponent implements OnInit, AfterViewInit {
       }
     });
   }
+
   goToVideoEditing(tournament: Tournament): void {
     if (!tournament?._links?.self) return;
     this.router.navigate(['/tournament/video-editing'], {
@@ -126,6 +142,15 @@ export class TournamentViewComponent implements OnInit, AfterViewInit {
     this.router.navigate(['/tournament/games'], {
       queryParams: {url: tournament._links.self.href},
     });
+  }
+
+  onTournamentCreated(created : Tournament|null){
+    if(!created) return;
+    const next = [created, ...this.tournaments()];
+    this.tournaments.set(next);
+    this.dataSource.data = next;
+    this.total.set(this.total() + 1);
+    this.loadGamesCount(created);
   }
 
   /**
@@ -207,4 +232,9 @@ export class TournamentViewComponent implements OnInit, AfterViewInit {
     this.dataSource.data = merged;
     appended.forEach(t => this.loadGamesCount(t));
   }
+
+
+
+
+
 }

@@ -53,7 +53,9 @@ export interface TournamentLinks extends HalLinks {
   sync_videos?: Link;
   youtube_update?: Link;
   generate_games?:Link;
+  create_game?: Link;
   rendered?: Link;
+  source_files?: Link;
   archive?: Link;
   video_metadatas?: Link;
 
@@ -63,6 +65,7 @@ export interface TournamentLinks extends HalLinks {
 export interface Tournament extends BaseHalModel {
   pk: number;
   name: string;
+  short_name?: string;
   date: string;
   place: string;
   JTR: string;

@@ -1,4 +1,7 @@
-<div class="overTable">
+<div class="tournaments-layout">
+    <app-create-tournament (tournamentCreated)="onTournamentCreated($event)"></app-create-tournament>
+
+  <div class="overTable">
 <table [dataSource]="dataSource" class="mat-elevation-z8 tournaments-table" mat-table matSort>
 
   <ng-container matColumnDef="color">
@@ -50,5 +53,6 @@
   </ng-container>
 
 
-</table>
+    </table>
+  </div>
 </div>

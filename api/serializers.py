@@ -8,6 +8,7 @@ from typing import Any, ClassVar, TypeVar
 
 from django.conf import settings
 from django.core.files.base import ContentFile
+from django.template.defaultfilters import slugify
 from rest_framework import serializers
 
 from core.models import (
@@ -299,6 +300,12 @@ class TournamentSerializer(
         view_name="tournament-videos"
     )
     rendered = serializers.HyperlinkedIdentityField(view_name="tournament-rendered")
+    source_files = serializers.HyperlinkedIdentityField(
+        view_name="tournament-source-files"
+    )
+    create_game = serializers.HyperlinkedIdentityField(
+        view_name="tournament-create-game"
+    )
     generate_games = serializers.HyperlinkedIdentityField(
         view_name="tournament-generate-games"
     )
@@ -322,23 +329,42 @@ class TournamentSerializer(
             "slug",
             "is_archived",
             "generate_games",
+            "create_game",
             "video_metadatas",
             "rendered",
+            "source_files",
             "sync_videos",
             "youtube_update",
             "archive",
         ]
 
     def get_is_archived(self, obj: Tournament) -> bool:
+        """Check if tournament is archived based on drive directory."""
         return obj.drive_dir == str(settings.TOURNAMENTS_ARCHIVE_DIR)
 
     def to_representation(self, instance: Tournament) -> dict[str, Any]:
+        """Remove archive link if tournament is archived."""
         data = super().to_representation(instance)
         if self.get_is_archived(instance):
             links = data.get("_links")
             if isinstance(links, dict):
                 links.pop("archive", None)
         return data
+
+    def create(self, validated_data: Any) -> Tournament:
+        """Create a new tournament instance."""
+        new_tournament = Tournament(
+            name=validated_data.get("name"),
+            short_name=validated_data.get("short_name"),
+            date=validated_data.get("date"),
+            place=validated_data.get("place"),
+            JTR=validated_data.get("JTR"),
+            tugeny_link=validated_data.get("tugeny_link"),
+            color=validated_data.get("color"),
+            slug=slugify(validated_data.get("name")),
+        )
+        new_tournament.save()
+        return new_tournament
 
 
 class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game]):

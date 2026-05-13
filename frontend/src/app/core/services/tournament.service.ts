@@ -59,8 +59,25 @@ export class TournamentService extends HateoasService<Tournament> {
     return this.follow_resource<string[]>(resource, 'rendered', reload);
   }
 
+  source_files(resource: Tournament, reload: boolean = false) {
+    return this.follow_resource<string[]>(resource, 'source_files', reload);
+  }
+
+  sourceFileUrl(resource: Tournament, filename: string): string {
+    const selfHref = resource._links?.self?.href;
+    if (!selfHref) {
+      throw new Error("Lien 'self' introuvable pour ce tournoi.");
+    }
+    const base = selfHref.endsWith('/') ? selfHref : `${selfHref}/`;
+    return `${base}source-file/?filename=${encodeURIComponent(filename)}`;
+  }
+
   generate_games(resource: Tournament, body: unknown = {}) {
     return this.invoke_resource(resource, 'generate_games', body);
+  }
+
+  create_game(resource: Tournament, body: unknown = {}) {
+    return this.invoke_resource(resource, 'create_game', body);
   }
 
   syncVideos(resource: Tournament, body: unknown = {}) {

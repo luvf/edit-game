@@ -1,4 +1,5 @@
 <div class="edit-games-container">
+  <div>{{ tournament()?.name }}</div>
 
   <div class="proxy-global-actions">
     <mat-form-field appearance="outline" class="proxy-quality">
@@ -79,4 +80,63 @@
       </div>
     }
   </div>
+
+  <section class="create-game-panel">
+    <div class="create-game-fields">
+      <mat-form-field appearance="outline" class="team-field">
+        <mat-label>Game Name</mat-label>
+        <input matInput [(ngModel)]="newGameName">
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="source-field">
+        <mat-label>Source file</mat-label>
+        <mat-select [(ngModel)]="selectedSourceFile" (ngModelChange)="onSourceFileSelected($event)">
+          @for (file of sourceFiles(); track file) {
+            <mat-option [value]="file">{{ file }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+      <button mat-stroked-button color="primary" type="button" (click)="onAddSourceFile()">
+        Add
+      </button>
+      <button
+        mat-raised-button
+        color="primary"
+        type="button"
+        class="create-game-button"
+        [disabled]="!newGameName.trim() || !selectedSourceFiles().length"
+        (click)="onCreateGame()"
+      >
+        Create game
+      </button>
+    </div>
+
+    <div class="create-game-preview">
+      <div class="preview-box">
+        @if (sourceFilePreviewUrl) {
+          <video class="source-preview" controls preload="metadata" [attr.src]="sourceFilePreviewUrl"></video>
+        } @else {
+          <div class="preview-empty">Select a source file to preview it.</div>
+        }
+      </div>
+
+      <div class="selected-files">
+        <div class="selected-files-header">Files to include</div>
+        @if (selectedSourceFiles().length) {
+          <div class="selected-file-list">
+            @for (file of selectedSourceFiles(); track file) {
+              <div class="selected-file-row">
+                <span class="selected-file-name">{{ file }}</span>
+                <button type="button" class="remove-file" (click)="onRemoveSourceFile(file)">
+                  Remove
+                </button>
+              </div>
+            }
+          </div>
+        } @else {
+          <div class="selected-files-empty">No file selected yet.</div>
+        }
+      </div>
+    </div>
+  </section>
 </div>

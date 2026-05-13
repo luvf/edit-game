@@ -216,10 +216,10 @@ def build_cut_points_from_rendered_audio(
     if chapters:
         points: list[dict[str, int | str]] = []
         source_cursor = 0
-        for start_sec, end_sec in chapters:
-            start_sec += chapter_start_offset_seconds
+        for start_second, end_second in chapters:
+            start_sec = start_second + chapter_start_offset_seconds
             target_start = int(start_sec * sample_rate)
-            target_end = int(end_sec * sample_rate)
+            target_end = int(end_second * sample_rate)
             if target_end <= target_start:
                 continue
             if target_start >= target_len:

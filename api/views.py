@@ -2,21 +2,20 @@
 
 import contextlib
 import json
+import mimetypes
 import random
 import urllib.parse
-import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from http import HTTPMethod
 from pathlib import Path
 from typing import cast
+from xml.etree import ElementTree
 
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db.models import Model, Q
-from django.http import Http404
+from django.http import FileResponse, Http404
 from django.urls import resolve
-
-# Create your views here.
 from django.utils.text import slugify
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -51,6 +50,7 @@ from core.models import (
     YTVideo,
 )
 from core.tasks import run_async_task
+from core.utils.dataset_utils import get_base_json
 from jugger_video_manipulation.build_miniature import get_video_file_names
 
 type PermissionClass = type[BasePermission] | OperandHolder | SingleOperandHolder
@@ -62,7 +62,7 @@ def _model_from_url[T: Model](url: str, model_cls: type[T]) -> T:
     obj = resolved_func.cls().get_queryset().get(pk=resolved_kwargs["pk"])
     if not isinstance(obj, model_cls):
         raise Http404
-    return cast(T, obj)
+    return obj
 
 
 class VideoMetadataViewSet(viewsets.ModelViewSet[VideoMetadata]):
@@ -172,7 +172,7 @@ class VideoMetadataViewSet(viewsets.ModelViewSet[VideoMetadata]):
             YTVideo.objects.filter(linked_video=instance).update(linked_video=None)
             return Response({"yt_video": None})
 
-        yt_video = _model_from_url(yt_video_url, YTVideo)
+        yt_video = _model_from_url(str(yt_video_url), YTVideo)
 
         YTVideo.objects.filter(linked_video=instance).exclude(pk=yt_video.pk).update(
             linked_video=None
@@ -266,6 +266,7 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         - sync_videos[POST]:get the videos associated with this tournament.
         - videos[GET]: returns the videos associated with this tournament.
         - rendered[GET]: returns rendered filenames for this tournament.
+        - source_files[GET]: returns source filenames from this tournament.
         - youtube_update[POST]: Trigger update of YouTube videos.
     """
 
@@ -306,6 +307,69 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
                 "games": game_ser.data,
             }
         )
+
+    @action(detail=True, methods=[HTTPMethod.POST], url_path="create-game")
+    def create_game(self, request: Request, pk: str | None = None) -> Response:
+        """Create a single game from explicit teams and source files."""
+        _ = pk
+        tournament: Tournament = self.get_object()
+
+        raw_files = request.data.get("files") or []
+        if isinstance(raw_files, str):
+            try:
+                raw_files = json.loads(raw_files)
+            except json.JSONDecodeError:
+                raw_files = [raw_files]
+        if not isinstance(raw_files, list):
+            return Response(
+                {"status": "failed", "error": "files must be a list."}, status=400
+            )
+
+        filenames = [
+            Path(str(file_name)).name
+            for file_name in raw_files
+            if str(file_name).strip()
+        ]
+        filenames = list(dict.fromkeys(filenames))
+        if not filenames:
+            return Response(
+                {"status": "failed", "error": "files is required."}, status=400
+            )
+        game_name = str(request.data.get("name"))
+
+        existing_game = Game.objects.filter(
+            tournament=tournament, files=filenames
+        ).first()
+        if existing_game is not None:
+            serializer = GameSerializer(
+                existing_game, context=self.get_serializer_context()
+            )
+            return Response(serializer.data)
+
+        slug = slugify(f"{tournament.short_name}-{game_name}-{len(filenames)}")
+        if not slug:
+            slug = slugify(game_name)
+
+        base_json = json.loads(get_base_json())
+        base_json["team1"] = ""
+        base_json["team2"] = ""
+        base_json["dir"] = tournament.source_dir
+        base_json["files"] = filenames
+        base_json["filename"] = f"{slug}.json"
+
+        game = Game(
+            name=game_name,
+            files=filenames,
+            tournament=tournament,
+            rendered="",
+            slug=slug,
+        )
+        content = ContentFile(json.dumps(base_json, indent=4).encode("utf-8"))
+        game.json_file.save(f"{slug}.json", content, save=False)
+        game.save()
+
+        serializer = GameSerializer(game, context=self.get_serializer_context())
+        return Response(serializer.data, status=201)
 
     @action(detail=True, methods=[HTTPMethod.POST], url_path="sync_videos")
     def sync_videos(self, request: Request, pk: str | None = None) -> Response:
@@ -379,6 +443,58 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         names = sorted({file.name for file in files})
         return Response(names)
 
+    @action(detail=True, methods=[HTTPMethod.GET], url_path="source-files")
+    def source_files(self, request: Request, pk: str | None = None) -> Response:
+        """List source filenames from this tournament rushs directory."""
+        _ = pk, request
+        tournament = self.get_object()
+        rushs_dir = (tournament.source_dir_path / "rushs").absolute()
+        if not rushs_dir.exists():
+            return Response([])
+        files = sorted(
+            [
+                path
+                for path in rushs_dir.iterdir()
+                if path.is_file() and path.suffix in (".mp4", ".MP4")
+            ],
+            key=lambda x: x.stat().st_ctime,
+        )
+        names = [path.name for path in files]
+        return Response(names)
+
+    @action(detail=True, methods=[HTTPMethod.GET], url_path="source-file")
+    def source_file(
+        self, request: Request, pk: str | None = None
+    ) -> FileResponse | Response:
+        """Stream one source file from the tournament rushs directory."""
+        _ = pk
+        tournament = self.get_object()
+        filename = str(
+            request.query_params.get("filename") or request.data.get("filename") or ""
+        ).strip()
+        if not filename:
+            return Response(
+                {"status": "failed", "error": "filename is required."}, status=400
+            )
+
+        safe_name = Path(filename).name
+        rushs_dir = (tournament.source_dir_path / "rushs").resolve()
+        source_path = (rushs_dir / safe_name).resolve()
+        try:
+            source_path.relative_to(rushs_dir)
+        except ValueError:
+            return Response(
+                {"status": "failed", "error": "Invalid filename."}, status=400
+            )
+        if not source_path.exists():
+            raise Http404
+
+        content_type, _ = mimetypes.guess_type(str(source_path))
+        return FileResponse(
+            source_path.open("rb"),
+            content_type=content_type or "application/octet-stream",
+        )
+
     @action(detail=True, methods=[HTTPMethod.POST], url_path="youtube-update")
     def youtube_update(self, request: Request, pk: str | None = None) -> Response:
         """Trigger update of YouTube videos for this tournament (titres/infos côté YT)."""
@@ -407,6 +523,21 @@ class GameViewSet(viewsets.ModelViewSet[Game]):
     serializer_class = GameSerializer
     queryset = Game.objects.all()
     permission_classes: Sequence[PermissionClass] = [AllowAny]
+
+    def get_object(self) -> Game:
+        """Fetch a game and normalize stale proxy metadata before returning it."""
+        game = super().get_object()
+        game.normalize_source_proxy()
+        return game
+
+    def retrieve(self, request: Request, *args: object, **kwargs: object) -> Response:
+        """Return a single game with a normalized proxy reference."""
+        _ = request
+        _ = args
+        _ = kwargs
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
 
     @action(detail=True, methods=[HTTPMethod.GET], url_path="cuts")
     def cuts(self, request: Request, pk: str | None = None) -> Response:
@@ -514,7 +645,7 @@ class CutViewSet(viewsets.ModelViewSet[Cut]):
         try:
             payload = cut.gen_from_xml(xml_file.read())
             cut.set_json(payload)
-        except ET.ParseError as exc:
+        except ElementTree.ParseError as exc:
             return Response({"status": "failed", "error": str(exc)}, status=400)
         except Exception as exc:
             return Response({"status": "failed", "error": str(exc)}, status=500)

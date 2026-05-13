@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast
+from xml.etree import ElementTree
 
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -84,7 +84,7 @@ class Cut(models.Model):
             return {"points": [], "overlays": []}
 
         # TODO: Confirm DaVinci XML timing fields vs concatenated game file offsets.
-        root = ET.fromstring(xml_payload)
+        root = ElementTree.fromstring(xml_payload)
         points: list[dict[str, int | str]] = []
         for clip in root.findall(".//video//clipitem"):
             file_name = clip.findtext("file/name") or clip.findtext("name") or ""

@@ -33,12 +33,12 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit, OnDe
   tournament = signal<Tournament | null>(null);
   dataSource = new MatTableDataSource<VideoMetadata>([]);
   displayedColumns = ['miniature', 'name', 'teams', 'status', 'description'];
+  @ViewChild(MatSort) sort!: MatSort;
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private tournamentService = inject(TournamentService);
   private videoMetadataService = inject(VideoMetadataService);
   private navService = inject(NavService);
-  @ViewChild(MatSort) sort!: MatSort;
 
   /**
    * Initializes by reading the tournament URL and loading its videos.
@@ -121,6 +121,39 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit, OnDe
       },
     });
   }
+
+    /**
+   * Triggers the 'sync_videos' action on this tournament.
+   *
+   */
+  onSyncVideos(): void {
+    const tournament = this.tournament()
+    if (!tournament) return;
+    this.tournamentService.syncVideos(tournament, {}).subscribe({
+      next: () => {
+      },
+      error: (e) => {
+        console.error('sync_videos failed', e);
+      }
+    });
+  }
+
+  /**
+   * Triggers the 'youtube_update' action on this tournament.
+   *
+   */
+  onYoutubeUpdate(): void {
+    const tournament = this.tournament()
+    if (!tournament) return;
+    this.tournamentService.youtubeUpdate(tournament, {}).subscribe({
+      next: () => {
+      },
+      error: (e) => {
+        console.error('youtube_update failed', e);
+      }
+    });
+  }
+
   /*
   * loads viedos datas after the tournaent is loaded
   *
@@ -227,6 +260,18 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit, OnDe
         routerLink: ['/tournament/video-editing'],
         queryParams: {url: tournamentUrl},
       },
+    ]);
+
+    this.navService.setActions([
+      {
+        label: 'Update Games',
+        onClick: () => this.onSyncVideos(),
+      },
+      {
+        label: 'Youtube Update',
+        onClick: () => this.onYoutubeUpdate(),
+      },
+
     ]);
   }
 

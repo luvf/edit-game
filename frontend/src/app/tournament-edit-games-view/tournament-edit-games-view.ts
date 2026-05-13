@@ -38,16 +38,19 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
   team1_names = signal<Record<string, string>>({});
   team2_names = signal<Record<string, string>>({});
   cuts_count = signal<Record<number, number>>({});
+  sourceFiles = signal<string[]>([]);
+  selectedSourceFiles = signal<string[]>([]);
   dataSource = new MatTableDataSource<Game>([]);
   proxyQuality = signal<'low' | 'medium' | 'high'>('medium');
-
+  newGameName = '';
+  selectedSourceFile = '';
+  sourceFilePreviewUrl = '';
+  @ViewChild(MatSort) sort!: MatSort;
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private tournamentService = inject(TournamentService);
   private GameService = inject(GamesService);
   private navService = inject(NavService);
-  @ViewChild(MatSort) sort!: MatSort;
-
 
   /**
    * Initializes by reading the tournament URL and loading its videos.
@@ -63,7 +66,9 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
           if (!current_tournament) return;
           this.tournament.set(current_tournament);
           this.updateNav(tournament_url);
+          this.resetCreateGameForm();
           this.tournament_loaded(current_tournament);
+          this.loadSourceFiles(current_tournament);
         },
         error: (e) => {
           console.error('Erreur lors de la récupération du tournoi', e);
@@ -117,6 +122,52 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
          console.error('Erreur lors de la génération des matchs', e);
       }
     })
+  }
+
+  onSourceFileSelected(filename: string): void {
+    this.selectedSourceFile = filename;
+    const tournament = this.tournament();
+    if (!tournament || !filename) {
+      this.sourceFilePreviewUrl = '';
+      return;
+    }
+    this.sourceFilePreviewUrl = this.tournamentService.sourceFileUrl(tournament, filename);
+  }
+
+  onAddSourceFile(): void {
+    const filename = this.selectedSourceFile.trim();
+    if (!filename) return;
+    const current = this.selectedSourceFiles();
+    if (current.includes(filename)) return;
+    this.selectedSourceFiles.set([...current, filename]);
+  }
+
+  onRemoveSourceFile(filename: string): void {
+    this.selectedSourceFiles.set(
+      this.selectedSourceFiles().filter((item) => item !== filename)
+    );
+  }
+
+  onCreateGame(): void {
+    const tournament = this.tournament();
+    if (!tournament) return;
+
+    const newGameName = this.newGameName.trim();
+    const files = this.selectedSourceFiles();
+
+    this.tournamentService.create_game(tournament, {
+       name:newGameName,
+       files:files,
+    }).subscribe({
+      next: () => {
+        this.resetCreateGameForm();
+        this.tournament_loaded(tournament);
+        this.loadSourceFiles(tournament);
+      },
+      error: (e) => {
+        console.error('Erreur lors de la création du match', e);
+      },
+    });
   }
 
   onGenerateAllProxy(): void {
@@ -180,6 +231,26 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
     })
   }
 
+  private loadSourceFiles(tournament: Tournament): void {
+    this.tournamentService.source_files(tournament, true).subscribe({
+      next: (files: string[]) => {
+        this.sourceFiles.set(files);
+        if (!files.length) {
+          this.onSourceFileSelected('');
+          return;
+        }
+        if (this.selectedSourceFile && files.includes(this.selectedSourceFile)) {
+          this.onSourceFileSelected(this.selectedSourceFile);
+          return;
+        }
+        this.onSourceFileSelected(files[0]);
+      },
+      error: (e) => {
+        console.error('Erreur lors du chargement des fichiers source', e);
+      },
+    });
+  }
+
    /**
    * Resolves and stores Team 1 and Team 2 names for a given video.
    *
@@ -238,6 +309,14 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
         onClick: () => this.onGenerateGames(),
       },
     ]);
+  }
+
+  private resetCreateGameForm(): void {
+    this.newGameName = '';
+    this.selectedSourceFile = '';
+    this.selectedSourceFiles.set([]);
+    this.sourceFilePreviewUrl = '';
+    this.sourceFiles.set([]);
   }
 
 }
