@@ -631,19 +631,26 @@ class CutViewSet(viewsets.ModelViewSet[Cut]):
         )
         return Response(serializer.data)
 
-    @action(detail=True, methods=[HTTPMethod.POST], url_path="gen-from-xml")
-    def gen_from_xml(self, request: Request, pk: str | None = None) -> Response:
+    @action(detail=True, methods=[HTTPMethod.POST], url_path="gen-from-file")
+    def gen_from_file(self, request: Request, pk: str | None = None) -> Response:
         """Generate cut JSON payload from an XML file."""
         _ = pk
         cut = self.get_object()
-        xml_file = request.FILES.get("xml_file")
-        if not xml_file:
+        upload_file = request.FILES.get("upload_file")
+        if not upload_file:
             return Response(
-                {"status": "failed", "error": "xml_file is required."}, status=400
+                {"status": "failed", "error": "upload_file is required."}, status=400
             )
-
+        if upload_file.name.split(".")[-1] not in ["otio", "json"]:
+            return Response(
+                {
+                    "status": "failed",
+                    "error": f"upload filed is '{upload_file.name.split(".")[-1]}' expected 'otio' or 'json'  ",
+                },
+                status=400,
+            )
         try:
-            payload = cut.gen_from_xml(xml_file.read())
+            payload = cut.gen_from_file(upload_file.read())
             cut.set_json(payload)
         except ElementTree.ParseError as exc:
             return Response({"status": "failed", "error": str(exc)}, status=400)

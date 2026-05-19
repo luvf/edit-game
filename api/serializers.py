@@ -408,7 +408,7 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
     """Cut serializer."""
 
     render = serializers.HyperlinkedIdentityField(view_name="cut-render")
-    gen_from_xml = serializers.HyperlinkedIdentityField(view_name="cut-gen-from-xml")
+    gen_from_file = serializers.HyperlinkedIdentityField(view_name="cut-gen-from-file")
     gen_from_rendered = serializers.HyperlinkedIdentityField(
         view_name="cut-gen-from-rendered"
     )
@@ -459,7 +459,7 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
             "game",
             "slug",
             "render",
-            "gen_from_xml",
+            "gen_from_file",
             "gen_from_rendered",
         ]
 

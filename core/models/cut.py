@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast
-from xml.etree import ElementTree
 
+import opentimelineio as otio
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import models
@@ -29,6 +29,7 @@ class Cut(models.Model):
         ("MAN", "manual"),
         ("VID", "from video"),
         ("XML", "from XML"),
+        ("OTIO", "from OTIO json file"),
         ("ML", "from ML"),
         ("X", "others"),
     ]
@@ -66,55 +67,45 @@ class Cut(models.Model):
         content = ContentFile(json.dumps(json_data, ensure_ascii=False).encode("utf-8"))
         self.json_file.save(filename, content, save=True)
 
-    def gen_from_xml(self, xml_content: bytes | str) -> dict[str, Any]:
-        """Generate cut json payload from a DaVinci Resolve XML."""
-        if isinstance(xml_content, str):
-            xml_payload = xml_content.encode("utf-8")
-        else:
-            xml_payload = xml_content
+    def gen_from_file(self, file_content: bytes | str) -> dict[str, Any]:
+        """Generate cut json payload from a file content."""
+        if isinstance(file_content, str):
+            file_content = file_content.encode("utf-8")
+        if self.type_cut == "OTIO" and True:
+            return self.gen_from_otio(file_content)
+        return {}
 
-        if not self.game or not isinstance(self.game.files, list):
-            return {"points": [], "overlays": []}
+    @staticmethod
+    def gen_from_otio(file_content: bytes) -> dict[str, Any]:
+        """Assumes the in files are countious.
 
-        def normalize_filename(value: str) -> str:
-            return Path(value).name.strip().lower()
-
-        game_files = {normalize_filename(name) for name in self.game.files}
-        if not game_files:
-            return {"points": [], "overlays": []}
-
-        # TODO: Confirm DaVinci XML timing fields vs concatenated game file offsets.
-        root = ElementTree.fromstring(xml_payload)
-        points: list[dict[str, int | str]] = []
-        for clip in root.findall(".//video//clipitem"):
-            file_name = clip.findtext("file/name") or clip.findtext("name") or ""
-            if not file_name:
+        :param
+            file_content: the otio json file content.
+        :return:
+            the json with points and overlays.
+        """
+        otio_file = otio.adapters.otio_json.read_from_string(
+            file_content.decode("utf-8")
+        )  # type: ignore[no-untyped-call]
+        main_track = otio_file.tracks[0]
+        first_clip_start_time = main_track[0].available_range().start_time.value
+        points = []
+        for clip in main_track:
+            if clip.schema_name() != "Clip":
                 continue
-            if normalize_filename(file_name) not in game_files:
-                continue
+            duration = clip.source_range.duration.value
+            start_time = clip.source_range.start_time.value
+            in_tc = start_time - first_clip_start_time
+            out_tc = in_tc + duration
+            points.append({"in": in_tc, "out": out_tc})
+        trim_points: list[dict[str, float]] = []
+        for i, point in enumerate(points):
+            if i > 0 and abs(point["in"] - points[i - 1]["out"]) <= 1:
+                trim_points[-1]["out"] = point["out"]
+            else:
+                trim_points.append(point)
 
-            def to_int(value: str | None) -> int | None:
-                if value is None:
-                    return None
-                try:
-                    return int(value)
-                except (TypeError, ValueError):
-                    return None
-
-            start_frame = to_int(clip.findtext("start"))
-            end_frame = to_int(clip.findtext("end"))
-            if start_frame is None or end_frame is None:
-                start_frame = to_int(clip.findtext("in"))
-                end_frame = to_int(clip.findtext("out"))
-            if start_frame is None or end_frame is None:
-                continue
-            if end_frame < start_frame:
-                continue
-
-            points.append({"in": start_frame, "out": end_frame, "point": "nopoint"})
-
-        points.sort(key=lambda item: cast(int, item["in"]))
-        return {"points": points, "overlays": []}
+        return {"points": trim_points, "overlays": []}
 
     def gen_from_rendered(
         self,

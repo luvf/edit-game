@@ -65,17 +65,17 @@
               Creer
             </button>
           </div>
-          @if (selectedCutType() === 'XML') {
+          @if (selectedCutType() === 'OTIO') {
             <div class="cut-xml-upload">
               <label for="xml-upload">Fichier XML</label>
               <input
                 id="xml-upload"
                 type="file"
                 accept=".xml,application/xml,text/xml"
-                (change)="onXmlFileSelected($event)"
+                (change)="onFileSelected($event)"
               >
-              @if (xmlFile()) {
-                <span class="cut-xml-filename">{{ xmlFile()?.name }}</span>
+              @if (loadedFile()) {
+                <span class="cut-xml-filename">{{ loadedFile()?.name }}</span>
               }
             </div>
           }

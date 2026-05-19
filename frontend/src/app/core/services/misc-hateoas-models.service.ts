@@ -5,7 +5,7 @@ import {HateoasService} from '../hateoas.service';
 import {map, Observable, throwError} from 'rxjs';
 
 /**
-/**
+ /**
  * Service providing HATEOAS-powered operations for Team resources.
  *
  * Features:
@@ -67,21 +67,21 @@ export class CutsService extends HateoasService<Cut> {
 
   }
 
-  cut_types(): Observable<Array<{code: string; label: string}>> {
-    return this.http.get<Array<{code: string; label: string}>>(`${this.baseUrl}cut-types/`);
+  cut_types(): Observable<Array<{ code: string; label: string }>> {
+    return this.http.get<Array<{ code: string; label: string }>>(`${this.baseUrl}cut-types/`);
   }
 
-  render_cut(resource: Cut, body: unknown = {}):Observable<RenderQueueItem> {
+  render_cut(resource: Cut, body: unknown = {}): Observable<RenderQueueItem> {
     return this.invoke_resource<RenderQueueItem>(resource, 'render', body);
   }
 
-  gen_from_xml(resource: Cut, xmlFile: File): Observable<Cut> {
-    const link = resource._links?.gen_from_xml;
+  gen_from_file(resource: Cut, uploadFile: File): Observable<Cut> {
+    const link = resource._links?.gen_from_file;
     if (!link || !('href' in link)) {
       return throwError(() => new Error("Relation 'gen_from_xml' introuvable sur le cut."));
     }
     const formData = new FormData();
-    formData.append('xml_file', xmlFile);
+    formData.append('upload_file', uploadFile);
     return this.http.post(link.href, formData).pipe(
       map((resp) => {
         const parsed = this.parse(resp);
@@ -92,11 +92,10 @@ export class CutsService extends HateoasService<Cut> {
     );
   }
 
-  gen_from_rendered(resource: Cut, body: {path?: string; filename?: string} = {}): Observable<Cut> {
+  gen_from_rendered(resource: Cut, body: { path?: string; filename?: string } = {}): Observable<Cut> {
     return this.invoke_resource<Cut>(resource, 'gen_from_rendered', body);
   }
 }
-
 
 
 @Injectable({providedIn: 'root'})
@@ -119,11 +118,11 @@ export class GamesService extends HateoasService<Game> {
     return this.invoke_resource<Game>(resource, 'generate_proxy', body);
   }
 
-  cuts(resource: Game, reload: boolean = false):Observable<Cut[]>{
+  cuts(resource: Game, reload: boolean = false): Observable<Cut[]> {
     return this.follow_resource<Cut[]>(resource, 'cuts', reload);
   }
 
-  create_cut(resource: Game, body: unknown = {}):Observable<Cut> {
+  create_cut(resource: Game, body: unknown = {}): Observable<Cut> {
     return this.invoke_resource<Cut>(resource, 'create_cut', body);
   }
 
@@ -138,11 +137,11 @@ export class RenderQueueService extends HateoasService<RenderQueueItem> {
   }
 
 
-  run(item: RenderQueueItem):Observable<RenderQueueItem>{
+  run(item: RenderQueueItem): Observable<RenderQueueItem> {
     return this.invoke_resource<RenderQueueItem>(item, 'run');
   }
 
-  reset(item: RenderQueueItem):Observable<RenderQueueItem> {
+  reset(item: RenderQueueItem): Observable<RenderQueueItem> {
     return this.invoke_resource<RenderQueueItem>(item, 'reset');
   }
 }

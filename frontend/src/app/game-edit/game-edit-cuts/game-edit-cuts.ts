@@ -57,7 +57,7 @@ export class GameEditCutsComponent implements AfterViewInit, OnChanges, OnDestro
   cutTemplates = signal<CutTemplate[]>([]);
   newCutName = signal('');
   selectedCutType = signal<string | null>(null);
-  xmlFile = signal<File | null>(null);
+  loadedFile = signal<File | null>(null);
   renderedFiles = signal<string[]>([]);
   selectedRendered = signal<string | null>(null);
 
@@ -127,8 +127,12 @@ export class GameEditCutsComponent implements AfterViewInit, OnChanges, OnDestro
     const selectedType = this.selectedCutType();
     const template = this.cutTemplates().find((item) => item.code === selectedType);
     if (!template) return;
-    if (template.code === 'XML' && !this.xmlFile()) {
+    if (template.code === 'XML' && !this.loadedFile()) {
       console.error('Fichier XML manquant.');
+      return;
+    }
+     if (template.code === 'OTIO' && !this.loadedFile()) {
+      console.error('Fichier OTIO json manquant.');
       return;
     }
     if (template.code === 'VID' && !this.selectedRendered()) {
@@ -145,16 +149,16 @@ export class GameEditCutsComponent implements AfterViewInit, OnChanges, OnDestro
       next: (cut) => {
         this.cuts.set([...this.cuts(), cut]);
         this.newCutName.set('');
-        const file = this.xmlFile();
-        if (template.code === 'XML' && file) {
-          this.cutService.gen_from_xml(cut, file).subscribe({
+        const file = this.loadedFile();
+        if (template.code === 'OTIO' && file) {
+          this.cutService.gen_from_file(cut, file).subscribe({
             next: (updated) => {
               this.cuts.set(
                 this.cuts().map((item) => (item.pk === updated.pk ? updated : item))
               );
-              this.xmlFile.set(null);
+              this.loadedFile.set(null);
             },
-            error: (e) => console.error("Erreur lors de l'upload XML", e),
+            error: (e) => console.error("Erreur lors de l'upload du json OTIO", e),
           });
         } else if (template.code === 'VID') {
           const filename = this.selectedRendered();
@@ -174,10 +178,10 @@ export class GameEditCutsComponent implements AfterViewInit, OnChanges, OnDestro
     });
   }
 
-  onXmlFileSelected(event: Event): void {
+  onFileSelected(event: Event): void {
     const input = event.target as HTMLInputElement | null;
     const file = input?.files?.[0] ?? null;
-    this.xmlFile.set(file);
+    this.loadedFile.set(file);
   }
 
   onDeleteCut(cut: Cut, event?: MouseEvent): void {

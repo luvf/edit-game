@@ -152,7 +152,7 @@ class YTInteraction:
 
         if not cred or not cred.valid:
             if cred and cred.expired and cred.refresh_token:
-                cred.refresh(Request())  # type: ignore[no-untyped-call]
+                cred.refresh(Request())
             else:
                 flow = InstalledAppFlow.from_client_secrets_file(
                     self.CLIENT_SECRET_FILE, self.SCOPES

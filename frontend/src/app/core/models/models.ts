@@ -158,7 +158,7 @@ export interface CutLinks extends HalLinks {
   self: Link;
   render?:Link;
   game?: Link;
-  gen_from_xml?: Link;
+  gen_from_file?: Link;
   gen_from_rendered?: Link;
 
 }

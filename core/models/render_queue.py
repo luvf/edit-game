@@ -19,6 +19,11 @@ from django.db.models import Q
 from django.utils.text import slugify
 
 from jugger_video_manipulation.cut_json_parser import CutJsonParser
+from jugger_video_manipulation.ffmpeg_utils import (
+    FilterComplexBuilder,
+    ffmpeg_command_builder,
+    get_fps,
+)
 
 if TYPE_CHECKING:
     from core.models.cut import Cut
@@ -28,10 +33,43 @@ if TYPE_CHECKING:
 class RenderQueueItem(models.Model):
     """Queue item for cut renders."""
 
-    PRESET_ARGS: ClassVar[dict[str, str]] = {
-        "low": "-c:v libx265  -preset fast -crf 32 -vf scale=640x360 -ar 16000",
-        "medium": "-c:v libx265 -preset medium -crf 23",
-        "high": "-c:v libx265 -preset slow -x265-params lossless=1 -vf scale=3840:2160",
+    PRESET_ARGS_GPU: ClassVar[dict[str, dict[str, list[str]]]] = {
+        "low": {
+            "scale": ["854", "-2"],
+            "video": [
+                "-c:v",
+                "h264_nvenc",
+                "-cq",
+                "35",
+                "-preset",
+                "p4",
+            ],
+            "audio": ["-c:a", "aac", "-b:a", "96k"],
+        },
+        "medium": {
+            "scale": ["1280", "-2"],
+            "video": ["-c:v", "hevc_nvenc", "-cq", "32", "-preset", "p4"],
+            "audio": ["-c:a", "aac", "-b:a", "192k"],
+        },
+        "high": {
+            "video": ["-c:v", "hevc_nvenc", "-cq", "18", "-preset", "p4"],
+            "audio": ["-c:a", "aac", "-b:a", "192k"],
+        },
+    }
+    PRESET_ARGS_CPU: ClassVar[dict[str, dict[str, list[str]]]] = {
+        "low": {
+            "scale": ["640", "-2"],
+            "video": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "35"],
+            "audio": ["-c:a", "aac", "-b:a", "96"],
+        },
+        "medium": {
+            "video": ["-c:v", "libx264", "-preset", "medium", "-crf", "23"],
+            "audio": ["-c:a", "aac", "-b:a", "192k"],
+        },
+        "high": {
+            "video": ["-c:v", "libx264", "-preset", "slow", "-crf", "20"],
+            "audio": ["-c:a", "aac", "-b:a", "192k"],
+        },
     }
 
     class JobType(models.TextChoices):
@@ -127,7 +165,7 @@ class RenderQueueItem(models.Model):
         except ObjectDoesNotExist:
             return None
 
-    def build_command(self) -> str:
+    def build_command(self) -> list[str]:
         """Build the ffmpeg command for this queue item."""
         raise NotImplementedError("Use a concrete queue item type.")
 
@@ -139,11 +177,10 @@ class RenderQueueItem(models.Model):
             return RenderQueueItemProxy.objects.get(pk=self.pk)
         raise ValueError(f"Unsupported job type: {self.job_type}")
 
-    def _run_command(self, command: str) -> None:
+    def _run_command(self, command: list[str]) -> None:
         """Run the ffmpeg command and handle PID tracking."""
         process = subprocess.Popen(
             command,
-            shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -151,6 +188,7 @@ class RenderQueueItem(models.Model):
         self.pid = process.pid
         self.save(update_fields=["pid"])
         stdout, stderr = process.communicate()
+
         returncode = process.returncode
         self.pid = None
         self.save(update_fields=["pid"])
@@ -163,7 +201,7 @@ class RenderQueueItem(models.Model):
     def run(self) -> None:
         """Execute the render for this queue item."""
         command = self.build_command()
-        update_fields: list[str] = ["tmp_concat_file", "command"]
+        update_fields: list[str] = ["command"]
         if self.output_filename:
             update_fields.append("output_filename")
         self.save(update_fields=update_fields)
@@ -184,7 +222,8 @@ class RenderQueueItem(models.Model):
         self.tmp_concat_file = str(concat_file)
         return concat_file
 
-    def _validate_sources(self, input_dir: Path, source_files: list[str]) -> None:
+    @staticmethod
+    def _validate_sources(input_dir: Path, source_files: list[str]) -> None:
         """Validate source files exist and are readable by ffprobe."""
         ffprobe_path = shutil.which("ffprobe")
         bad_files: list[str] = []
@@ -216,25 +255,29 @@ class RenderQueueItem(models.Model):
             details = "; ".join(bad_files)
             raise RuntimeError(f"Invalid source files: {details}")
 
-    def _preset_args(self) -> str:
+    def _preset_args(self) -> dict[str, list[str]]:
         """Return ffmpeg args for the selected preset."""
-        return self.PRESET_ARGS.get(self.preset, self.PRESET_ARGS["medium"])
+        if self._is_cuda_available():
+            return self.PRESET_ARGS_GPU.get(self.preset, self.PRESET_ARGS_GPU["medium"])
+        return self.PRESET_ARGS_CPU.get(self.preset, self.PRESET_ARGS_CPU["medium"])
 
-    def _hwaccel_args(self) -> str:
-        """Return ffmpeg hwaccel args when CUDA is available."""
+    @staticmethod
+    def _is_cuda_available() -> bool:
+        """Check if CUDA is available."""
         ffmpeg_path = shutil.which("ffmpeg")
         if not ffmpeg_path:
-            return ""
+            return False
         try:
             result = subprocess.run(
                 [ffmpeg_path, "-hide_banner", "-hwaccels"],
                 check=False,
                 capture_output=True,
-                text=True,
             )
-        except OSError:
-            return ""
-        return "-hwaccel cuda" if "cuda" in result.stdout else ""
+            if result.returncode != 0:
+                return False
+            return "cuda" in result.stdout.lower().decode("utf-8")
+        except (subprocess.CalledProcessError, OSError):
+            return False
 
     def _link_storage_symlink(self) -> None:
         """Link full_output_path to media_path/output_filename."""
@@ -335,49 +378,47 @@ class RenderQueueItemCut(RenderQueueItem):
         """Build the output filename for cut renders."""
         game = self._require_game()
         stem = slugify(Path(game.files[0]).stem)
-        return f"{stem}_{self.cut.name}_{self.preset}.mp4"
-
-    @property
-    def base_path(self) -> Path:
-        """Base path for cut renders."""
-        game = self._require_game()
-        return Path(game.tournament.source_dir) / "rendered"
+        cut_name = slugify(self.cut.name)
+        return f"{stem}_{cut_name}_{self.preset}.mp4"
 
     def media_path(self) -> Path:
         """Return the MEDIA_ROOT path for cut renders."""
         return Path(settings.MEDIA_ROOT) / "rendered"
 
-    def build_command(self) -> str:
-        """Build the ffmpeg command for cut renders."""
+    def build_command(self) -> list[str]:
+        """Build the ffmpeg command for cut renders.
+
+        First concatenate the input files
+        Second split the concatenated file into in-out segments
+        Last encode the split file with the selected preset.
+
+        :returns: The ffmpeg command for subprocess.
+        """
         game = self._require_game()
         input_dir = Path(game.tournament.source_dir)
         out_file = self.full_output_path()
         out_file.parent.mkdir(parents=True, exist_ok=True)
-
-        concat_file = self._build_concat_file(input_dir, game.files)
+        points, _ = CutJsonParser(self.cut.json_file.path).parse()
 
         preset_args = self._preset_args()
+        nb_files = len(game.files)
+        fps = get_fps(input_dir / "rushs" / game.files[0])
 
-        hwaccel = self._hwaccel_args()
+        w, h = preset_args["scale"]
+        filter_complex = FilterComplexBuilder(nb_files)
+        filter_complex.filter_concat(filter_complex.inputs_v, filter_complex.inputs_a)
+        filter_complex.filter_cut(fps, points)
+        filter_complex.filter_scale(w, h)
 
-        parser = CutJsonParser(self.cut.json_file.path)
-        points, _ = parser.parse()
-        if points:
-            selectors = [
-                f"between(n\\,{point['in']}\\,{point['out']})" for point in points
-            ]
-            select_expr = "+".join(selectors)
-            vf = f"select='{select_expr}',setpts=N/FRAME_RATE/TB"
-            self.command = (
-                f"ffmpeg {hwaccel} -y -f concat -safe 0 -i {concat_file} "
-                f'-vf "{vf} -movflags faststart" {preset_args} {out_file}'
-            )
-            return self.command
-        self.command = (
-            f"ffmpeg {hwaccel} -y -f concat -safe 0 -i {concat_file} "
-            f"{preset_args} {out_file}"
+        cmd = ffmpeg_command_builder(
+            filter_complex=filter_complex,
+            input_files=[(input_dir / "rushs" / f) for f in game.files],
+            output_file=out_file,
+            preset_args=preset_args,
+            cuda_available=self._is_cuda_available(),
         )
-        return self.command
+        self.command = " ".join(cmd)
+        return cmd
 
     def _link_storage_symlink(self) -> None:
         """Link render output and update cut metadata."""
@@ -387,27 +428,15 @@ class RenderQueueItemCut(RenderQueueItem):
             self.cut.rendered_video = str(Path("rendered") / destination.name)
             self.cut.save(update_fields=["rendered_video"])
 
+    @property
+    def base_path(self) -> Path:
+        """Base path for cut renders."""
+        game = self._require_game()
+        return Path(game.tournament.source_dir) / "rendered"
+
 
 class RenderQueueItemProxy(RenderQueueItem):
     """Queue item for proxy renders."""
-
-    PRESET_ARGS: ClassVar[dict[str, str]] = {
-        "low": (
-            "-c:v h264_nvenc -preset fast -rc vbr -b:v 2M -maxrate 3M "
-            "-bufsize 6M -vf scale=-2:360 -pix_fmt yuv420p "
-            "-c:a aac -b:a 96k -movflags +faststart"
-        ),
-        "medium": (
-            "-c:v h264_nvenc -preset fast -rc vbr -b:v 4M -maxrate 6M "
-            "-bufsize 12M -vf scale=-2:540 -pix_fmt yuv420p "
-            "-c:a aac -b:a 128k -movflags +faststart"
-        ),
-        "high": (
-            "-c:v h264_nvenc -preset fast -rc vbr -b:v 6M -maxrate 8M "
-            "-bufsize 16M -vf scale=-2:720 -pix_fmt yuv420p "
-            "-c:a aac -b:a 160k -movflags +faststart"
-        ),
-    }
 
     game = models.ForeignKey("core.Game", on_delete=models.CASCADE)
 
@@ -428,31 +457,43 @@ class RenderQueueItemProxy(RenderQueueItem):
         stem = slugify(Path(self.game.files[0]).stem)
         return f"{stem}_{self.preset}.mp4"
 
-    @property
-    def base_path(self) -> Path:
-        """Base path for proxy renders."""
-        return Path(self.game.tournament.source_dir) / "proxy"
-
     def media_path(self) -> Path:
         """Return the MEDIA_ROOT path for proxy renders."""
         return Path(settings.MEDIA_ROOT) / "proxy"
 
-    def build_command(self) -> str:
-        """Build the ffmpeg command for proxy renders."""
+    def build_command(self) -> list[str]:
+        """Build the ffmpeg command for proxy renders.
+
+        concatenate the source files
+        and encode them with the selected preset.
+        :returns
+            list of parameters arg for ffmpeg
+        """
         if not self.output_filename:
             self.output_filename = self.build_out_filename()
         input_dir = Path(self.game.tournament.source_dir)
         out_file = self.full_output_path()
         out_file.parent.mkdir(parents=True, exist_ok=True)
 
-        concat_file = self._build_concat_file(input_dir, self.game.files)
         preset_args = self._preset_args()
-        hwaccel = self._hwaccel_args()
-        self.command = (
-            f"ffmpeg {hwaccel} -y -f concat -safe 0 -i {concat_file} "
-            f"-movflags faststart {preset_args}  {out_file}"
+        nb_files = len(self.game.files)
+
+        w, h = preset_args["scale"]
+
+        filter_complex = FilterComplexBuilder(nb_files)
+        filter_complex.filter_concat(filter_complex.inputs_v, filter_complex.inputs_a)
+        filter_complex.filter_scale(w, h)
+
+        cmd = ffmpeg_command_builder(
+            filter_complex=filter_complex,
+            input_files=[(input_dir / "rushs" / f) for f in self.game.files],
+            output_file=out_file,
+            preset_args=preset_args,
+            cuda_available=self._is_cuda_available(),
         )
-        return self.command
+
+        self.command = " ".join(cmd)
+        return cmd
 
     def _link_storage_symlink(self) -> None:
         """Link proxy output and update game metadata."""
@@ -463,3 +504,8 @@ class RenderQueueItemProxy(RenderQueueItem):
             self.game.source_proxy.delete(save=False)
         self.game.source_proxy.name = proxy_name
         self.game.save(update_fields=["source_proxy"])
+
+    @property
+    def base_path(self) -> Path:
+        """Base path for proxy renders."""
+        return Path(self.game.tournament.source_dir) / "proxy"
