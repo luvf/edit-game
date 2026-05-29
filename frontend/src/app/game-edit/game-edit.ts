@@ -1,15 +1,16 @@
 import {Component, inject, OnDestroy, OnInit, signal} from '@angular/core';
 import {CommonModule} from '@angular/common';
 import {FormsModule} from '@angular/forms';
-import {ActivatedRoute, RouterLink} from '@angular/router';
-import {Game} from '../core/models/models';
-import {GamesService} from '../core/services/misc-hateoas-models.service';
+import {ActivatedRoute} from '@angular/router';
+import {Game, Team} from '../core/models/models';
+import {GamesService, TeamService} from '../core/services/misc-hateoas-models.service';
 import {NavService} from '../core/services/nav.service';
 import {MatButtonModule} from '@angular/material/button';
 import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatSelectModule} from '@angular/material/select';
 import {MatInputModule} from '@angular/material/input';
 import {GameEditCutsComponent} from './game-edit-cuts/game-edit-cuts';
+import {TeamSelectComponent} from '../game-miniature/team-select/team-select';
 
 @Component({
   selector: 'app-game-edit',
@@ -22,7 +23,10 @@ import {GameEditCutsComponent} from './game-edit-cuts/game-edit-cuts';
     MatSelectModule,
     MatInputModule,
     GameEditCutsComponent,
-    RouterLink,
+    TeamSelectComponent,
+
+
+
   ],
   templateUrl: './game-edit.html',
   styleUrl: './game-edit.css',
@@ -32,19 +36,31 @@ export class GameEditComponent implements OnInit, OnDestroy {
   nameDraft = signal('');
   proxyQuality = signal<'low' | 'medium' | 'high'>('medium');
 
+  teams = signal<Team[]>([]);
+  team1Draft = signal<string | null>(null);
+  team2Draft = signal<string | null>(null);
+
+
   private route = inject(ActivatedRoute);
   private gamesService = inject(GamesService);
   private navService = inject(NavService);
+  private teamService = inject(TeamService);
 
   ngOnInit(): void {
     this.route.queryParamMap.subscribe((params) => {
       const url = params.get('url');
       if (!url) return;
 
+      this.teamService.list().subscribe({
+        next: (teams) => this.teams.set(teams),
+        error: (e) => console.error('Erreur lors du chargement des équipes', e),
+      });
       this.gamesService.get(url).subscribe({
         next: (game) => {
           this.game.set(game);
           this.nameDraft.set(game.name ?? '');
+          this.team1Draft.set(game._links?.team1?.href ?? null);
+          this.team2Draft.set(game._links?.team2?.href ?? null);
           this.updateNav(game);
         },
         error: (e) => console.error('Erreur lors du chargement du match', e),
@@ -56,20 +72,29 @@ export class GameEditComponent implements OnInit, OnDestroy {
     this.navService.clear();
   }
 
-  onSaveName(): void {
+  onSaveNameTeam(): void {
     const current = this.game();
     if (!current) return;
     const nextName = this.nameDraft().trim();
-    if (!nextName || nextName === current.name) return;
+    //if (!nextName || nextName === current.name) return;
 
-    this.gamesService.update(current, {name: nextName}).subscribe({
+    const payload = {
+      name: nextName,
+      team1: this.team1Draft(),
+      team2: this.team2Draft(),
+    }
+
+    this.gamesService.update(current,payload).subscribe({
       next: (game) => {
         this.game.set(game);
         this.nameDraft.set(game.name ?? '');
+        this.team1Draft.set(game._links?.team1?.href ?? null);
+        this.team2Draft.set(game._links?.team2?.href ?? null);
       },
       error: (e) => console.error('Erreur lors de la sauvegarde du nom', e),
     });
   }
+
 
   onGenerateProxy(): void {
     const current = this.game();

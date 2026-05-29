@@ -4,33 +4,41 @@
   </header>
 
   @if (game(); as game) {
-    <dl class="game-fields">
-      <dt>Name</dt>
-      <dd class="name-row">
-        <mat-form-field appearance="outline" class="name-field">
-          <mat-label>Name</mat-label>
-          <input matInput [(ngModel)]="nameDraft">
-        </mat-form-field>
-        <span class="source-name">files: {{ game.files }}</span>
-      </dd>
+    <div>
+      <div class="name-row">
+        <div class="name-field-block">
+          <mat-form-field appearance="outline" class="name-field">
+            <mat-label>Name</mat-label>
+            <input matInput [(ngModel)]="nameDraft">
+          </mat-form-field>
 
-      <dt>Rendered</dt>
-      <dd>{{ game.rendered }}</dd>
+          <span class="source-name" [title]="'files: ' + game.files">
+      files: {{ game.files }}
+    </span>
+        </div>
+      </div>
+      <div class="teams-row">
+        <app-team-select
+          label="Team 1"
+          [teams]="teams()"
+          [ngModel]="team1Draft()"
+          (ngModelChange)="team1Draft.set($event)"
+        ></app-team-select>
 
-      <dt>JSON file</dt>
-      <dd>{{ game.json_file }}</dd>
+        <app-team-select
+          label="Team 2"
+          [teams]="teams()"
+          [ngModel]="team2Draft()"
+          (ngModelChange)="team2Draft.set($event)"
+        ></app-team-select>
+      </div>
 
-      <dt></dt>
-      <dd class="save-row">
-        <button mat-raised-button color="primary" type="button" (click)="onSaveName()">
-          Save
-        </button>
-      </dd>
 
-      <dt>Source proxy</dt>
-      <dd>{{ game.source_proxy }}</dd>
+      <button mat-raised-button color="primary" type="button" (click)="onSaveNameTeam()">
+        Save
+      </button>
+    </div>
 
-    </dl>
 
     <div class="proxy-tools">
       <mat-form-field appearance="outline" class="proxy-quality">

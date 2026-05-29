@@ -149,6 +149,8 @@ export interface Game extends BaseHalModel {
   source_proxy:string;
   cuts: string[];
 
+
+
   _links?: GameLinks;
   _embedded?: HalEmbedded
 

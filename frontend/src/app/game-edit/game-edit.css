@@ -31,7 +31,17 @@
   display: flex;
   flex-wrap: wrap;
   gap: 12px 24px;
-  align-items: baseline;
+  align-items: flex-start;
+}
+
+.name-field-block {
+  min-width: 240px;
+  max-width: 420px;
+  flex: 0 1 420px;
+}
+
+.name-field-block .name-field {
+  width: 100%;
 }
 
 .name-row .name-field {
@@ -40,8 +50,26 @@
   flex: 0 1 420px;
 }
 
-.name-row .source-name {
+
+.name-field-block .source-name {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin-top: -12px;
+
   opacity: 0.7;
+  font-size: 0.85rem;
+  line-height: 1.2;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.name-row .name-field {
+  min-width: 240px;
+  max-width: 420px;
+  flex: 0 1 420px;
 }
 
 .save-row {
@@ -68,4 +96,16 @@
 .loading {
   margin-top: 16px;
   opacity: 0.7;
+}
+
+.teams-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 1rem 0;
+}
+
+.teams-row app-team-select {
+  min-width: 220px;
 }
