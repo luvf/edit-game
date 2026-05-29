@@ -7,8 +7,8 @@ import os
 import shutil
 import signal
 import subprocess
+import tempfile
 import time
-import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -23,6 +23,7 @@ from jugger_video_manipulation.ffmpeg_utils import (
     FilterComplexBuilder,
     ffmpeg_command_builder,
     get_fps,
+    write_chapters_metadata,
 )
 
 if TYPE_CHECKING:
@@ -33,6 +34,9 @@ if TYPE_CHECKING:
 class RenderQueueItem(models.Model):
     """Queue item for cut renders."""
 
+    RUSH_DIRNAME = "rushs"
+    PROXY_DIRNAME = "proxy"
+    GENERATED_RENDERED_DIRNAME = "generated_rendered"
     PRESET_ARGS_GPU: ClassVar[dict[str, dict[str, list[str]]]] = {
         "low": {
             "scale": ["854", "-2"],
@@ -165,8 +169,12 @@ class RenderQueueItem(models.Model):
         except ObjectDoesNotExist:
             return None
 
-    def build_command(self) -> list[str]:
-        """Build the ffmpeg command for this queue item."""
+    def build_command(self, chapter_metadata_tmp_path: Path | None = None) -> list[str]:
+        """Build the ffmpeg command for this queue item.
+
+        Args:
+            chapter_metadata_tmp_path: Temporary path for metadata file, if required.
+        """
         raise NotImplementedError("Use a concrete queue item type.")
 
     def concrete(self) -> RenderQueueItem:
@@ -200,60 +208,20 @@ class RenderQueueItem(models.Model):
 
     def run(self) -> None:
         """Execute the render for this queue item."""
-        command = self.build_command()
-        update_fields: list[str] = ["command"]
-        if self.output_filename:
-            update_fields.append("output_filename")
-        self.save(update_fields=update_fields)
-        self._run_command(command)
-        self._link_storage_symlink()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            metadata_path = Path(f.name)
+            command = self.build_command(chapter_metadata_tmp_path=metadata_path)
 
-    def _build_concat_file(self, input_dir: Path, source_files: list[str]) -> Path:
-        """Create a concat file in tmp and store its path."""
-        self._validate_sources(input_dir, source_files)
-        tmp_dir = Path(settings.BASE_DIR) / "tmp"
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-        concat_file = tmp_dir / f"concat_sources_{uuid.uuid4().hex}.txt"
-        with concat_file.open("w") as f:
-            for src in source_files:
-                src_path = str((input_dir / "rushs" / Path(src)).absolute())
-                escaped = src_path.replace("'", "'\\''")
-                f.write(f"file '{escaped}'\n")
-        self.tmp_concat_file = str(concat_file)
-        return concat_file
+            update_fields: list[str] = ["command"]
+            if self.output_filename:
+                update_fields.append("output_filename")
+            self.save(update_fields=update_fields)
+        try:
+            self._run_command(command)
+        finally:
+            metadata_path.unlink(missing_ok=True)
 
-    @staticmethod
-    def _validate_sources(input_dir: Path, source_files: list[str]) -> None:
-        """Validate source files exist and are readable by ffprobe."""
-        ffprobe_path = shutil.which("ffprobe")
-        bad_files: list[str] = []
-        for src in source_files:
-            src_path = (input_dir / "rushs" / Path(src)).absolute()
-            if not src_path.exists():
-                bad_files.append(f"{src_path} (missing)")
-                continue
-            if not ffprobe_path:
-                continue
-            result = subprocess.run(
-                [
-                    ffprobe_path,
-                    "-v",
-                    "error",
-                    "-show_entries",
-                    "format=duration",
-                    "-of",
-                    "default=nw=1:nk=1",
-                    str(src_path),
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                bad_files.append(f"{src_path} (ffprobe failed)")
-        if bad_files:
-            details = "; ".join(bad_files)
-            raise RuntimeError(f"Invalid source files: {details}")
+            self._link_storage_symlink()
 
     def _preset_args(self) -> dict[str, list[str]]:
         """Return ffmpeg args for the selected preset."""
@@ -383,9 +351,9 @@ class RenderQueueItemCut(RenderQueueItem):
 
     def media_path(self) -> Path:
         """Return the MEDIA_ROOT path for cut renders."""
-        return Path(settings.MEDIA_ROOT) / "rendered"
+        return Path(settings.MEDIA_ROOT) / self.GENERATED_RENDERED_DIRNAME
 
-    def build_command(self) -> list[str]:
+    def build_command(self, chapter_metadata_tmp_path: Path | None = None) -> list[str]:
         """Build the ffmpeg command for cut renders.
 
         First concatenate the input files
@@ -402,18 +370,25 @@ class RenderQueueItemCut(RenderQueueItem):
 
         preset_args = self._preset_args()
         nb_files = len(game.files)
-        fps = get_fps(input_dir / "rushs" / game.files[0])
+        fps = get_fps(input_dir / self.RUSH_DIRNAME / game.files[0])
 
         w, h = preset_args["scale"]
         filter_complex = FilterComplexBuilder(nb_files)
         filter_complex.filter_concat(filter_complex.inputs_v, filter_complex.inputs_a)
         filter_complex.filter_cut(fps, points)
         filter_complex.filter_scale(w, h)
+        if chapter_metadata_tmp_path:
+            write_chapters_metadata(
+                points=points,
+                metadata_path=chapter_metadata_tmp_path,
+                fps=fps,
+            )
 
         cmd = ffmpeg_command_builder(
             filter_complex=filter_complex,
-            input_files=[(input_dir / "rushs" / f) for f in game.files],
+            input_files=[(input_dir / self.RUSH_DIRNAME / f) for f in game.files],
             output_file=out_file,
+            chapter_metadata_path=chapter_metadata_tmp_path,
             preset_args=preset_args,
             cuda_available=self._is_cuda_available(),
         )
@@ -425,14 +400,16 @@ class RenderQueueItemCut(RenderQueueItem):
         super()._link_storage_symlink()
         if self.cut:
             destination = self.media_path() / Path(self.output_filename).name
-            self.cut.rendered_video = str(Path("rendered") / destination.name)
+            self.cut.rendered_video = str(
+                Path(self.GENERATED_RENDERED_DIRNAME) / destination.name
+            )
             self.cut.save(update_fields=["rendered_video"])
 
     @property
     def base_path(self) -> Path:
         """Base path for cut renders."""
         game = self._require_game()
-        return Path(game.tournament.source_dir) / "rendered"
+        return Path(game.tournament.source_dir) / self.GENERATED_RENDERED_DIRNAME
 
 
 class RenderQueueItemProxy(RenderQueueItem):
@@ -459,16 +436,21 @@ class RenderQueueItemProxy(RenderQueueItem):
 
     def media_path(self) -> Path:
         """Return the MEDIA_ROOT path for proxy renders."""
-        return Path(settings.MEDIA_ROOT) / "proxy"
+        return Path(settings.MEDIA_ROOT) / self.PROXY_DIRNAME
 
-    def build_command(self) -> list[str]:
+    def build_command(self, chapter_metadata_tmp_path: Path | None = None) -> list[str]:
         """Build the ffmpeg command for proxy renders.
 
         concatenate the source files
         and encode them with the selected preset.
-        :returns
+
+        Args:
+            chapter_metadata_tmp_path: Path to the temporary metadata file, if any.
+
+        Returns:
             list of parameters arg for ffmpeg
         """
+        _ = chapter_metadata_tmp_path
         if not self.output_filename:
             self.output_filename = self.build_out_filename()
         input_dir = Path(self.game.tournament.source_dir)
@@ -486,7 +468,7 @@ class RenderQueueItemProxy(RenderQueueItem):
 
         cmd = ffmpeg_command_builder(
             filter_complex=filter_complex,
-            input_files=[(input_dir / "rushs" / f) for f in self.game.files],
+            input_files=[(input_dir / self.RUSH_DIRNAME / f) for f in self.game.files],
             output_file=out_file,
             preset_args=preset_args,
             cuda_available=self._is_cuda_available(),
@@ -508,4 +490,4 @@ class RenderQueueItemProxy(RenderQueueItem):
     @property
     def base_path(self) -> Path:
         """Base path for proxy renders."""
-        return Path(self.game.tournament.source_dir) / "proxy"
+        return Path(self.game.tournament.source_dir) / self.PROXY_DIRNAME

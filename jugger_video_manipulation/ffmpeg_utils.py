@@ -1,8 +1,9 @@
 """Defines utils to build ffmpeg comands."""
 
+import json
+import subprocess
+from dataclasses import dataclass
 from pathlib import Path
-
-from imageio.plugins import ffmpeg
 
 from jugger_video_manipulation.cut_json_parser import Point
 
@@ -120,29 +121,76 @@ def ffmpeg_command_builder(
     *,
     filter_complex: FilterComplexBuilder,
     input_files: list[Path],
-    output_file: Path,
+    output_file: Path | None,
     preset_args: dict[str, list[str]],
+    chapter_metadata_path: Path | None = None,
     cuda_available: bool = False,
 ) -> list[str]:
     """Build the ffmpeg comand.
 
     Args:
         filter_complex : FilterComplexBuilder object
-        inputs : list of input files
-        preset_args : dictionary of preset arguments
-        cuda_available : boolean indicating if cuda is available
+        input_files : list of input files
         output_file : output file path
+        preset_args : dictionary of preset arguments
+        chapter_metadata_path : path to metadata file
+        cuda_available : boolean indicating if cuda is available
     """
     cmd = ["ffmpeg"]
-    cmd += _add_input_files(input_files, cuda_available)
+    cmd += _add_input_files(input_files, cuda_available=cuda_available)
+    filter_complex.create_inputs(len(input_files))
+    if chapter_metadata_path:
+        cmd += ["-i", str(chapter_metadata_path.absolute())]
     cmd += ["-filter_complex", filter_complex.get_filter_complex()]
     cmd += ["-map", filter_complex.out_v, "-map", filter_complex.out_a]
 
     cmd += preset_args["video"]
     cmd += preset_args["audio"]
     cmd += ["-movflags", "+faststart"]
+    if chapter_metadata_path:
+        cmd += ["-map_metadata", str(len(input_files))]
     cmd += [str(output_file.absolute()), "-y"]
     return cmd
+
+
+@dataclass
+class Chapter:
+    """Define a chapter structure."""
+
+    start_time: float
+    end_time: float
+    title: str
+
+
+def write_chapters_metadata(
+    *,
+    points: list[Point],
+    metadata_path: Path,
+    fps: float = 60,
+):
+    """Write chapters metadata to a file.
+
+    Args:
+        points: list of points to cut
+        fps: frames per second
+        metadata_path: path to metadata file to write on
+    """
+    durations = [point["out"] - point["in"] for point in points]
+    lines = [";FFMETADATA1\n"]
+    end_ms = 0
+    for i, chapter_duration in enumerate(durations):
+        start_ms = end_ms
+        end_ms = int(end_ms + (1000 * chapter_duration / fps))
+        lines += [
+            "[CHAPTER]",
+            "TIMEBASE=1/1000",  # on travaille en millisecondes
+            f"START={start_ms}",
+            f"END={end_ms}",
+            f"title=point {i}",
+            "",  # ligne vide entre chapitres
+        ]
+
+    metadata_path.write_text("\n".join(lines))
 
 
 def _add_input_files(inputs: list[Path], *, cuda_available: bool = False) -> list[str]:
@@ -155,9 +203,99 @@ def _add_input_files(inputs: list[Path], *, cuda_available: bool = False) -> lis
     return cmd
 
 
-def get_fps(filepath: str) -> float:
-    """Return the video frame rate from the given filepath."""
-    probe = ffmpeg.probe(filepath)
-    video_stream = next(s for s in probe["streams"] if s["codec_type"] == "video")
-    num, den = map(int, video_stream["r_frame_rate"].split("/"))
+def get_fps(video_file: Path) -> float:
+    """Get the fps of a video file.
+
+    Args:
+        video_file: Path to the video file
+    """
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
+            "-show_streams",
+            "-select_streams",
+            "v:0",  # uniquement le premier flux vidéo
+            str(video_file.absolute()),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    data = json.loads(result.stdout)
+    stream = data["streams"][0]
+
+    num, den = map(int, stream["r_frame_rate"].split("/"))
     return num / den
+
+
+def extract_audio(video_files: list[Path], audio_path: Path, sample_rate: int = 22050):
+    """Extract audio from a video file.
+
+    Args:
+        video_files: List of video files
+        audio_path: Path to save the extracted audio
+        sample_rate: Sample rate for the extracted audio
+    """
+    cmd = ["ffmpeg"]
+
+    for file in video_files:
+        cmd += ["-i", str(file.absolute())]
+
+    n = len(video_files)
+
+    if n > 1:
+        # Concat audio de tous les fichiers
+        concat_inputs = "".join(f"[{i}:a:0]" for i in range(n))
+        filter_complex = f"{concat_inputs}concat=n={n}:v=0:a=1[outa]"
+
+        cmd += ["-filter_complex", filter_complex]
+        cmd += ["-map", "[outa]"]
+    else:
+        cmd += ["-map", "0:a:0"]
+
+    cmd += [
+        "-c:a",
+        "pcm_s16le",  # WAV non compressé → meilleur pour librosa
+        "-ar",
+        str(sample_rate),  # sample rate aligné avec librosa.load
+        "-ac",
+        "1",  # mono
+        str(audio_path.absolute()),
+        "-y",
+    ]
+    subprocess.run(cmd, check=True)
+
+
+def get_chapters(video_file: Path) -> list[tuple[float, float]]:
+    """Get chapters from a video file.
+
+    Args:
+        video_file: Path to the video file
+    """
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
+            "-show_chapters",
+            str(video_file),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    data = json.loads(result.stdout)
+    chapters = data.get("chapters", [])
+
+    if not chapters:
+        return []
+
+    return [(float(ch["start_time"]), float(ch["end_time"])) for ch in chapters]

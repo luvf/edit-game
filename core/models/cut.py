@@ -12,10 +12,7 @@ from django.core.files.base import ContentFile
 from django.db import models
 
 from jugger_video_manipulation.cut_from_rendered import (
-    build_cut_points_from_rendered_audio,
-)
-from jugger_video_manipulation.cut_from_rendered_frames import (
-    build_cut_points_from_rendered_frames,
+    prepare_segments,
 )
 
 if TYPE_CHECKING:
@@ -111,8 +108,6 @@ class Cut(models.Model):
         self,
         rendered_path: str | Path,
         *,
-        sample_rate: int = 16000,
-        use_frames: bool = True,
         tmp_dir: str | Path | None = None,
     ) -> dict[str, Any]:
         """Generate cut json payload from a rendered video file."""
@@ -123,36 +118,13 @@ class Cut(models.Model):
 
         source_dir = Path(self.game.tournament.source_dir)
         tmp_path = Path(tmp_dir) if tmp_dir else Path(settings.BASE_DIR) / "tmp"
-        if use_frames:
-            proxy_path = None
-            if self.game.source_proxy and self.game.source_proxy.name:
-                candidate = self.game.source_proxy_path
-                if candidate.exists():
-                    proxy_path = candidate
-            if proxy_path is None:
-                self.game.generate_proxy(preset="medium")
-                self.game.refresh_from_db(fields=["source_proxy"])
-                if self.game.source_proxy and self.game.source_proxy.name:
-                    candidate = self.game.source_proxy_path
-                    if candidate.exists():
-                        proxy_path = candidate
-            if proxy_path is None:
-                raise FileNotFoundError("Proxy generation failed for frame matching.")
-            points = build_cut_points_from_rendered_frames(
-                source_dir=source_dir,
-                source_files=self.game.files,
-                target_path=Path(rendered_path),
-                source_proxy_path=proxy_path,
-                tmp_dir=tmp_path,
-            )
-        else:
-            points = build_cut_points_from_rendered_audio(
-                source_dir=source_dir,
-                source_files=self.game.files,
-                target_path=Path(rendered_path),
-                sample_rate=sample_rate,
-                tmp_dir=tmp_path,
-            )
+
+        points = prepare_segments(
+            rush_files=[source_dir / "rushs" / f for f in self.game.files],
+            edited_file=Path(rendered_path),
+            tmp_dir_path=tmp_path,
+        )
+
         return {"points": points, "overlays": []}
 
     def render(self, *, preset: str = "medium") -> RenderQueueItemCut:
