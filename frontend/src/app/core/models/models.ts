@@ -193,8 +193,8 @@ export interface RenderQueueItem extends BaseHalModel {
   game?: number | null;
   game_name?: string;
   preset: string;
+  metadata: string;
   status: string;
-  output_filename?: string;
   command?: string;
   error?: string;
   created_at?: string;

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import Any, ClassVar, cast
 
 import opentimelineio as otio
 from django.conf import settings
@@ -14,9 +14,6 @@ from django.template.defaultfilters import slugify
 
 from core.models.game import RenderableMixin
 from core.models.render_queue import RenderQueueItemCut, RenderQueueItemGenCut
-
-if TYPE_CHECKING:
-    from core.models.render_queue import RenderQueueItemCut
 
 
 class Cut(models.Model, RenderableMixin):
@@ -132,7 +129,7 @@ class Cut(models.Model, RenderableMixin):
 
         return RenderQueueItemGenCut.objects.create(
             cut=self,
-            rendered_path=rendered_path,
+            rendered_path=f"{rendered_path}",
             tmp_dir=f"{tmp_path}",
         )
 

@@ -23,7 +23,7 @@ export class RenderQueueComponent implements OnInit, AfterViewInit {
     'select',
     'game',
     'cut',
-    'preset',
+    'metadata',
     'status',
     'output',
     'command',
@@ -34,9 +34,8 @@ export class RenderQueueComponent implements OnInit, AfterViewInit {
   loading = signal(false);
   error = signal<string | null>(null);
   selection = signal<Set<number>>(new Set());
-
-  private renderQueueService = inject(RenderQueueService);
   @ViewChild(MatSort) sort!: MatSort;
+  private renderQueueService = inject(RenderQueueService);
 
   ngOnInit(): void {
     this.refresh();
@@ -50,8 +49,8 @@ export class RenderQueueComponent implements OnInit, AfterViewInit {
           return (item.game_name ?? item.game ?? '').toString().toLowerCase();
         case 'cut':
           return (item.cut_name ?? item.cut ?? '').toString().toLowerCase();
-        case 'preset':
-          return (item.preset ?? '').toString().toLowerCase();
+        case 'metadata':
+          return (item.metadata ?? '').toString().toLowerCase();
         case 'status':
           return (item.status ?? '').toString().toLowerCase();
         case 'started':

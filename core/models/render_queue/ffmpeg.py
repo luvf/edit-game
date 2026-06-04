@@ -82,9 +82,19 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
         db_table = "game_edit_render_queue_ffmpeg"
 
     @property
+    def command_parameters(self) -> str:
+        """Return command parameters for the render queue item."""
+        return self.command
+
+    @property
     def _get_renderable(self) -> RenderableMixin:
         """Return the renderable object associated with this queue item."""
         raise NotImplementedError("Use a concrete ffmpeg queue item type.")
+
+    @property
+    def metadata(self) -> str:
+        """Return metadata for this queue item, if any."""
+        return self.preset
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Fill output_filename from the renderable when missing."""

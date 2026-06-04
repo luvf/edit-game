@@ -692,7 +692,6 @@ class CutViewSet(viewsets.ModelViewSet[Cut]):
 
         try:
             payload = cut.gen_from_rendered_queue(candidate)
-            # cut.set_json(payload)
         except Exception as exc:
             return Response({"status": "failed", "error": str(exc)}, status=500)
         serializer = RenderQueueItemSerializer(

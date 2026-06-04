@@ -7,7 +7,6 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from django.conf import settings
 from django.db import models
 from django.template.defaultfilters import slugify
 

@@ -14,12 +14,14 @@ from rest_framework import serializers
 from core.models import (
     Cut,
     Game,
-    RenderQueueItemBase as RenderQueueItem,
     Team,
     TmpImage,
     Tournament,
     VideoMetadata,
     YTVideo,
+)
+from core.models import (
+    RenderQueueItemBase as RenderQueueItem,
 )
 
 Model = (
@@ -383,7 +385,8 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
         "team2": "TeamSerializer",
     }
 
-    def get_source_proxy(self, game) -> dict[str, str]:
+    def get_source_proxy(self, game: Game) -> dict[str, str]:
+        """Return the source proxy for a game."""
         return game.get_source_proxies()
 
     class Meta:
@@ -451,6 +454,7 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
         return instance
 
     def get_rendered_video(self, cut: Cut) -> dict[str, str]:
+        """Return the rendered video for a cut."""
         return cut.get_source_proxies()
 
     class Meta:
@@ -484,58 +488,24 @@ class RenderQueueItemSerializer(
     game = serializers.SerializerMethodField()
     cut_name = serializers.CharField(source="cut.name", read_only=True)
     game_name = serializers.CharField(source="game.name", read_only=True)
-    preset = serializers.SerializerMethodField()
-    output_filename = serializers.SerializerMethodField()
+    metadata = serializers.SerializerMethodField()
     command = serializers.SerializerMethodField()
 
-    @staticmethod
-    def _ffmpeg(obj: RenderQueueItem) -> Any:
-        """Return the ffmpeg subrow if this item is ffmpeg-backed."""
-        from django.core.exceptions import ObjectDoesNotExist
-
-        try:
-            return obj.renderqueueitemffmpeg
-        except ObjectDoesNotExist:
-            return None
-
-    def get_preset(self, obj: RenderQueueItem) -> str:
-        """Return preset for ffmpeg items, empty otherwise."""
-        ffmpeg = self._ffmpeg(obj)
-        return ffmpeg.preset if ffmpeg else ""
-
-    def get_output_filename(self, obj: RenderQueueItem) -> str:
-        """Return output_filename for ffmpeg items, empty otherwise."""
-        ffmpeg = self._ffmpeg(obj)
-        return ffmpeg.output_filename if ffmpeg else ""
+    def get_metadata(self, obj: RenderQueueItem) -> str:
+        """Return metadata for ffmpeg items, empty otherwise."""
+        return obj.concrete().metadata if obj.concrete() else ""
 
     def get_command(self, obj: RenderQueueItem) -> str:
         """Return command for ffmpeg items, empty otherwise."""
-        ffmpeg = self._ffmpeg(obj)
-        return ffmpeg.command if ffmpeg else ""
+        return obj.concrete().command_parameters if obj.concrete() else ""
 
     def get_cut(self, obj: RenderQueueItem) -> int | None:
-        """Return the cut id for a queue item.
-
-        Args:
-            obj: render queue item
-        Returns:
-            cut id or None
-        """
-        if obj.cut is None:
-            return None
-        return obj.cut.pk
+        """Return the cut id for a queue item."""
+        return obj.cut.pk if obj.cut else None
 
     def get_game(self, obj: RenderQueueItem) -> int | None:
-        """Return the game id for a queue item.
-
-        Args:
-            obj: render queue item
-        Returns:
-            game id or None
-        """
-        if obj.game is None:
-            return None
-        return obj.game.pk
+        """Return the game id for a queue item."""
+        return obj.game.pk if obj.game else None
 
     class Meta:
         """Meta."""
@@ -551,9 +521,8 @@ class RenderQueueItemSerializer(
             "cut_name",
             "game",
             "game_name",
-            "preset",
+            "metadata",
             "status",
-            "output_filename",
             "command",
             "error",
             "created_at",

@@ -43,9 +43,9 @@
         <td mat-cell *matCellDef="let item">{{ item.cut_name || item.cut || '-' }}</td>
       </ng-container>
 
-      <ng-container matColumnDef="preset">
-        <th mat-header-cell *matHeaderCellDef mat-sort-header>Preset</th>
-        <td mat-cell *matCellDef="let item">{{ item.preset }}</td>
+      <ng-container matColumnDef="metadata">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header>metadata</th>
+        <td mat-cell *matCellDef="let item">{{ item.metadata }}</td>
       </ng-container>
 
       <ng-container matColumnDef="status">

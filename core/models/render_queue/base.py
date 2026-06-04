@@ -72,6 +72,11 @@ class RenderQueueItemBase(models.Model):
         return f"{label} [{self.status}]"
 
     @property
+    def command_parameters(self) -> str:
+        """Return command parameters for the render queue item."""
+        return ""
+
+    @property
     def cut(self) -> Cut | None:
         """Return the associated cut, if any."""
         try:
@@ -95,6 +100,11 @@ class RenderQueueItemBase(models.Model):
             return self.renderqueueitemffmpeg.renderqueueitemproxy.game
         except ObjectDoesNotExist:
             return None
+
+    @property
+    def metadata(self) -> str:
+        """Return metadata for this queue item, if any."""
+        return ""
 
     def concrete(self) -> RenderQueueItemBase:
         """Return the concrete queue item instance for this row."""

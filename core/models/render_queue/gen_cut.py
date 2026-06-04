@@ -47,3 +47,19 @@ class RenderQueueItemGenCut(RenderQueueItemBase):
             tmp_dir_path=tmp_path,
         )
         self.cut.set_json({"points": points, "overlays": []})
+
+    @property
+    def metadata(self) -> str:
+        """Return metadata for this queue item, if any."""
+        return f"{Path(self.rendered_path).name}"
+
+    @property
+    def command_parameters(self) -> str:
+        """Return command parameters for the render queue item."""
+        game = self.cut.game
+        return (
+            f"rush dir :{Path(game.tournament.source_dir) / 'rushs' }  "
+            f"rush_files :{game.files}  "
+            f"edited_file:{Path(self.rendered_path).name}  "
+            f"tmp_dir_path :{Path(self.tmp_dir) if self.tmp_dir else Path(settings.BASE_DIR) / "tmp"}"
+        )
