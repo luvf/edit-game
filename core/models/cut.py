@@ -10,16 +10,16 @@ import opentimelineio as otio
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import models
+from django.template.defaultfilters import slugify
 
-from jugger_video_manipulation.cut_from_rendered import (
-    prepare_segments,
-)
+from core.models.game import RenderableMixin
+from core.models.render_queue import RenderQueueItemCut, RenderQueueItemGenCut
 
 if TYPE_CHECKING:
     from core.models.render_queue import RenderQueueItemCut
 
 
-class Cut(models.Model):
+class Cut(models.Model, RenderableMixin):
     """Cut model, represents a cut directives to edit the video."""
 
     CUT_TYPES: ClassVar[list[tuple[str, str]]] = [
@@ -37,7 +37,7 @@ class Cut(models.Model):
     )
     rendered_video = models.CharField(max_length=255, blank=True, default="")
     slug = models.SlugField(default="", null=False)
-    game = models.ForeignKey("core.Game", on_delete=models.SET_NULL, null=True)
+    game = models.ForeignKey("core.Game", on_delete=models.CASCADE, related_name="cuts")
 
     class Meta:
         """Model metadata."""
@@ -47,6 +47,23 @@ class Cut(models.Model):
     def __str__(self) -> str:
         """To string representation."""
         return self.name
+
+    @property
+    def drive_path(self) -> Path:
+        """Get the path to the drive."""
+        return Path(self.game.tournament.drive_dir)
+
+    @property
+    def rendered_subpath(self) -> Path:
+        """Get the subpath of the rendered file."""
+        return Path(self.game.tournament.tournament_dir) / "generated_rendered"
+
+    @property
+    def _generated_base_name(self) -> str:
+        """Get the base name for the proxy file."""
+        if self.game.files:
+            return slugify(f"{Path(self.game.files[0]).stem}_{self.name}")
+        return slugify(f"{self.game.name}_{self.name}")
 
     @property
     def json_file_path(self) -> Path:
@@ -104,40 +121,29 @@ class Cut(models.Model):
 
         return {"points": trim_points, "overlays": []}
 
-    def gen_from_rendered(
+    def gen_from_rendered_queue(
         self,
         rendered_path: str | Path,
         *,
         tmp_dir: str | Path | None = None,
-    ) -> dict[str, Any]:
-        """Generate cut json payload from a rendered video file."""
-        if not self.game or not isinstance(self.game.files, list):
-            return {"points": [], "overlays": []}
-        if not self.game.files:
-            return {"points": [], "overlays": []}
-
-        source_dir = Path(self.game.tournament.source_dir)
+    ) -> RenderQueueItemGenCut:
+        """Generate a RenderQueueItemGenCut for this cut from a rendered video file."""
         tmp_path = Path(tmp_dir) if tmp_dir else Path(settings.BASE_DIR) / "tmp"
 
-        points = prepare_segments(
-            rush_files=[source_dir / "rushs" / f for f in self.game.files],
-            edited_file=Path(rendered_path),
-            tmp_dir_path=tmp_path,
+        return RenderQueueItemGenCut.objects.create(
+            cut=self,
+            rendered_path=rendered_path,
+            tmp_dir=f"{tmp_path}",
         )
 
-        return {"points": points, "overlays": []}
-
-    def render(self, *, preset: str = "medium") -> RenderQueueItemCut:
+    def render_to_queue(
+        self, *, preset: str = "medium", run_now: bool = False
+    ) -> RenderQueueItemCut:
         """Create a queue item for this cut render."""
-        item = self.to_queue(preset=preset)
-        item.run()
-        return item
-
-    def to_queue(self, *, preset: str = "medium") -> RenderQueueItemCut:
-        """Create a queue item for this cut render."""
-        from core.models.render_queue import RenderQueueItemCut
-
-        return RenderQueueItemCut.objects.create(
+        render_queue_item = RenderQueueItemCut.objects.create(
             cut=self,
             preset=preset,
         )
+        if run_now:
+            render_queue_item.run()
+        return render_queue_item

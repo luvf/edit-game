@@ -112,6 +112,13 @@ class Tournament(models.Model):
                 created_gamse.append(game)
         return cast(list[Game], created_gamse)
 
+    def archive(self):
+        """Archive the tournament by moving files to the archive directory."""
+        archive_dir = settings.TOURNAMENTS_ARCHIVE_DIR
+        self.drive_dir = str(archive_dir)
+
+        self.save(update_fields=["drive_dir"])
+
 
 class Team(models.Model):
     """Model for a team."""

@@ -4,7 +4,8 @@
   <div class="proxy-global-actions">
     <mat-form-field appearance="outline" class="proxy-quality">
       <mat-label>Render quality</mat-label>
-      <mat-select [(ngModel)]="proxyQuality">
+      <mat-select [ngModel]="proxyQuality()"
+                  (ngModelChange)="proxyQuality.set($event)">
         <mat-option value="low">low</mat-option>
         <mat-option value="medium">medium</mat-option>
         <mat-option value="high">high</mat-option>
@@ -49,18 +50,19 @@
       <!-- Colonne rendered -->
       <ng-container matColumnDef="rendered">
         <th *matHeaderCellDef mat-header-cell mat-sort-header>rendered</th>
-        <td *matCellDef="let game" mat-cell> @if ((game.source_proxy?.trim()?.length ?? 0) > 0) {
-          <span class="proxy-ok" title="Proxy présent">✅</span>
-        } @else {
-          <span class="proxy-ko" title="Proxy absent">❌</span>
-        }</td>
+        <td *matCellDef="let game" mat-cell>
+          @if (Object.keys(game.source_proxy ?? {}).length > 0) {
+            <span class="proxy-ok" title="Proxy présent">✅</span>
+          } @else {
+            <span class="proxy-ko" title="Proxy absent">❌</span>
+          }</td>
       </ng-container>
 
       <!-- Nouvelle colonne proxy (binaire) -->
       <ng-container matColumnDef="proxy">
         <th *matHeaderCellDef mat-header-cell mat-sort-header>Proxy</th>
         <td *matCellDef="let game" mat-cell>
-          @if ((game.source_proxy?.trim()?.length ?? 0) > 0) {
+          @if (Object.keys(game.source_proxy ?? {}).length > 0) {
             <span class="proxy-ok" title="Proxy présent">✅</span>
           } @else {
             <span class="proxy-ko" title="Proxy absent">❌</span>

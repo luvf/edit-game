@@ -2,17 +2,69 @@
 
 from __future__ import annotations
 
+import abc
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from django.conf import settings
 from django.db import models
+from django.template.defaultfilters import slugify
+
+from edit_game import settings
 
 if TYPE_CHECKING:
-    from core.models.render_queue import RenderQueueItem
+    from core.models.render_queue import RenderQueueItemProxy
 
 
-class Game(models.Model):
+class RenderableMixin:
+    """Mixin for models that can be rendered."""
+
+    def rendered_url(self, quality: str = "low") -> str:
+        """Get the URL of the proxy file."""
+        if self.drive_path == settings.TOURNAMENTS_ARCHIVE_DIR:
+            base_url = "http://192.168.1.2:8001/tournois"
+        else:
+            base_url = "http://127.0.0.1:8081/tournois"
+        return f"{base_url}/{(self.rendered_subpath/self.rendered_filename(quality=quality))}"
+
+    def rendered_path(self, quality: str = "low") -> Path:
+        """Get the path to the rendered file."""
+        return (
+            self.drive_path
+            / self.rendered_subpath
+            / self.rendered_filename(quality=quality)
+        )
+
+    @property
+    @abc.abstractmethod
+    def drive_path(self) -> Path:
+        """Get the path to the drive."""
+
+    @property
+    @abc.abstractmethod
+    def rendered_subpath(self) -> Path:
+        """Get the subpath of the rendered file."""
+
+    def rendered_filename(self, quality: str = "low") -> str:
+        """Get the filename of the rendered file."""
+        if quality not in ["low", "medium", "high"]:
+            raise ValueError("Quality must be low, medium or high")
+        return f"{self._generated_base_name}_{quality}.mp4"
+
+    @property
+    @abc.abstractmethod
+    def _generated_base_name(self) -> str:
+        """Get the base name for the proxy file."""
+
+    def get_source_proxies(self) -> dict[str, str]:
+        """Get the path to the source proxy file."""
+        qualities = ["low", "medium", "high"]
+
+        return {quality: self.rendered_url(quality) for quality in qualities}
+
+
+class Game(models.Model, RenderableMixin):
     """Game model."""
 
     name = models.CharField(max_length=100)
@@ -33,6 +85,23 @@ class Game(models.Model):
         """Model metadata."""
 
         db_table = "game_edit_game"
+
+    @property
+    def drive_path(self) -> Path:
+        """Get the path to the drive."""
+        return Path(self.tournament.drive_dir)
+
+    @property
+    def rendered_subpath(self) -> Path:
+        """Get the subpath of the rendered file."""
+        return Path(self.tournament.tournament_dir) / "proxy"
+
+    @property
+    def _generated_base_name(self) -> str:
+        """Get the base name for the proxy file."""
+        if self.files:
+            return slugify(Path(self.files[0]).stem)
+        return slugify(self.name)
 
     @property
     def json_file_path(self) -> Path:
@@ -72,6 +141,7 @@ class Game(models.Model):
         source_proxy_path = self.source_proxy_path
         if source_proxy_path.is_symlink() and not source_proxy_path.exists():
             source_proxy_path.unlink(missing_ok=True)
+
             self.source_proxy = ""
             self.save(update_fields=["source_proxy"])
             return True
@@ -90,7 +160,7 @@ class Game(models.Model):
         *,
         overwrite: bool = False,
         to_queue: bool = False,
-    ) -> RenderQueueItem:
+    ) -> RenderQueueItemProxy:
         """Create a proxy render queue item handled by RenderQueueItemProxy.
 
         Behavior:
@@ -103,7 +173,7 @@ class Game(models.Model):
         if preset not in ["low", "medium", "high"]:
             raise ValueError("Preset must be low, medium or high")
 
-        from core.models.render_queue import RenderQueueItem, RenderQueueItemProxy
+        from core.models.render_queue import RenderQueueItemProxy
 
         item = RenderQueueItemProxy.objects.create(
             game=self,
@@ -112,7 +182,7 @@ class Game(models.Model):
         if not to_queue:
             item.run()
         else:
-            item.status = RenderQueueItem.Status.CREATED
+            item.status = RenderQueueItemProxy.Status.CREATED
             item.save(update_fields=["status"])
         _ = overwrite
         return item

@@ -4,8 +4,10 @@ from core.models.cut import Cut
 from core.models.game import Game
 from core.models.media import TmpImage, VideoMetadata, YTVideo
 from core.models.render_queue import (
-    RenderQueueItem,
+    RenderQueueItemBase,
     RenderQueueItemCut,
+    RenderQueueItemFFMPEG,
+    RenderQueueItemGenCut,
     RenderQueueItemProxy,
 )
 from core.models.tournament import Team, Tournament
@@ -13,8 +15,10 @@ from core.models.tournament import Team, Tournament
 __all__ = [
     "Cut",
     "Game",
-    "RenderQueueItem",
+    "RenderQueueItemBase",
     "RenderQueueItemCut",
+    "RenderQueueItemFFMPEG",
+    "RenderQueueItemGenCut",
     "RenderQueueItemProxy",
     "TmpImage",
     "VideoMetadata",

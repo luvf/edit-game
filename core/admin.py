@@ -8,7 +8,9 @@ from django.contrib import admin
 from core.models import (
     Cut,
     Game,
-    RenderQueueItem,
+    RenderQueueItemCut,
+    RenderQueueItemGenCut,
+    RenderQueueItemProxy,
     Team,
     TmpImage,
     Tournament,
@@ -25,6 +27,7 @@ if TYPE_CHECKING:
     VidMetadataAdminBase = admin.ModelAdmin[VideoMetadata]
     TmpImageAdminBase = admin.ModelAdmin[TmpImage]
     YTVideoAdminBase = admin.ModelAdmin[YTVideo]
+    CutAdminBase = admin.ModelAdmin[Cut]
 else:
     TournamentAdminBase = admin.ModelAdmin  # type: ignore[assignment]
     GameAdminBase = admin.ModelAdmin  # type: ignore[assignment]
@@ -32,6 +35,7 @@ else:
     VidMetadataAdminBase = admin.ModelAdmin  # type: ignore[assignment]
     TmpImageAdminBase = admin.ModelAdmin  # type: ignore[assignment]
     YTVideoAdminBase = admin.ModelAdmin  # type: ignore[assignment]
+    CutAdminBase = admin.ModelAdmin  # type: ignore[assignment]
 
 
 @admin.register(Tournament)
@@ -110,5 +114,13 @@ class YTVideoAdmin(YTVideoAdminBase):
     ordering = ("-publication_date",)
 
 
-admin.site.register(Cut)
-admin.site.register(RenderQueueItem)
+@admin.register(Cut)
+class CutAdmin(CutAdminBase):
+    """Admin config for Cut."""
+
+    list_display = ("name", "game", "slug", "rendered_video")
+
+
+admin.site.register(RenderQueueItemCut)
+admin.site.register(RenderQueueItemProxy)
+admin.site.register(RenderQueueItemGenCut)

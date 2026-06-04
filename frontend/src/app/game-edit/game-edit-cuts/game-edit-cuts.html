@@ -1,21 +1,36 @@
 <div class="edit-layout">
-  <mat-card class="video-slot">
-    @if ((sourceProxy?.trim()?.length ?? 0) > 0) {
-      <video #proxyVideo class="source-proxy-video" controls [attr.src]="sourceProxy"></video>
-      <div class="video-controls">
-        <button mat-stroked-button type="button" (click)="seekBy(-5)">-5</button>
-        <button mat-stroked-button type="button" (click)="seekBy(-1)">-1</button>
-        <button mat-stroked-button type="button" (click)="seekBy(1)">+1</button>
-        <button mat-stroked-button type="button" (click)="seekBy(5)">+5</button>
-      </div>
-      <div class="video-metrics">
-        <div>Frame: {{ currentFrame() }}</div>
-        <div>Timecode: {{ currentTimecode() }}</div>
-      </div>
+  <div class="video-column">
+    <mat-card class="video-slot">
+      @if (game?.source_proxy) {
+        <app-video-player
+          [sourceVideo]="game!.source_proxy"
+          [currentFrame]="rushFrame()"
+          (currentFrameChange)="rushFrame.set($event)">
+          >
+        </app-video-player>
+      }
+    </mat-card>
+
+    @if (activeCut(); as cut) {
+      <mat-card class="video-slot">
+        <div class="active-cut-video-title">
+          Rendered cut : {{ activeCut()?.name ?? activeCut()?.slug }}
+        </div>
+        @if (cut.rendered_video) {
+          <app-video-player
+            [sourceVideo]="cut.rendered_video"
+            [currentFrame]="renderedFrame()"
+            (currentFrameChange)="renderedFrame.set($event)">
+            >
+          </app-video-player>
+        }
+
+      </mat-card>
     }
-  </mat-card>
+  </div>
   <mat-card class="side-panel">
-    <mat-tab-group>
+    <mat-tab-group [selectedIndex]="selectedCutTabIndex()"
+                   (selectedIndexChange)="onSelectedCutTabChange($event)">
       @for (cut of cuts(); track cut.pk ?? cut.slug ?? $index) {
         <mat-tab>
           <ng-template mat-tab-label>
@@ -25,8 +40,8 @@
           <div class="tab-content">
             <app-cut-detail
               [cut]="cut"
-              [currentFrame]="currentFrame()"
-              [seekToFrame]="seekToFrame"
+              [currentFrame]="rushFrame()"
+              (seekToFrame)="rushFrame.set($event)"
             ></app-cut-detail>
             <button mat-stroked-button color="primary" class="cut-render" type="button"
                     (click)="onRenderCut(cut)">
@@ -85,5 +100,7 @@
         </div>
       </mat-tab>
     </mat-tab-group>
+
   </mat-card>
+
 </div>

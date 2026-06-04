@@ -129,6 +129,9 @@ export interface TmpImage extends BaseHalModel {
   _embedded?: HalEmbedded
 
 }
+export type VideoQuality = 'low' | 'medium' | 'high';
+
+export type RenderedVideo = Partial<Record<VideoQuality, string>>;
 
 export interface GameLinks extends HalLinks {
   self: Link;
@@ -146,7 +149,7 @@ export interface Game extends BaseHalModel {
   files: string;
   rendered: string;
   json_file: string;
-  source_proxy:string;
+  source_proxy:RenderedVideo;
   cuts: string[];
 
 
@@ -170,6 +173,7 @@ export interface Cut extends BaseHalModel {
   name: string;
   type_cut: string;
   json_file: string;
+  rendered_video?: RenderedVideo;
 
   slug: string;
   valid?: boolean;

@@ -1,3 +1,11 @@
+
+NGINX_PREFIX := $(CURDIR)/nginx
+NGINX_CONF := .nginx/nginx.conf
+NGINX_PID := tmp/nginx/nginx.pid
+
+.PHONY: nginx-start nginx-stop nginx-reload nginx-status runserver dev
+
+
 ########################################################################################################################
 # Project installation
 ########################################################################################################################
@@ -39,3 +47,40 @@ type-check:
 
 start-server:
 	uv run python manage.py runserver
+
+
+nginx-start:
+	@if [ -f "$(NGINX_PID)" ] && kill -0 "$$(cat $(NGINX_PID))" 2>/dev/null; then \
+		echo "Nginx est déjà lancé avec le PID $$(cat $(NGINX_PID))"; \
+	else \
+		echo "Démarrage de Nginx sur http://localhost:8081"; \
+		nginx -p "$(NGINX_PREFIX)" -c "$(NGINX_CONF)"; \
+	fi
+
+nginx-stop:
+	@if [ -f "$(NGINX_PID)" ]; then \
+		echo "Arrêt de Nginx avec le PID $$(cat $(NGINX_PID))"; \
+		nginx -p "$(NGINX_PREFIX)" -c "$(NGINX_CONF)" -s quit || true; \
+		rm -f "$(NGINX_PID)"; \
+	else \
+		echo "Aucun PID Nginx trouvé"; \
+	fi
+
+nginx-reload:
+	@if [ -f "$(NGINX_PID)" ] && kill -0 "$$(cat $(NGINX_PID))" 2>/dev/null; then \
+		echo "Reload de Nginx"; \
+		nginx -p "$(NGINX_PREFIX)" -c "$(NGINX_CONF)" -s reload; \
+	else \
+		echo "Nginx n'est pas lancé"; \
+	fi
+
+nginx-status:
+	@if [ -f "$(NGINX_PID)" ] && kill -0 "$$(cat $(NGINX_PID))" 2>/dev/null; then \
+		echo "Nginx est lancé avec le PID $$(cat $(NGINX_PID))"; \
+	else \
+		echo "Nginx n'est pas lancé"; \
+	fi
+
+
+dev: nginx-start
+	python manage.py runserver

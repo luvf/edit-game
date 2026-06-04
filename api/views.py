@@ -42,12 +42,14 @@ from api.serializers import (
 from core.models import (
     Cut,
     Game,
-    RenderQueueItem,
     Team,
     TmpImage,
     Tournament,
     VideoMetadata,
     YTVideo,
+)
+from core.models import (
+    RenderQueueItemBase as RenderQueueItem,
 )
 from core.tasks import run_async_task
 from core.utils.dataset_utils import get_base_json
@@ -508,6 +510,7 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         """Move the tournament source directory to the archive drive."""
         _ = pk, request
         tournament: Tournament = self.get_object()
+        tournament.archive()
         tournament.drive_dir = str(settings.TOURNAMENTS_ARCHIVE_DIR)
         tournament.save(update_fields=["drive_dir"])
         return Response({"status": "ok", "source_dir": tournament.source_dir})
@@ -620,10 +623,7 @@ class CutViewSet(viewsets.ModelViewSet[Cut]):
         )
 
         try:
-            if to_queue:
-                item = cut.to_queue(preset=preset)
-            else:
-                item = cut.render(preset=preset)
+            item = cut.render_to_queue(preset=preset, run_now=not to_queue)
         except Exception as exc:
             return Response({"status": "failed", "error": str(exc)}, status=500)
         serializer = RenderQueueItemSerializer(
@@ -691,12 +691,13 @@ class CutViewSet(viewsets.ModelViewSet[Cut]):
             )
 
         try:
-            payload = cut.gen_from_rendered(candidate)
-            cut.set_json(payload)
+            payload = cut.gen_from_rendered_queue(candidate)
+            # cut.set_json(payload)
         except Exception as exc:
             return Response({"status": "failed", "error": str(exc)}, status=500)
-
-        serializer = CutSerializer(cut, context=self.get_serializer_context())
+        serializer = RenderQueueItemSerializer(
+            payload, context=self.get_serializer_context()
+        )
         return Response(serializer.data)
 
     @action(detail=False, methods=[HTTPMethod.GET], url_path="cut-types")
@@ -713,7 +714,9 @@ class RenderQueueItemViewSet(viewsets.ModelViewSet[RenderQueueItem]):
 
     serializer_class = RenderQueueItemSerializer
     queryset = RenderQueueItem.objects.select_related(
-        "renderqueueitemcut__cut", "renderqueueitemproxy__game"
+        "renderqueueitemffmpeg__renderqueueitemcut__cut",
+        "renderqueueitemffmpeg__renderqueueitemproxy__game",
+        "renderqueueitemgencut__cut",
     ).order_by("created_at")
     permission_classes: Sequence[PermissionClass] = [AllowAny]
 

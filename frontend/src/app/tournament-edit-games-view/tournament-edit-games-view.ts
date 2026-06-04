@@ -46,6 +46,7 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
   selectedSourceFile = '';
   sourceFilePreviewUrl = '';
   @ViewChild(MatSort) sort!: MatSort;
+  protected readonly Object = Object;
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private tournamentService = inject(TournamentService);
@@ -95,7 +96,7 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
         }
         case 'rendered':
         case 'proxy':
-          return (item.source_proxy?.trim()?.length ?? 0) > 0 ? 1 : 0;
+          return Object.keys(item.source_proxy ?? {}).length > 0 ? 1 : 0;
         case 'file_name': {
           const sourceName = (item as unknown as {source_name?: string}).source_name;
           return sourceName?.toLowerCase() ?? item.files?.toLowerCase() ?? '';
@@ -109,6 +110,7 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
       }
     };
   }
+
   /**
    * Triggers the 'generate_gamse' action on a tournament.
    *
@@ -318,5 +320,4 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
     this.sourceFilePreviewUrl = '';
     this.sourceFiles.set([]);
   }
-
 }

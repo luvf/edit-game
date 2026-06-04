@@ -14,7 +14,7 @@ from rest_framework import serializers
 from core.models import (
     Cut,
     Game,
-    RenderQueueItem,
+    RenderQueueItemBase as RenderQueueItem,
     Team,
     TmpImage,
     Tournament,
@@ -372,7 +372,7 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
 
     cuts = serializers.HyperlinkedIdentityField(view_name="game-cuts")
     create_cut = serializers.HyperlinkedIdentityField(view_name="game-create-cut")
-
+    source_proxy = serializers.SerializerMethodField()
     generate_proxy = serializers.HyperlinkedIdentityField(
         view_name="game-generate-proxy"
     )
@@ -382,6 +382,9 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
         "team1": "TeamSerializer",
         "team2": "TeamSerializer",
     }
+
+    def get_source_proxy(self, game) -> dict[str, str]:
+        return game.get_source_proxies()
 
     class Meta:
         """Meta."""
@@ -412,6 +415,8 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
     gen_from_rendered = serializers.HyperlinkedIdentityField(
         view_name="cut-gen-from-rendered"
     )
+
+    rendered_video = serializers.SerializerMethodField()
 
     def update(self, instance: Cut, validated_data: dict[str, Any]) -> Cut:
         """Update a cut, handling JSON payloads for json_file."""
@@ -445,6 +450,9 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
         instance.save()
         return instance
 
+    def get_rendered_video(self, cut: Cut) -> dict[str, str]:
+        return cut.get_source_proxies()
+
     class Meta:
         """Meta."""
 
@@ -476,6 +484,34 @@ class RenderQueueItemSerializer(
     game = serializers.SerializerMethodField()
     cut_name = serializers.CharField(source="cut.name", read_only=True)
     game_name = serializers.CharField(source="game.name", read_only=True)
+    preset = serializers.SerializerMethodField()
+    output_filename = serializers.SerializerMethodField()
+    command = serializers.SerializerMethodField()
+
+    @staticmethod
+    def _ffmpeg(obj: RenderQueueItem) -> Any:
+        """Return the ffmpeg subrow if this item is ffmpeg-backed."""
+        from django.core.exceptions import ObjectDoesNotExist
+
+        try:
+            return obj.renderqueueitemffmpeg
+        except ObjectDoesNotExist:
+            return None
+
+    def get_preset(self, obj: RenderQueueItem) -> str:
+        """Return preset for ffmpeg items, empty otherwise."""
+        ffmpeg = self._ffmpeg(obj)
+        return ffmpeg.preset if ffmpeg else ""
+
+    def get_output_filename(self, obj: RenderQueueItem) -> str:
+        """Return output_filename for ffmpeg items, empty otherwise."""
+        ffmpeg = self._ffmpeg(obj)
+        return ffmpeg.output_filename if ffmpeg else ""
+
+    def get_command(self, obj: RenderQueueItem) -> str:
+        """Return command for ffmpeg items, empty otherwise."""
+        ffmpeg = self._ffmpeg(obj)
+        return ffmpeg.command if ffmpeg else ""
 
     def get_cut(self, obj: RenderQueueItem) -> int | None:
         """Return the cut id for a queue item.

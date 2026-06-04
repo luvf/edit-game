@@ -1,4 +1,4 @@
-import {Component, inject, Input, OnChanges, signal, SimpleChanges} from '@angular/core';
+import {Component, EventEmitter, inject, Input, OnChanges, Output, signal, SimpleChanges} from '@angular/core';
 import {CommonModule} from '@angular/common';
 import {HttpClient} from '@angular/common/http';
 import {Cut} from '../../core/models/models';
@@ -44,8 +44,8 @@ type CutPayload = {
 })
 export class CutDetailComponent implements OnChanges {
   @Input() cut: Cut | null = null;
-  @Input() currentFrame: number | null = null;
-  @Input() seekToFrame?: (frame: number) => void;
+  @Input() currentFrame: number=0;
+  @Output() seekToFrame = new EventEmitter<number>();
 
   payload: CutPayload | null = null;
   parseError: string | null = null;
@@ -83,47 +83,6 @@ export class CutDetailComponent implements OnChanges {
       next: () => {},
       error: (e) => console.error("Erreur lors de l'ajout a la queue", e),
     });
-  }
-
-  private loadJson(): void {
-    this.payload = null;
-    this.parseError = null;
-    const path = this.cut?.json_file?.trim();
-    if (!path || !this.isFetchablePath(path)) return;
-
-    this.http.get(path, {responseType: 'text'}).subscribe({
-      next: (text) => this.parseJson(text),
-      error: (e) => {
-        this.parseError = e?.message ? String(e.message) : 'Erreur de chargement';
-      },
-    });
-  }
-
-  private parseJson(content: string): void {
-    if (!content?.trim()) return;
-
-    try {
-      const raw = JSON.parse(content);
-      const points = Array.isArray(raw?.points) ? raw.points : [];
-      const overlays = Array.isArray(raw?.overlays) ? raw.overlays : [];
-
-      this.payload = {
-        points: points
-          .filter((p: any) => p && typeof p === 'object')
-          .map((p: any) => ({
-            in: Number(p.in),
-            out: Number(p.out),
-            point: p.point,
-          }))
-          .filter((p: Point) => Number.isFinite(p.in) && Number.isFinite(p.out)),
-        overlays: overlays
-          .filter((o: any) => o && typeof o === 'object')
-          .map((o: any) => this.normalizeOverlay(o))
-          .filter((o: Overlay | null) => !!o) as Overlay[],
-      };
-    } catch (e: any) {
-      this.parseError = e?.message ? String(e.message) : 'Invalid JSON';
-    }
   }
 
   addPoint(): void {
@@ -231,7 +190,7 @@ export class CutDetailComponent implements OnChanges {
 
   onSeekToFrame(frameValue: number): void {
     if (!Number.isFinite(frameValue)) return;
-    this.seekToFrame?.(Math.max(0, Math.floor(frameValue)));
+    this.seekToFrame.emit(Math.max(0, Math.floor(frameValue)));
   }
 
   isInInvalid(index: number): boolean {
@@ -266,6 +225,47 @@ export class CutDetailComponent implements OnChanges {
   removeOverlay(index: number): void {
     if (!this.payload) return;
     this.payload.overlays.splice(index, 1);
+  }
+
+  private loadJson(): void {
+    this.payload = null;
+    this.parseError = null;
+    const path = this.cut?.json_file?.trim();
+    if (!path || !this.isFetchablePath(path)) return;
+
+    this.http.get(path, {responseType: 'text'}).subscribe({
+      next: (text) => this.parseJson(text),
+      error: (e) => {
+        this.parseError = e?.message ? String(e.message) : 'Erreur de chargement';
+      },
+    });
+  }
+
+  private parseJson(content: string): void {
+    if (!content?.trim()) return;
+
+    try {
+      const raw = JSON.parse(content);
+      const points = Array.isArray(raw?.points) ? raw.points : [];
+      const overlays = Array.isArray(raw?.overlays) ? raw.overlays : [];
+
+      this.payload = {
+        points: points
+          .filter((p: any) => p && typeof p === 'object')
+          .map((p: any) => ({
+            in: Number(p.in),
+            out: Number(p.out),
+            point: p.point,
+          }))
+          .filter((p: Point) => Number.isFinite(p.in) && Number.isFinite(p.out)),
+        overlays: overlays
+          .filter((o: any) => o && typeof o === 'object')
+          .map((o: any) => this.normalizeOverlay(o))
+          .filter((o: Overlay | null) => !!o) as Overlay[],
+      };
+    } catch (e: any) {
+      this.parseError = e?.message ? String(e.message) : 'Invalid JSON';
+    }
   }
 
   private normalizeOverlay(raw: any): Overlay | null {
