@@ -1,12 +1,10 @@
 <div class="edit-layout">
   <div class="video-column">
     <mat-card class="video-slot">
-      @if (game?.source_proxy) {
+      @if (proxyGameVideo(); as video) {
         <app-video-player
-          [sourceVideo]="game!.source_proxy"
-          [currentFrame]="rushFrame()"
+          [sourceVideo]="video"
           (currentFrameChange)="rushFrame.set($event)">
-          >
         </app-video-player>
       }
     </mat-card>
@@ -14,37 +12,48 @@
     @if (activeCut(); as cut) {
       <mat-card class="video-slot">
         <div class="active-cut-video-title">
-          Rendered cut : {{ activeCut()?.name ?? activeCut()?.slug }}
+          o Rendered cut : {{ cut?.name ?? cut?.slug }}
         </div>
-        @if (cut.rendered_video) {
+        @if (cutsVideos()[cut.pk]; as cutVideo) {
           <app-video-player
-            [sourceVideo]="cut.rendered_video"
-            [currentFrame]="renderedFrame()"
+            [sourceVideo]="cutVideo"
             (currentFrameChange)="renderedFrame.set($event)">
-            >
           </app-video-player>
         }
-
       </mat-card>
     }
   </div>
   <mat-card class="side-panel">
-    <mat-tab-group [selectedIndex]="selectedCutTabIndex()"
-                   (selectedIndexChange)="onSelectedCutTabChange($event)">
+    <mat-tab-group
+      [selectedIndex]="selectedCutTabIndex()"
+      (selectedIndexChange)="onSelectedCutTabChange($event)"
+    >
       @for (cut of cuts(); track cut.pk ?? cut.slug ?? $index) {
         <mat-tab>
           <ng-template mat-tab-label>
-            <span class="cut-tab-label">{{ cut.name ?? cut.slug ?? ('Cut ' + ($index + 1)) }}</span>
-            <button type="button" class="cut-delete" (click)="onDeleteCut(cut, $event)">×</button>
+            <span class="cut-tab-label">{{
+                cut.name || cut.slug || "Cut " + ($index + 1)
+              }}</span>
+            <button
+              type="button"
+              class="cut-delete"
+              (click)="onDeleteCut(cut, $event)"
+            >
+              ×
+            </button>
           </ng-template>
           <div class="tab-content">
             <app-cut-detail
               [cut]="cut"
-              [currentFrame]="rushFrame()"
               (seekToFrame)="rushFrame.set($event)"
             ></app-cut-detail>
-            <button mat-stroked-button color="primary" class="cut-render" type="button"
-                    (click)="onRenderCut(cut)">
+            <button
+              mat-stroked-button
+              color="primary"
+              class="cut-render"
+              type="button"
+              (click)="onRenderCut(cut)"
+            >
               Generate
             </button>
           </div>
@@ -54,18 +63,21 @@
         <div class="tab-content">
           <mat-form-field appearance="outline">
             <mat-label>Nom du cut</mat-label>
-            <input matInput type="text" [(ngModel)]="newCutName">
+            <input matInput type="text" [(ngModel)]="newCutName"/>
           </mat-form-field>
           <div class="cut-create-row">
             <mat-form-field appearance="outline" class="cut-type">
               <mat-label>Type de cut</mat-label>
               <mat-select [(ngModel)]="selectedCutType">
                 @for (template of cutTemplates(); track template.code) {
-                  <mat-option [value]="template.code">{{ template.label }}</mat-option>
+                  <mat-option [value]="template.code">{{
+                      template.label
+                    }}
+                  </mat-option>
                 }
               </mat-select>
             </mat-form-field>
-            @if (selectedCutType() === 'VID') {
+            @if (selectedCutType() === "VID") {
               <mat-form-field appearance="outline" class="cut-type">
                 <mat-label>Source rendered</mat-label>
                 <mat-select [(ngModel)]="selectedRendered">
@@ -75,12 +87,17 @@
                 </mat-select>
               </mat-form-field>
             }
-            <button mat-stroked-button color="primary" class="cut-add" type="button"
-                    (click)="onGenerateCut()">
+            <button
+              mat-stroked-button
+              color="primary"
+              class="cut-add"
+              type="button"
+              (click)="onGenerateCut()"
+            >
               Creer
             </button>
           </div>
-          @if (selectedCutType() === 'OTIO') {
+          @if (selectedCutType() === "OTIO") {
             <div class="cut-xml-upload">
               <label for="xml-upload">Fichier XML</label>
               <input
@@ -88,7 +105,7 @@
                 type="file"
                 accept=".xml,application/xml,text/xml"
                 (change)="onFileSelected($event)"
-              >
+              />
               @if (loadedFile()) {
                 <span class="cut-xml-filename">{{ loadedFile()?.name }}</span>
               }
@@ -100,7 +117,5 @@
         </div>
       </mat-tab>
     </mat-tab-group>
-
   </mat-card>
-
 </div>

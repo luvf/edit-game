@@ -10,13 +10,14 @@ import opentimelineio as otio
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import models
-from django.template.defaultfilters import slugify
+from django.db.models import OneToOneField
 
-from core.models.game import RenderableMixin
-from core.models.render_queue import RenderQueueItemCut, RenderQueueItemGenCut
+from core.models.render_queue.ffmpeg import RenderQueueItemCut
+from core.models.render_queue.gen_cut import RenderQueueItemGenCut
+from core.models.video import Video
 
 
-class Cut(models.Model, RenderableMixin):
+class Cut(models.Model):
     """Cut model, represents a cut directives to edit the video."""
 
     CUT_TYPES: ClassVar[list[tuple[str, str]]] = [
@@ -32,9 +33,11 @@ class Cut(models.Model, RenderableMixin):
     json_file = models.FileField(
         upload_to="json_files/cuts/", default="json_files/cuts/default.json"
     )
-    rendered_video = models.CharField(max_length=255, blank=True, default="")
     slug = models.SlugField(default="", null=False)
     game = models.ForeignKey("core.Game", on_delete=models.CASCADE, related_name="cuts")
+    rendered_video = OneToOneField(
+        Video, on_delete=models.SET_NULL, null=True, blank=True, related_name="cut"
+    )
 
     class Meta:
         """Model metadata."""
@@ -44,23 +47,6 @@ class Cut(models.Model, RenderableMixin):
     def __str__(self) -> str:
         """To string representation."""
         return self.name
-
-    @property
-    def drive_path(self) -> Path:
-        """Get the path to the drive."""
-        return Path(self.game.tournament.drive_dir)
-
-    @property
-    def rendered_subpath(self) -> Path:
-        """Get the subpath of the rendered file."""
-        return Path(self.game.tournament.tournament_dir) / "generated_rendered"
-
-    @property
-    def _generated_base_name(self) -> str:
-        """Get the base name for the proxy file."""
-        if self.game.files:
-            return slugify(f"{Path(self.game.files[0]).stem}_{self.name}")
-        return slugify(f"{self.game.name}_{self.name}")
 
     @property
     def json_file_path(self) -> Path:
@@ -77,6 +63,16 @@ class Cut(models.Model, RenderableMixin):
         filename = f"cut_{self.pk}_data.json"
         content = ContentFile(json.dumps(json_data, ensure_ascii=False).encode("utf-8"))
         self.json_file.save(filename, content, save=True)
+
+    def ensure_video(self) -> None:
+        """Create and attach a video if missing."""
+        if self.rendered_video:
+            return
+
+        from core.models.video import Video
+
+        self.rendered_video = Video.objects.create(name=self.name)
+        self.save(update_fields=["rendered_video"])
 
     def gen_from_file(self, file_content: bytes | str) -> dict[str, Any]:
         """Generate cut json payload from a file content."""
@@ -137,6 +133,8 @@ class Cut(models.Model, RenderableMixin):
         self, *, preset: str = "medium", run_now: bool = False
     ) -> RenderQueueItemCut:
         """Create a queue item for this cut render."""
+        self.ensure_video()
+
         render_queue_item = RenderQueueItemCut.objects.create(
             cut=self,
             preset=preset,

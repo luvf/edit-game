@@ -10,6 +10,7 @@ from django.db import models
 
 from core.models.render_queue.base import RenderQueueItemBase
 from jugger_video_manipulation.cut_from_rendered import prepare_segments
+from jugger_video_manipulation.ffmpeg_utils import get_chapters
 
 
 class RenderQueueItemGenCut(RenderQueueItemBase):
@@ -36,11 +37,14 @@ class RenderQueueItemGenCut(RenderQueueItemBase):
             self.cut.set_json({"points": [], "overlays": []})
             return
 
-        source_dir = Path(game.tournament.source_dir)
+        source_dir = game.tournament.media_path
         tmp_path = (
             Path(self.tmp_dir) if self.tmp_dir else Path(settings.BASE_DIR) / "tmp"
         )
-
+        if not get_chapters(video_file=Path(self.rendered_path)):
+            self.error = "No chapters found in edited file."
+            self.save()
+            return
         points = prepare_segments(
             rush_files=[source_dir / "rushs" / f for f in game.files],
             edited_file=Path(self.rendered_path),
@@ -58,7 +62,7 @@ class RenderQueueItemGenCut(RenderQueueItemBase):
         """Return command parameters for the render queue item."""
         game = self.cut.game
         return (
-            f"rush dir :{Path(game.tournament.source_dir) / 'rushs' }  "
+            f"rush dir :{game.tournament.media_path / 'rushs' }  "
             f"rush_files :{game.files}  "
             f"edited_file:{Path(self.rendered_path).name}  "
             f"tmp_dir_path :{Path(self.tmp_dir) if self.tmp_dir else Path(settings.BASE_DIR) / "tmp"}"

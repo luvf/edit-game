@@ -42,7 +42,11 @@
   position: relative;
   cursor: crosshair;
   background:
-    radial-gradient(circle, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0) 68%),
+    radial-gradient(
+      circle,
+      rgba(255, 255, 255, 1) 0%,
+      rgba(255, 255, 255, 0) 68%
+    ),
     conic-gradient(
       #ff0000,
       #ffff00,
@@ -149,7 +153,6 @@
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset;
 }
 
-
 /* Une seule « carte » par ligne: arrondi + ombre au niveau du tr */
 #game_list {
   width: 100%;
@@ -161,9 +164,14 @@
 #game_list tbody tr {
   background: #eef2f7; /* fond de la ligne */
   border-radius: 12px; /* arrondis extérieurs */
-  clip-path: inset(0 round 12px); /* force le rognage des coins (fiable sur tr) */
+  clip-path: inset(
+    0 round 12px
+  ); /* force le rognage des coins (fiable sur tr) */
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); /* UNE seule ombre pour la ligne */
-  transition: box-shadow 0.2s ease, transform 0.2s ease, background-color 0.2s ease;
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease,
+    background-color 0.2s ease;
 }
 
 #game_list tbody tr:hover {
@@ -183,7 +191,6 @@
   border-bottom-right-radius: 12px;
 }
 
-
 /* Barre de couleur à gauche: conserve la hauteur sans ajouter d’ombre */
 .image_cell {
   width: 5em;
@@ -192,11 +199,10 @@
 }
 
 .image_cell::after {
-  content: '';
+  content: "";
   display: block;
   height: 36px; /* hauteur visuelle de la ligne */
 }
-
 
 #game_list thead th:nth-child(3),
 #game_list thead th:nth-child(4) {
@@ -236,7 +242,6 @@
   text-overflow: ellipsis;
 }
 
-
 #game_list thead th.actions_col,
 #game_list tbody td.actions_col {
   text-align: center;
@@ -253,7 +258,6 @@
 .tournaments-table .mat-column-actions {
   width: 180px;
 }
-
 
 /* Empiler les boutons verticalement */
 .actions-stack {

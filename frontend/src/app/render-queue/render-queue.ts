@@ -1,18 +1,32 @@
-import {AfterViewInit, Component, inject, OnInit, signal, ViewChild} from '@angular/core';
-import {CommonModule} from '@angular/common';
-import {MatButtonModule} from '@angular/material/button';
-import {MatCheckboxModule} from '@angular/material/checkbox';
-import {MatTableDataSource, MatTableModule} from '@angular/material/table';
-import {MatTooltipModule} from '@angular/material/tooltip';
-import {MatSort, MatSortModule} from '@angular/material/sort';
-import {RenderQueueItem} from '../core/models/models';
-import {RenderQueueService} from '../core/services/misc-hateoas-models.service';
-import {forkJoin} from 'rxjs';
+import {
+  AfterViewInit,
+  Component,
+  inject,
+  OnInit,
+  signal,
+  ViewChild,
+} from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { MatButtonModule } from '@angular/material/button';
+import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatTableDataSource, MatTableModule } from '@angular/material/table';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatSort, MatSortModule } from '@angular/material/sort';
+import { RenderQueueItem } from '../core/models/models';
+import { RenderQueueService } from '../core/services/misc-hateoas-models.service';
+import { forkJoin } from 'rxjs';
 
 @Component({
   selector: 'app-render-queue',
   standalone: true,
-  imports: [CommonModule, MatButtonModule, MatCheckboxModule, MatTableModule, MatTooltipModule, MatSortModule],
+  imports: [
+    CommonModule,
+    MatButtonModule,
+    MatCheckboxModule,
+    MatTableModule,
+    MatTooltipModule,
+    MatSortModule,
+  ],
   templateUrl: './render-queue.html',
   styleUrl: './render-queue.css',
 })
@@ -58,7 +72,9 @@ export class RenderQueueComponent implements OnInit, AfterViewInit {
         case 'finished':
           return item.finished_at ? new Date(item.finished_at).getTime() : 0;
         default:
-          return (item as unknown as Record<string, string | number>)[property] ?? '';
+          return (
+            (item as unknown as Record<string, string | number>)[property] ?? ''
+          );
       }
     };
   }
@@ -114,7 +130,9 @@ export class RenderQueueComponent implements OnInit, AfterViewInit {
     this.renderQueueService.delete(item).subscribe({
       next: () => this.refresh(),
       error: (e) => {
-        this.error.set(e?.message ? String(e.message) : 'Erreur de suppression');
+        this.error.set(
+          e?.message ? String(e.message) : 'Erreur de suppression',
+        );
       },
     });
   }
@@ -138,26 +156,36 @@ export class RenderQueueComponent implements OnInit, AfterViewInit {
   }
 
   onBulkDelete(): void {
-    const targets = this.items().filter((item) => this.selection().has(item.pk));
+    const targets = this.items().filter((item) =>
+      this.selection().has(item.pk),
+    );
     if (!targets.length) return;
     this.loading.set(true);
-    forkJoin(targets.map((item) => this.renderQueueService.delete(item))).subscribe({
+    forkJoin(
+      targets.map((item) => this.renderQueueService.delete(item)),
+    ).subscribe({
       next: () => {
         this.selection.set(new Set());
         this.refresh();
       },
       error: (e) => {
         this.loading.set(false);
-        this.error.set(e?.message ? String(e.message) : 'Erreur de suppression');
+        this.error.set(
+          e?.message ? String(e.message) : 'Erreur de suppression',
+        );
       },
     });
   }
 
   onBulkRun(): void {
-    const targets = this.items().filter((item) => this.selection().has(item.pk));
+    const targets = this.items().filter((item) =>
+      this.selection().has(item.pk),
+    );
     if (!targets.length) return;
     this.loading.set(true);
-    forkJoin(targets.map((item) => this.renderQueueService.run(item))).subscribe({
+    forkJoin(
+      targets.map((item) => this.renderQueueService.run(item)),
+    ).subscribe({
       next: () => {
         this.selection.set(new Set());
         this.refresh();
@@ -170,10 +198,14 @@ export class RenderQueueComponent implements OnInit, AfterViewInit {
   }
 
   onBulkReset(): void {
-    const targets = this.items().filter((item) => this.selection().has(item.pk));
+    const targets = this.items().filter((item) =>
+      this.selection().has(item.pk),
+    );
     if (!targets.length) return;
     this.loading.set(true);
-    forkJoin(targets.map((item) => this.renderQueueService.reset(item))).subscribe({
+    forkJoin(
+      targets.map((item) => this.renderQueueService.reset(item)),
+    ).subscribe({
       next: () => {
         this.selection.set(new Set());
         this.refresh();

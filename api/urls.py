@@ -10,6 +10,7 @@ from api.views import (
     TmpImageViewSet,
     TournamentsViewSet,
     VideoMetadataViewSet,
+    VideoViewSet,
     YTVideoViewSet,
 )
 
@@ -25,5 +26,6 @@ router.register(r"teams", TeamViewSet, basename="team")
 router.register(r"cuts", CutViewSet, basename="cut")
 router.register(r"render-queue", RenderQueueItemViewSet, basename="renderqueue")
 
+router.register("videos", VideoViewSet, basename="video")
 
 urlpatterns = router.urls

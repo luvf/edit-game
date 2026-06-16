@@ -4,8 +4,10 @@
   <div class="proxy-global-actions">
     <mat-form-field appearance="outline" class="proxy-quality">
       <mat-label>Render quality</mat-label>
-      <mat-select [ngModel]="proxyQuality()"
-                  (ngModelChange)="proxyQuality.set($event)">
+      <mat-select
+        [ngModel]="proxyQuality()"
+        (ngModelChange)="proxyQuality.set($event)"
+      >
         <mat-option value="low">low</mat-option>
         <mat-option value="medium">medium</mat-option>
         <mat-option value="high">high</mat-option>
@@ -20,7 +22,12 @@
   </div>
 
   <div class="table-responsive">
-    <table mat-table [dataSource]="dataSource" class="mat-elevation-z8 tournament-edit-games-table" matSort>
+    <table
+      mat-table
+      [dataSource]="dataSource"
+      class="mat-elevation-z8 tournament-edit-games-table"
+      matSort
+    >
       <!-- Colonne Nom -->
       <ng-container matColumnDef="name">
         <th *matHeaderCellDef mat-header-cell mat-sort-header>Name</th>
@@ -36,33 +43,23 @@
       <!-- Colonne team1 name -->
       <ng-container matColumnDef="teams">
         <th *matHeaderCellDef mat-header-cell mat-sort-header>teams</th>
-        <td *matCellDef="let video" mat-cell>{{ team1_names()[video.pk] }} vs {{ team2_names()[video.pk] }}</td>
-
-
+        <td *matCellDef="let video" mat-cell>
+          {{ team1_names()[video.pk] }} vs {{ team2_names()[video.pk] }}
+        </td>
       </ng-container>
 
       <!-- Colonne cuts -->
       <ng-container matColumnDef="cuts">
         <th *matHeaderCellDef mat-header-cell mat-sort-header>Cuts</th>
-        <td *matCellDef="let game" mat-cell>{{ cuts_count()[game.pk] ?? 0 }}</td>
+        <td *matCellDef="let game" mat-cell>{{ cuts_count()[game.pk] }}</td>
       </ng-container>
 
-      <!-- Colonne rendered -->
-      <ng-container matColumnDef="rendered">
-        <th *matHeaderCellDef mat-header-cell mat-sort-header>rendered</th>
-        <td *matCellDef="let game" mat-cell>
-          @if (Object.keys(game.source_proxy ?? {}).length > 0) {
-            <span class="proxy-ok" title="Proxy présent">✅</span>
-          } @else {
-            <span class="proxy-ko" title="Proxy absent">❌</span>
-          }</td>
-      </ng-container>
 
       <!-- Nouvelle colonne proxy (binaire) -->
       <ng-container matColumnDef="proxy">
         <th *matHeaderCellDef mat-header-cell mat-sort-header>Proxy</th>
         <td *matCellDef="let game" mat-cell>
-          @if (Object.keys(game.source_proxy ?? {}).length > 0) {
+          @if (Object.keys(videos()[game.pk]?.files ?? {}).length > 0) {
             <span class="proxy-ok" title="Proxy présent">✅</span>
           } @else {
             <span class="proxy-ko" title="Proxy absent">❌</span>
@@ -71,9 +68,25 @@
       </ng-container>
 
       <!-- Lignes de définition du tableau -->
-      <tr mat-header-row *matHeaderRowDef="['name','file_name','teams','cuts','rendered','proxy']"></tr>
-      <tr mat-row *matRowDef="let row; columns: ['name','file_name','teams','cuts','rendered','proxy'];"
-          class="clickable-row" (click)="openGameEdit(row)"></tr>
+      <tr
+        mat-header-row
+        *matHeaderRowDef="[
+          'name',
+          'file_name',
+          'teams',
+          'cuts',
+          'proxy',
+        ]"
+      ></tr>
+      <tr
+        mat-row
+        *matRowDef="
+          let row;
+          columns: ['name', 'file_name', 'teams', 'cuts', 'proxy']
+        "
+        class="clickable-row"
+        (click)="openGameEdit(row)"
+      ></tr>
     </table>
 
     @if (games().length === 0) {
@@ -87,18 +100,26 @@
     <div class="create-game-fields">
       <mat-form-field appearance="outline" class="team-field">
         <mat-label>Game Name</mat-label>
-        <input matInput [(ngModel)]="newGameName">
+        <input matInput [(ngModel)]="newGameName"/>
       </mat-form-field>
 
       <mat-form-field appearance="outline" class="source-field">
         <mat-label>Source file</mat-label>
-        <mat-select [(ngModel)]="selectedSourceFile" (ngModelChange)="onSourceFileSelected($event)">
+        <mat-select
+          [(ngModel)]="selectedSourceFile"
+          (ngModelChange)="onSourceFileSelected($event)"
+        >
           @for (file of sourceFiles(); track file) {
             <mat-option [value]="file">{{ file }}</mat-option>
           }
         </mat-select>
       </mat-form-field>
-      <button mat-stroked-button color="primary" type="button" (click)="onAddSourceFile()">
+      <button
+        mat-stroked-button
+        color="primary"
+        type="button"
+        (click)="onAddSourceFile()"
+      >
         Add
       </button>
       <button
@@ -116,7 +137,12 @@
     <div class="create-game-preview">
       <div class="preview-box">
         @if (sourceFilePreviewUrl) {
-          <video class="source-preview" controls preload="metadata" [attr.src]="sourceFilePreviewUrl"></video>
+          <video
+            class="source-preview"
+            controls
+            preload="metadata"
+            [attr.src]="sourceFilePreviewUrl"
+          ></video>
         } @else {
           <div class="preview-empty">Select a source file to preview it.</div>
         }
@@ -129,7 +155,11 @@
             @for (file of selectedSourceFiles(); track file) {
               <div class="selected-file-row">
                 <span class="selected-file-name">{{ file }}</span>
-                <button type="button" class="remove-file" (click)="onRemoveSourceFile(file)">
+                <button
+                  type="button"
+                  class="remove-file"
+                  (click)="onRemoveSourceFile(file)"
+                >
                   Remove
                 </button>
               </div>

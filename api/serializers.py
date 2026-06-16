@@ -11,18 +11,14 @@ from django.core.files.base import ContentFile
 from django.template.defaultfilters import slugify
 from rest_framework import serializers
 
-from core.models import (
-    Cut,
-    Game,
-    Team,
-    TmpImage,
-    Tournament,
-    VideoMetadata,
-    YTVideo,
-)
-from core.models import (
+from core.models.cut import Cut
+from core.models.game import Game
+from core.models.media import TmpImage, VideoMetadata, YTVideo
+from core.models.render_queue.base import (
     RenderQueueItemBase as RenderQueueItem,
 )
+from core.models.tournament import Team, Tournament
+from core.models.video import Video
 
 Model = (
     Cut
@@ -33,6 +29,7 @@ Model = (
     | VideoMetadata
     | YTVideo
     | RenderQueueItem
+    | Video
 )
 
 T = TypeVar("T", bound=Model)
@@ -311,6 +308,8 @@ class TournamentSerializer(
     generate_games = serializers.HyperlinkedIdentityField(
         view_name="tournament-generate-games"
     )
+    tournament_dir = serializers.CharField(write_only=True)
+    drive_dir = serializers.CharField(write_only=True)
 
     default_hal_embedded: ClassVar[dict[str, str]] = {}
 
@@ -322,6 +321,7 @@ class TournamentSerializer(
             "url",
             "pk",
             "name",
+            "short_name",
             "date",
             "games",
             "place",
@@ -338,6 +338,8 @@ class TournamentSerializer(
             "sync_videos",
             "youtube_update",
             "archive",
+            "tournament_dir",
+            "drive_dir",
         ]
 
     def get_is_archived(self, obj: Tournament) -> bool:
@@ -357,13 +359,15 @@ class TournamentSerializer(
         """Create a new tournament instance."""
         new_tournament = Tournament(
             name=validated_data.get("name"),
-            short_name=validated_data.get("short_name"),
+            short_name=validated_data.get("short_name", validated_data.get("name")),
             date=validated_data.get("date"),
             place=validated_data.get("place"),
             JTR=validated_data.get("JTR"),
             tugeny_link=validated_data.get("tugeny_link"),
             color=validated_data.get("color"),
             slug=slugify(validated_data.get("name")),
+            drive_dir=validated_data.get("drive_dir"),
+            tournament_dir=validated_data.get("tournament_dir"),
         )
         new_tournament.save()
         return new_tournament
@@ -374,7 +378,6 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
 
     cuts = serializers.HyperlinkedIdentityField(view_name="game-cuts")
     create_cut = serializers.HyperlinkedIdentityField(view_name="game-create-cut")
-    source_proxy = serializers.SerializerMethodField()
     generate_proxy = serializers.HyperlinkedIdentityField(
         view_name="game-generate-proxy"
     )
@@ -383,11 +386,8 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
         "tournament": "TournamentSerializer",
         "team1": "TeamSerializer",
         "team2": "TeamSerializer",
+        "video_proxy": "VideoSerializer",
     }
-
-    def get_source_proxy(self, game: Game) -> dict[str, str]:
-        """Return the source proxy for a game."""
-        return game.get_source_proxies()
 
     class Meta:
         """Meta."""
@@ -399,14 +399,13 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
             "name",
             "files",
             "tournament",
-            "rendered",
             "team1",
             "team2",
             "json_file",
-            "source_proxy",
             "cuts",
             "create_cut",
             "generate_proxy",
+            "video_proxy",
         ]
 
 
@@ -418,8 +417,27 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
     gen_from_rendered = serializers.HyperlinkedIdentityField(
         view_name="cut-gen-from-rendered"
     )
+    default_hal_embedded: ClassVar[dict[str, str]] = {
+        "rendered_video": "VideoSerializer",
+    }
 
-    rendered_video = serializers.SerializerMethodField()
+    class Meta:
+        """Meta."""
+
+        model = Cut
+        fields: Sequence[str] = [
+            "url",
+            "pk",
+            "name",
+            "type_cut",
+            "json_file",
+            "rendered_video",
+            "game",
+            "slug",
+            "render",
+            "gen_from_file",
+            "gen_from_rendered",
+        ]
 
     def update(self, instance: Cut, validated_data: dict[str, Any]) -> Cut:
         """Update a cut, handling JSON payloads for json_file."""
@@ -452,28 +470,6 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
 
         instance.save()
         return instance
-
-    def get_rendered_video(self, cut: Cut) -> dict[str, str]:
-        """Return the rendered video for a cut."""
-        return cut.get_source_proxies()
-
-    class Meta:
-        """Meta."""
-
-        model = Cut
-        fields: Sequence[str] = [
-            "url",
-            "pk",
-            "name",
-            "type_cut",
-            "json_file",
-            "rendered_video",
-            "game",
-            "slug",
-            "render",
-            "gen_from_file",
-            "gen_from_rendered",
-        ]
 
 
 class RenderQueueItemSerializer(
@@ -539,3 +535,59 @@ class TeamSerializer(HALMixin[Team], serializers.HyperlinkedModelSerializer[Team
 
         model = Team
         fields: Sequence[str] = ["url", "pk", "name", "short_name", "image", "slug"]
+
+
+class VideoSerializer(HALMixin[Video], serializers.HyperlinkedModelSerializer[Video]):
+    """Video serializer."""
+
+    owner_type = serializers.SerializerMethodField()
+    files = serializers.SerializerMethodField()
+    qualities = serializers.SerializerMethodField()
+
+    class Meta:
+        """Meta."""
+
+        model = Video
+        fields: Sequence[str] = [
+            "pk",
+            "url",
+            "duration",
+            "owner_type",
+            "files",
+            "qualities",
+            "cut",
+            "game",
+        ]
+        read_only_fields = fields
+
+    def get_owner_type(self, obj: Video) -> str | None:
+        """Return the type of the owner (game or cut)."""
+        try:
+            if obj.game:
+                return "game"
+        except AttributeError:
+            pass
+        try:
+            if obj.cut:
+                return "cut"
+        except AttributeError:
+            pass
+        return None
+
+    def get_files(self, obj: Video) -> dict[str, dict[str, Any]]:
+        """Return physical files indexed by quality."""
+        files: dict[str, dict[str, Any]] = {}
+
+        for video_file in obj.files.all():
+            url = video_file.url
+            if len(url) > 0:
+                files[video_file.quality] = {
+                    "url": url,
+                    "format": video_file.format,
+                }
+
+        return files
+
+    def get_qualities(self, obj: Video) -> list[str]:
+        """Return available qualities."""
+        return list(obj.files.values_list("quality", flat=True).distinct())

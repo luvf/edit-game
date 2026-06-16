@@ -1,9 +1,9 @@
 // TypeScript
-import {HttpClient, HttpHeaders} from '@angular/common/http';
-import {Injectable} from '@angular/core';
-import halfred, {Resource} from 'halfred';
-import {from, map, Observable, switchMap, throwError} from 'rxjs';
-import {BaseHalModel} from './models/models';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { Injectable } from '@angular/core';
+import halfred, { Resource } from 'halfred';
+import { from, map, Observable, switchMap, throwError } from 'rxjs';
+import { BaseHalModel } from './models/models';
 
 /**
  * Represents a resource enriched by halfred parsing.
@@ -23,7 +23,6 @@ export interface PaginatedResult<T> {
   previous?: string | null;
 }
 
-
 /**
  * Generic HATEOAS service providing convenience methods to work with HAL/JSON APIs.
  *
@@ -41,16 +40,15 @@ export interface PaginatedResult<T> {
  *
  * @typeParam T - The domain resource type that conforms to {@link HateoasResource}.
  */
-@Injectable({providedIn: 'root'})
+@Injectable({ providedIn: 'root' })
 export class HateoasService<T extends BaseHalModel> {
-  protected baseUrl: string = "";
+  protected baseUrl: string = '';
 
   /**
    * Base collection URL used by default for list/post calls or as a fallback
    * when an explicit resource self link cannot be resolved.
    */
-  constructor(protected http: HttpClient) {
-  }
+  constructor(protected http: HttpClient) {}
 
   /**
    * Sets the base collection URL used by `list()` and `post()` by default.
@@ -74,7 +72,7 @@ export class HateoasService<T extends BaseHalModel> {
    */
   list(url: string = this.baseUrl): Observable<T[]> {
     return this.http.get(url).pipe(
-      map(body => {
+      map((body) => {
         // 1) Case where api return directly a JSON array.
         if (Array.isArray(body)) {
           return (body as any[]).map((item: any) => {
@@ -94,7 +92,9 @@ export class HateoasService<T extends BaseHalModel> {
 
         // 3) Case HAL: we parse with halfred
         const parsed = this.parse(body);
-        const original = (parsed as any).original ? parsed.original() : (body as any);
+        const original = (parsed as any).original
+          ? parsed.original()
+          : (body as any);
 
         // 4) extract with _embedded for any key and normalize the array
         let items: any[] = [];
@@ -120,22 +120,27 @@ export class HateoasService<T extends BaseHalModel> {
           (item as HateoasParsed<T>)._parsed = this.parse(item);
           return item as T;
         });
-      })
+      }),
     );
   }
 
   listPaginated(url: string = this.baseUrl): Observable<PaginatedResult<T>> {
     return this.http.get(url).pipe(
-      map(body => {
+      map((body) => {
         if (Array.isArray(body)) {
           const items = (body as any[]).map((item: any) => {
             (item as HateoasParsed<T>)._parsed = this.parse(item);
             return item as T;
           });
-          return {items, count: items.length};
+          return { items, count: items.length };
         }
 
-        const paginated = body as { results?: any[]; count?: number; next?: string | null; previous?: string | null };
+        const paginated = body as {
+          results?: any[];
+          count?: number;
+          next?: string | null;
+          previous?: string | null;
+        };
         if (paginated?.results && Array.isArray(paginated.results)) {
           const items = paginated.results.map((item: any) => {
             (item as HateoasParsed<T>)._parsed = this.parse(item);
@@ -143,14 +148,19 @@ export class HateoasService<T extends BaseHalModel> {
           });
           return {
             items,
-            count: typeof paginated.count === 'number' ? paginated.count : items.length,
+            count:
+              typeof paginated.count === 'number'
+                ? paginated.count
+                : items.length,
             next: paginated.next ?? null,
             previous: paginated.previous ?? null,
           };
         }
 
         const parsed = this.parse(body);
-        const original = (parsed as any).original ? parsed.original() : (body as any);
+        const original = (parsed as any).original
+          ? parsed.original()
+          : (body as any);
         let items: any[] = [];
         const embedded = original?._embedded;
         if (embedded && typeof embedded === 'object') {
@@ -171,8 +181,8 @@ export class HateoasService<T extends BaseHalModel> {
           (item as HateoasParsed<T>)._parsed = this.parse(item);
           return item as T;
         });
-        return {items: normalized, count: normalized.length};
-      })
+        return { items: normalized, count: normalized.length };
+      }),
     );
   }
 
@@ -185,12 +195,12 @@ export class HateoasService<T extends BaseHalModel> {
   get(urlOrId: string | T): Observable<T> {
     const url = this.resolveUrl(urlOrId);
     return this.http.get(url).pipe(
-      map(body => {
+      map((body) => {
         const parsed = this.parse(body);
         const resource = parsed.original() as T;
         (resource as HateoasParsed<T>)._parsed = parsed;
         return resource;
-      })
+      }),
     );
   }
 
@@ -206,13 +216,15 @@ export class HateoasService<T extends BaseHalModel> {
    */
   post(body: Partial<T>, url: string = this.baseUrl): Observable<T> {
     return this.http.post(url, body).pipe(
-      map(resp => {
+      map((resp) => {
         // Certains serveurs renvoient directement l'objet, d'autres un HAL complet
         const parsed = this.parse(resp);
-        const resource = (parsed as any).original ? (parsed as any).original() as T : (resp as T);
+        const resource = (parsed as any).original
+          ? ((parsed as any).original() as T)
+          : (resp as T);
         (resource as HateoasParsed<T>)._parsed = parsed;
         return resource;
-      })
+      }),
     );
   }
 
@@ -228,19 +240,26 @@ export class HateoasService<T extends BaseHalModel> {
    * @param method - Update method: 'PATCH' (default) or 'PUT'.
    * @returns An observable emitting the updated resource of type `T`.
    */
-  update(resourceOrUrl: string | T, partial: Partial<T>, method: 'PATCH' | 'PUT' = 'PATCH'): Observable<T> {
+  update(
+    resourceOrUrl: string | T,
+    partial: Partial<T>,
+    method: 'PATCH' | 'PUT' = 'PATCH',
+  ): Observable<T> {
     const url = this.resolveUrl(resourceOrUrl);
-    const req$ = method === 'PUT'
-      ? this.http.put(url, partial)
-      : this.http.patch(url, partial);
+    const req$ =
+      method === 'PUT'
+        ? this.http.put(url, partial)
+        : this.http.patch(url, partial);
 
     return req$.pipe(
-      map(resp => {
+      map((resp) => {
         const parsed = this.parse(resp);
-        const resource = (parsed as any).original ? (parsed as any).original() as T : (resp as T);
+        const resource = (parsed as any).original
+          ? ((parsed as any).original() as T)
+          : (resp as T);
         (resource as HateoasParsed<T>)._parsed = parsed;
         return resource;
-      })
+      }),
     );
   }
 
@@ -273,7 +292,9 @@ export class HateoasService<T extends BaseHalModel> {
     // Si on nous passe un objet déjà parsé avec le lien, court-circuiter
 
     if (resourceOrUrl && typeof resourceOrUrl === 'object') {
-      const maybeLink = (resourceOrUrl as any)?._links?.[rel]?.href as string | undefined;
+      const maybeLink = (resourceOrUrl as any)?._links?.[rel]?.href as
+        | string
+        | undefined;
       if (maybeLink) {
         return this.http.get<R>(maybeLink);
       }
@@ -291,8 +312,10 @@ export class HateoasService<T extends BaseHalModel> {
         if (emb && emb[rel]) {
           return from([emb[rel] as R]);
         }
-         return  throwError(() => new Error(`Relation '${rel}' introuvable sur ${url}`));
-      })
+        return throwError(
+          () => new Error(`Relation '${rel}' introuvable sur ${url}`),
+        );
+      }),
     );
   }
 
@@ -316,7 +339,7 @@ export class HateoasService<T extends BaseHalModel> {
     resourceOrUrl: string | T,
     rel: string,
     body: unknown = {},
-    method: HttpMethod = 'POST'
+    method: HttpMethod = 'POST',
   ): Observable<R> {
     const url = this.resolveUrl(resourceOrUrl);
     return this.http.get(url).pipe(
@@ -324,12 +347,16 @@ export class HateoasService<T extends BaseHalModel> {
         const parsed = this.parse(bodyGet);
         const link = parsed.link(rel);
         if (!link || !link.href) {
-          return  throwError(() => new  Error(`Action/link '${rel}' introuvable sur ${url}`));
+          return throwError(
+            () => new Error(`Action/link '${rel}' introuvable sur ${url}`),
+          );
         }
 
         // fix the body and header depending on the verb.
         const hasBody = !(method === 'GET' || method === 'DELETE');
-        const headers = hasBody ? new HttpHeaders({'Content-Type': 'application/json'}) : undefined;
+        const headers = hasBody
+          ? new HttpHeaders({ 'Content-Type': 'application/json' })
+          : undefined;
 
         // Explicit typing to force "observe: 'body'"
         const options: {
@@ -340,7 +367,7 @@ export class HateoasService<T extends BaseHalModel> {
         } = {
           headers,
           observe: 'body',
-          responseType: 'json'
+          responseType: 'json',
         };
         if (hasBody) {
           options.body = body;
@@ -348,7 +375,7 @@ export class HateoasService<T extends BaseHalModel> {
 
         // Use HttpClient.request to support all verbs and return Observable<R>
         return this.http.request<R>(method, link.href, options);
-      })
+      }),
     );
   }
 
@@ -386,17 +413,24 @@ export class HateoasService<T extends BaseHalModel> {
     resource: T,
     rel: string,
     body: unknown = {},
-    method: HttpMethod = 'POST'
+    method: HttpMethod = 'POST',
   ): Observable<R> {
     if (!resource._links)
-      return  throwError(() => new Error(`'_links' introuvable sur ${resource}`));
+      return throwError(
+        () => new Error(`'_links' introuvable sur ${resource}`),
+      );
     if (!resource._links.hasOwnProperty(rel)) {
-      return  throwError(() =>  new Error(`Relation '${rel}' introuvable sur ${resource}`));
+      return throwError(
+        () => new Error(`Relation '${rel}' introuvable sur ${resource}`),
+      );
     }
     const link = resource._links[rel];
-    if (link && "href" in link) {    // fix the body and header depending on the verb.
+    if (link && 'href' in link) {
+      // fix the body and header depending on the verb.
       const hasBody = !(method === 'GET' || method === 'DELETE');
-      const headers = hasBody ? new HttpHeaders({'Content-Type': 'application/json'}) : undefined;
+      const headers = hasBody
+        ? new HttpHeaders({ 'Content-Type': 'application/json' })
+        : undefined;
 
       // Explicit typing to force "observe: 'body'"
       const options: {
@@ -407,7 +441,7 @@ export class HateoasService<T extends BaseHalModel> {
       } = {
         headers,
         observe: 'body',
-        responseType: 'json'
+        responseType: 'json',
       };
       if (hasBody) {
         options.body = body;
@@ -416,25 +450,41 @@ export class HateoasService<T extends BaseHalModel> {
       // Use HttpClient.request to support all verbs and return Observable<R>
       return this.http.request<R>(method, link.href, options);
     } else {
-      return  throwError(() =>  new Error(`relation '${rel}' est de type list}}`));
+      return throwError(
+        () => new Error(`relation '${rel}' est de type list}}`),
+      );
     }
   }
 
-  protected follow_resource<R = BaseHalModel>(resource: T, rel: string, reload: boolean = false): Observable<R> {
+  protected follow_resource<R = BaseHalModel>(
+    resource: T,
+    rel: string,
+    reload: boolean = false,
+  ): Observable<R> {
     if (!resource._links)
-      return  throwError(() => new Error(`'_links' introuvable sur ${resource}`));
+      return throwError(
+        () => new Error(`'_links' introuvable sur ${resource}`),
+      );
     if (!resource._links.hasOwnProperty(rel)) {
-      return  throwError(() => new Error(`Relation '${rel}' introuvable sur ${resource}`));
+      return throwError(
+        () => new Error(`Relation '${rel}' introuvable sur ${resource}`),
+      );
     }
-    if (!reload && resource._embedded && resource._embedded.hasOwnProperty(rel)) {
+    if (
+      !reload &&
+      resource._embedded &&
+      resource._embedded.hasOwnProperty(rel)
+    ) {
       return from([resource._embedded[rel] as R]);
     }
     const linkOrLinks = resource._links[rel];
-    if (linkOrLinks && "href" in linkOrLinks) {
+    if (linkOrLinks && 'href' in linkOrLinks) {
       const link = linkOrLinks.href;
       return this.http.get<R>(link);
     } else {
-      return  throwError(() => new Error(`relation '${rel}' est introuvable ou de type list}}`));
+      return throwError(
+        () => new Error(`relation '${rel}' est introuvable ou de type list}}`),
+      );
     }
   }
 }

@@ -1,11 +1,21 @@
-import {Component, EventEmitter, inject, Input, OnChanges, Output, signal, SimpleChanges} from '@angular/core';
-import {CommonModule} from '@angular/common';
-import {HttpClient} from '@angular/common/http';
-import {Cut} from '../../core/models/models';
-import {MatButtonModule} from '@angular/material/button';
-import {CutsService} from '../../core/services/misc-hateoas-models.service';
-import {FormsModule} from '@angular/forms';
-import {MatTabsModule} from '@angular/material/tabs';
+import {
+  Component,
+  EventEmitter,
+  inject,
+  Input,
+  OnChanges,
+  Output,
+  signal,
+  SimpleChanges,
+} from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { HttpClient } from '@angular/common/http';
+import { Cut } from '../../core/models/models';
+import { MatButtonModule } from '@angular/material/button';
+import { CutsService } from '../../core/services/misc-hateoas-models.service';
+import { FormsModule } from '@angular/forms';
+import { MatTabsModule } from '@angular/material/tabs';
+import { GameEditCutsStateService } from '../game-edit-cuts/game-edit-cuts-state';
 
 type Point = {
   in: number;
@@ -38,21 +48,22 @@ type CutPayload = {
 @Component({
   selector: 'app-cut-detail',
   standalone: true,
+
   imports: [CommonModule, MatButtonModule, FormsModule, MatTabsModule],
   templateUrl: './cut-detail.html',
   styleUrl: './cut-detail.css',
 })
 export class CutDetailComponent implements OnChanges {
   @Input() cut: Cut | null = null;
-  @Input() currentFrame: number=0;
   @Output() seekToFrame = new EventEmitter<number>();
 
-  payload: CutPayload | null = null;
+  payload = signal<CutPayload | null>(null);
   parseError: string | null = null;
   valid = signal(true);
   queuePreset = 'medium';
   private http = inject(HttpClient);
   private cutService = inject(CutsService);
+  private state = inject(GameEditCutsStateService);
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['cut']) {
@@ -64,7 +75,9 @@ export class CutDetailComponent implements OnChanges {
   onSave(): void {
     if (!this.cut) return;
     const json = this.buildJson();
-    const file = new File([json], `cut-${this.cut.pk ?? 'new'}.json`, {type: 'application/json'});
+    const file = new File([json], `cut-${this.cut.pk ?? 'new'}.json`, {
+      type: 'application/json',
+    });
     const formData = new FormData();
     formData.append('json_file', file);
     this.cutService.update(this.cut, formData as any).subscribe({
@@ -73,84 +86,103 @@ export class CutDetailComponent implements OnChanges {
     });
   }
 
-  onFix(): void {
-  }
+  onFix(): void {}
 
   onAddToQueue(): void {
     if (!this.cut?.pk) return;
     const preset = this.queuePreset || 'medium';
-    this.cutService.render_cut(this.cut, {preset, to_queue: true}).subscribe({
+    this.cutService.render_cut(this.cut, { preset, to_queue: true }).subscribe({
       next: () => {},
       error: (e) => console.error("Erreur lors de l'ajout a la queue", e),
     });
   }
 
   addPoint(): void {
-    if (!this.payload) {
-      this.payload = {points: [], overlays: []};
+    const payload = this.payload();
+    if (!payload) {
+      this.payload.set({ points: [], overlays: [] });
+      return;
     }
-    this.payload.points.push({in: 0, out: 0, point: 'nopoint'});
+    this.payload.set({
+      ...payload,
+      points: [...payload.points, { in: 0, out: 0, point: 'nopoint' }],
+    });
   }
 
   addPointAfter(index: number): void {
-    if (!this.payload) return;
-    const current = this.payload.points[index];
-    const next = this.payload.points[index + 1];
+    const payload = this.payload();
+    if (!payload) return;
+
+    const current = payload.points[index];
+    const next = payload.points[index + 1];
     const currentOut = Number(current?.out ?? 0);
     const nextIn = Number(next?.in ?? currentOut + 2);
     const newIn = Number.isFinite(currentOut) ? currentOut + 1 : 0;
     const newOut = Number.isFinite(nextIn) ? nextIn - 1 : newIn;
-    this.payload.points.splice(index + 1, 0, {in: newIn, out: newOut, point: 'nopoint'});
+
+    const points = [...payload.points];
+    points.splice(index + 1, 0, { in: newIn, out: newOut, point: 'nopoint' });
+    this.payload.set({ ...payload, points });
   }
 
   removePoint(index: number): void {
-    if (!this.payload) return;
-    this.payload.points.splice(index, 1);
+    const payload = this.payload();
+    if (!payload) return;
+    const points = [...payload.points];
+    points.splice(index, 1);
+    this.payload.set({ ...payload, points });
   }
 
   addOverlay(type: Overlay['type'] = 'Warning'): void {
-    if (!this.payload) {
-      this.payload = {points: [], overlays: []};
-    }
-    if (type === 'TeamIntroduction') {
-      this.payload.overlays.push({
-        type: 'TeamIntroduction',
-        team1: '',
-        team2: '',
-        condition: '',
-      });
-    } else {
-      this.payload.overlays.push({
-        type: 'Warning',
-        warning_type: '',
-        text: '',
-        tc: 0,
-        length: 300,
-      });
-    }
+    const payload = this.payload() ?? { points: [], overlays: [] };
+
+    const overlay =
+      type === 'TeamIntroduction'
+        ? {
+            type: 'TeamIntroduction' as const,
+            team1: '',
+            team2: '',
+            condition: '',
+          }
+        : {
+            type: 'Warning' as const,
+            warning_type: '',
+            text: '',
+            tc: 0,
+            length: 300,
+          };
+
+    this.payload.set({
+      ...payload,
+      overlays: [...payload.overlays, overlay],
+    });
   }
 
   addOverlayAfter(index: number, type?: Overlay['type']): void {
-    if (!this.payload) return;
-    const current = this.payload.overlays[index];
+    const payload = this.payload();
+    if (!payload) return;
+    const current = payload.overlays[index];
     const nextType = type ?? current?.type ?? 'Warning';
-    const insertIndex = index + 1;
-    if (nextType === 'TeamIntroduction') {
-      this.payload.overlays.splice(insertIndex, 0, {
-        type: 'TeamIntroduction',
-        team1: '',
-        team2: '',
-        condition: '',
-      });
-    } else {
-      this.payload.overlays.splice(insertIndex, 0, {
-        type: 'Warning',
-        warning_type: '',
-        text: '',
-        tc: 0,
-        length: 300,
-      });
-    }
+
+    const overlay =
+      nextType === 'TeamIntroduction'
+        ? {
+            type: 'TeamIntroduction' as const,
+            team1: '',
+            team2: '',
+            condition: '',
+          }
+        : {
+            type: 'Warning' as const,
+            warning_type: '',
+            text: '',
+            tc: 0,
+            length: 300,
+          };
+
+    const overlays = [...payload.overlays];
+    overlays.splice(index + 1, 0, overlay);
+    this.payload.set({ ...payload, overlays });
   }
 
   formatTimecode(frameValue: number): string {
@@ -170,9 +202,13 @@ export class CutDetailComponent implements OnChanges {
   }
 
   formatDurationFrames(startFrame: number, endFrame: number): string {
-    if (!Number.isFinite(startFrame) || !Number.isFinite(endFrame)) return '00:00:00';
+    if (!Number.isFinite(startFrame) || !Number.isFinite(endFrame))
+      return '00:00:00';
     const fps = 60;
-    const totalFrames = Math.max(0, Math.floor(endFrame) - Math.floor(startFrame));
+    const totalFrames = Math.max(
+      0,
+      Math.floor(endFrame) - Math.floor(startFrame),
+    );
     const totalSeconds = Math.floor(totalFrames / fps);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
@@ -183,7 +219,7 @@ export class CutDetailComponent implements OnChanges {
   }
 
   setFromCurrentFrame(point: Point, field: 'in' | 'out'): void {
-    const frame = this.currentFrame;
+    const frame = this.state.rushFrame();
     if (!Number.isFinite(frame as number)) return;
     point[field] = Math.max(0, Math.floor(frame as number));
   }
@@ -194,10 +230,11 @@ export class CutDetailComponent implements OnChanges {
   }
 
   isInInvalid(index: number): boolean {
-    if (!this.payload) return false;
+    const payload = this.payload();
+    if (!payload) return false;
     if (index <= 0) return false;
-    const current = this.payload.points[index];
-    const prev = this.payload.points[index - 1];
+    const current = payload.points[index];
+    const prev = payload.points[index - 1];
     const currentIn = Number(current?.in ?? NaN);
     const prevOut = Number(prev?.out ?? NaN);
     if (!Number.isFinite(currentIn) || !Number.isFinite(prevOut)) return false;
@@ -205,9 +242,10 @@ export class CutDetailComponent implements OnChanges {
   }
 
   isOutInvalid(index: number): boolean {
-    if (!this.payload) return false;
-    const current = this.payload.points[index];
-    const next = this.payload.points[index + 1];
+    const payload = this.payload();
+    if (!payload) return false;
+    const current = payload.points[index];
+    const next = payload.points[index + 1];
     if (!next) return false;
     const currentOut = Number(current?.out ?? NaN);
     const nextIn = Number(next?.in ?? NaN);
@@ -223,20 +261,25 @@ export class CutDetailComponent implements OnChanges {
   }
 
   removeOverlay(index: number): void {
-    if (!this.payload) return;
-    this.payload.overlays.splice(index, 1);
+    const payload = this.payload();
+    if (!payload) return;
+    const overlays = [...payload.overlays];
+    overlays.splice(index, 1);
+    this.payload.set({ ...payload, overlays });
   }
 
   private loadJson(): void {
-    this.payload = null;
+    this.payload.set(null);
     this.parseError = null;
     const path = this.cut?.json_file?.trim();
     if (!path || !this.isFetchablePath(path)) return;
 
-    this.http.get(path, {responseType: 'text'}).subscribe({
-      next: (text) => this.parseJson(text),
+    this.http.get(path, { responseType: 'text' }).subscribe({
+      next: (text) => queueMicrotask(() => this.parseJson(text)),
       error: (e) => {
-        this.parseError = e?.message ? String(e.message) : 'Erreur de chargement';
+        this.parseError = e?.message
+          ? String(e.message)
+          : 'Erreur de chargement';
       },
     });
   }
@@ -249,7 +292,7 @@ export class CutDetailComponent implements OnChanges {
       const points = Array.isArray(raw?.points) ? raw.points : [];
       const overlays = Array.isArray(raw?.overlays) ? raw.overlays : [];
 
-      this.payload = {
+      this.payload.set({
         points: points
           .filter((p: any) => p && typeof p === 'object')
           .map((p: any) => ({
@@ -257,19 +300,25 @@ export class CutDetailComponent implements OnChanges {
             out: Number(p.out),
             point: p.point,
           }))
-          .filter((p: Point) => Number.isFinite(p.in) && Number.isFinite(p.out)),
+          .filter(
+            (p: Point) => Number.isFinite(p.in) && Number.isFinite(p.out),
+          ),
         overlays: overlays
           .filter((o: any) => o && typeof o === 'object')
           .map((o: any) => this.normalizeOverlay(o))
           .filter((o: Overlay | null) => !!o) as Overlay[],
-      };
+      });
     } catch (e: any) {
       this.parseError = e?.message ? String(e.message) : 'Invalid JSON';
     }
   }
 
   private normalizeOverlay(raw: any): Overlay | null {
-    if (raw.team1 !== undefined || raw.team2 !== undefined || raw.condition !== undefined) {
+    if (
+      raw.team1 !== undefined ||
+      raw.team2 !== undefined ||
+      raw.condition !== undefined
+    ) {
       return {
         type: 'TeamIntroduction',
         team1: String(raw.team1 ?? ''),
@@ -278,7 +327,11 @@ export class CutDetailComponent implements OnChanges {
       };
     }
 
-    if (raw.warning_type !== undefined || raw.text !== undefined || raw.tc !== undefined) {
+    if (
+      raw.warning_type !== undefined ||
+      raw.text !== undefined ||
+      raw.tc !== undefined
+    ) {
       return {
         type: 'Warning',
         warning_type: String(raw.warning_type ?? ''),
@@ -296,14 +349,15 @@ export class CutDetailComponent implements OnChanges {
   }
 
   private buildJson(): string {
-    if (!this.payload) return '';
+    const payload = this.payload();
+    if (!payload) return '';
     return JSON.stringify(
       {
-        points: this.payload.points,
-        overlays: this.payload.overlays,
+        points: payload.points,
+        overlays: payload.overlays,
       },
       null,
-      2
+      2,
     );
   }
 }

@@ -45,9 +45,9 @@ class FilterComplexBuilder:
         """
         nb_inputs = len(input_v)
         if len(input_v) != len(input_a):
-            raise ValueError("the nember  and nb_a must be equal on audio and on video")
+            raise ValueError("the number  and nb_a must be equal on audio and on video")
         if len(input_v) == 0:
-            raise ValueError("the nember of inputs must be greater than 0")
+            raise ValueError("the number of inputs must be greater than 0")
         self.out_v = f"[cv{self.index}]"
         self.out_a = f"[ca{self.index}]"
         if nb_inputs > 1:

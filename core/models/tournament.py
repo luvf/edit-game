@@ -43,19 +43,20 @@ class Tournament(models.Model):
         db_table = "game_edit_tournament"
 
     @property
-    def source_dir(self) -> str:
-        """Get the source directory from drive and tournament directories."""
+    def media_path(self) -> Path:
+        """Get the path to the source directory."""
         drive = self.drive_dir or ""
-        if self.tournament_dir:
-            return str(Path(drive) / self.tournament_dir)
-        if drive:
-            return str(Path(drive))
-        return str(Path(self.tournament_dir))
+        return Path(drive) / self.tournament_dir
 
     @property
-    def source_dir_path(self) -> Path:
-        """Get the path to the source directory."""
-        return Path(self.source_dir)
+    def tournament_media_url(self) -> str:
+        """Get the URL to the source directory."""
+        if Path(self.drive_dir) == settings.TOURNAMENTS_ARCHIVE_DIR:
+            root_url = "http://192.168.1.2:8001/tournois"
+        else:
+            root_url = "http://127.0.0.1:8081/tournois"
+
+        return f"{root_url}/{self.tournament_dir}"
 
     def __str__(self) -> str:
         """To string representation."""
@@ -63,18 +64,14 @@ class Tournament(models.Model):
 
     def get_rendered_path(self, subdir: Path = Path("rendered")) -> Path:
         """Get the path to the rendered directory."""
-        return self.source_dir_path / subdir
-
-    def get_timelines_path(self, subdir: Path = Path("timelines")) -> Path:
-        """Get the path to the timelines directory."""
-        return self.source_dir_path / subdir
+        return self.media_path / subdir
 
     def generate_games(self) -> list[Game]:
         """Generate games from the source dir."""
         game_model = apps.get_model("core", "Game")
-        vid_dir = self.source_dir_path / "rushs"
-        exp = re.compile(r"^GX(\d{2})(\d{4})\.MP4$")
-        videos = defaultdict(list)
+        vid_dir = self.media_path / "rushs"
+        exp = re.compile(r"^G[XH](\d{2})(\d{4})\.MP4$")
+        videos: defaultdict[int, list[tuple[int, str]]] = defaultdict(list)
         created_gamse = []
 
         for path in vid_dir.iterdir():
@@ -82,17 +79,14 @@ class Tournament(models.Model):
                 val = exp.search(str(path.name))
                 if val is None:
                     continue
-                videos[int(val.group(2))].append(int(val.group(1)))
+                videos[int(val.group(2))].append((int(val.group(1)), path.name))
         for key, video_id in videos.items():
             base_name = "VID00" + str(key) + ".json"
-            video_id.sort()
-            filenames = [
-                "GX" + str(vId).zfill(2) + str(key).zfill(4) + ".MP4"
-                for vId in video_id
-            ]
+            video_id.sort(key=lambda x: x[0])
+            filenames = [video_name for _, video_name in video_id]
             if len(game_model.objects.filter(files=filenames)) == 0:
                 data = json.loads(get_base_json())
-                data["dir"] = self.source_dir
+                data["dir"] = str(self.media_path)
                 data["files"] = filenames
                 data["filename"] = base_name
                 file = StringIO(json.dumps(data, indent=4))
@@ -102,7 +96,6 @@ class Tournament(models.Model):
                     files=filenames,
                     slug=slugify(base_name),
                     tournament=self,
-                    rendered="",
                 )
 
                 filename = self.name + "_" + str(key) + "_game.json"

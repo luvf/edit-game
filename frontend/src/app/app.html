@@ -1,16 +1,23 @@
 <main class="main">
-
   <nav class="app-nav">
     <div class="app-nav-left">
-      <a class="app-link" routerLink="/tournaments" routerLinkActive="active">Tournois</a>
+      <a class="app-link" routerLink="/tournaments" routerLinkActive="active"
+        >Tournois</a
+      >
       @for (link of navLinks(); track $index) {
-        <a class="app-link" [routerLink]="link.routerLink" [queryParams]="link.queryParams">
+        <a
+          class="app-link"
+          [routerLink]="link.routerLink"
+          [queryParams]="link.queryParams"
+        >
           {{ link.label }}
         </a>
       }
     </div>
     <div class="app-nav-right">
-      <a class="app-link" routerLink="/render-queue" routerLinkActive="active">Render queue</a>
+      <a class="app-link" routerLink="/render-queue" routerLinkActive="active"
+        >Render queue</a
+      >
       @for (action of navActions(); track $index) {
         <button class="app-link" type="button" (click)="action.onClick()">
           {{ action.label }}
@@ -19,7 +26,5 @@
     </div>
   </nav>
 
-
-  <router-outlet/>
-
+  <router-outlet />
 </main>

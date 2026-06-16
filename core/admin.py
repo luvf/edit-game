@@ -5,18 +5,13 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.contrib import admin
 
-from core.models import (
-    Cut,
-    Game,
-    RenderQueueItemCut,
-    RenderQueueItemGenCut,
-    RenderQueueItemProxy,
-    Team,
-    TmpImage,
-    Tournament,
-    VideoMetadata,
-    YTVideo,
-)
+from core.models.cut import Cut
+from core.models.game import Game
+from core.models.media import TmpImage, VideoMetadata, YTVideo
+from core.models.render_queue.ffmpeg import RenderQueueItemCut, RenderQueueItemProxy
+from core.models.render_queue.gen_cut import RenderQueueItemGenCut
+from core.models.tournament import Team, Tournament
+from core.models.video import Video, VideoFile
 
 type ListDisplay = list[Any] | tuple[Any, ...]
 
@@ -28,6 +23,8 @@ if TYPE_CHECKING:
     TmpImageAdminBase = admin.ModelAdmin[TmpImage]
     YTVideoAdminBase = admin.ModelAdmin[YTVideo]
     CutAdminBase = admin.ModelAdmin[Cut]
+    VideoAdminBase = admin.ModelAdmin[Video]
+    VideoFileAdminBase = admin.ModelAdmin[VideoFile]
 else:
     TournamentAdminBase = admin.ModelAdmin  # type: ignore[assignment]
     GameAdminBase = admin.ModelAdmin  # type: ignore[assignment]
@@ -36,6 +33,8 @@ else:
     TmpImageAdminBase = admin.ModelAdmin  # type: ignore[assignment]
     YTVideoAdminBase = admin.ModelAdmin  # type: ignore[assignment]
     CutAdminBase = admin.ModelAdmin  # type: ignore[assignment]
+    VideoAdminBase = admin.ModelAdmin  # type: ignore[assignment]
+    VideoFileAdminBase = admin.ModelAdmin  # type: ignore[assignment]
 
 
 @admin.register(Tournament)
@@ -62,8 +61,8 @@ class GameAdmin(GameAdminBase):
         "tournament",
         "team1",
         "team2",
-        "rendered",
         "json_file",
+        "video_proxy",
     )
     prepopulated_fields: ClassVar[dict[str, Sequence[str]]] = {"slug": ["name"]}
 
@@ -119,6 +118,44 @@ class CutAdmin(CutAdminBase):
     """Admin config for Cut."""
 
     list_display = ("name", "game", "slug", "rendered_video")
+
+
+@admin.register(Video)
+class VideoAdmin(VideoAdminBase):
+    """Admin config for Video."""
+
+    list_display = ("name", "status", "games", "cuts")
+    list_filter = ("status",)
+    search_fields = ("name",)
+
+    fields = ("name", "status", "uuid")
+    readonly_fields = ("uuid",)
+
+    def games(self, obj: Video) -> Game | None:
+        """Get the game associated with this video, if any."""
+        if hasattr(obj, "game"):
+            return obj.game
+        return None
+
+    def cuts(self, obj: Video) -> Cut | None:
+        """Get the cut associated with this video, if any."""
+        if hasattr(obj, "cut"):
+            return obj.cut
+
+        return None
+
+
+@admin.register(VideoFile)
+class VideoFileAdmin(VideoFileAdminBase):
+    """Admin config for VideoFile."""
+
+    list_display = (
+        "video__name",
+        "path",
+        "quality",
+    )
+    search_fields = ("video__name",)
+    fields = ("video", "path", "quality")
 
 
 admin.site.register(RenderQueueItemCut)

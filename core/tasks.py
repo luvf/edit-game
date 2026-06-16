@@ -14,7 +14,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Case, IntegerField, Value, When
 from django.utils import timezone
 
-from core.models import RenderQueueItemBase as RenderQueueItem
+from core.models.render_queue.base import RenderQueueItemBase as RenderQueueItem
 
 logger = logging.getLogger(__name__)
 

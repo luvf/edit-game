@@ -1,14 +1,28 @@
 // TypeScript
-import {AfterViewInit, Component, inject, OnDestroy, OnInit, signal, ViewChild} from '@angular/core';
-import {ActivatedRoute, Router} from '@angular/router';
-import {of} from 'rxjs';
+import {
+  AfterViewInit,
+  Component,
+  inject,
+  OnDestroy,
+  OnInit,
+  signal,
+  ViewChild,
+} from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
+import { of } from 'rxjs';
 
-import {MatTableDataSource, MatTableModule} from '@angular/material/table';
-import {MatSort, MatSortModule} from '@angular/material/sort';
-import {Team, TmpImage, Tournament, VideoMetadata, Yt_Video} from '../core/models/models';
-import {VideoMetadataService} from '../core/services/video-metadata.service';
-import {TournamentService} from '../core/services/tournament.service';
-import {NavService} from '../core/services/nav.service';
+import { MatTableDataSource, MatTableModule } from '@angular/material/table';
+import { MatSort, MatSortModule } from '@angular/material/sort';
+import {
+  Team,
+  TmpImage,
+  Tournament,
+  VideoMetadata,
+  Yt_Video,
+} from '../core/models/models';
+import { VideoMetadataService } from '../core/services/video-metadata.service';
+import { TournamentService } from '../core/services/tournament.service';
+import { NavService } from '../core/services/nav.service';
 
 /**
  * Lists games (VideoMetadata) for a given Tournament and displays related info.
@@ -24,7 +38,9 @@ import {NavService} from '../core/services/nav.service';
   imports: [MatTableModule, MatSortModule],
   templateUrl: './tournament-games-view.html',
 })
-export class TournamentGamesViewComponent implements OnInit, AfterViewInit, OnDestroy {
+export class TournamentGamesViewComponent
+  implements OnInit, AfterViewInit, OnDestroy
+{
   videos = signal<VideoMetadata[]>([]);
   team1_names = signal<Record<string, string>>({});
   team2_names = signal<Record<string, string>>({});
@@ -50,20 +66,18 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit, OnDe
 
     // Load the tournament, then its videos (with error handling)
     this.tournamentService.get(tournament_url).subscribe({
-        next: (current_tournament: Tournament | null) => {
-          if (!current_tournament) return;
-          this.tournament.set(current_tournament);
-          this.updateNav(tournament_url);
-          this.tournament_loaded(current_tournament);
-        },
-        error: (e) => {
-          console.error('Erreur lors de la récupération du tournoi', e);
-          return of(null);
-        },
-      }
-    );
+      next: (current_tournament: Tournament | null) => {
+        if (!current_tournament) return;
+        this.tournament.set(current_tournament);
+        this.updateNav(tournament_url);
+        this.tournament_loaded(current_tournament);
+      },
+      error: (e) => {
+        console.error('Erreur lors de la récupération du tournoi', e);
+        return of(null);
+      },
+    });
     // videos() uses follow() and returns Observable<VideoMetadata[]>
-
   }
 
   ngOnDestroy(): void {
@@ -86,7 +100,9 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit, OnDe
         case 'name':
           return item.name?.toLowerCase() ?? '';
         default:
-          return (item as unknown as Record<string, string | number>)[property] ?? '';
+          return (
+            (item as unknown as Record<string, string | number>)[property] ?? ''
+          );
       }
     };
   }
@@ -102,7 +118,7 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit, OnDe
     this.router.navigate(['/game'], {
       queryParams: {
         url: game._links.self.href,
-      }
+      },
     });
   }
 
@@ -115,26 +131,25 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit, OnDe
     this.videoMetadataService.miniature_image(videoMetadata).subscribe({
       next: (tmpImage: TmpImage | null) => {
         if (!tmpImage) return;
-        const next1 = {...this.miniature_names()};
+        const next1 = { ...this.miniature_names() };
         next1[videoMetadata.pk] = tmpImage.image;
-        this.miniature_names.set(next1)
+        this.miniature_names.set(next1);
       },
     });
   }
 
-    /**
+  /**
    * Triggers the 'sync_videos' action on this tournament.
    *
    */
   onSyncVideos(): void {
-    const tournament = this.tournament()
+    const tournament = this.tournament();
     if (!tournament) return;
     this.tournamentService.syncVideos(tournament, {}).subscribe({
-      next: () => {
-      },
+      next: () => {},
       error: (e) => {
         console.error('sync_videos failed', e);
-      }
+      },
     });
   }
 
@@ -143,38 +158,37 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit, OnDe
    *
    */
   onYoutubeUpdate(): void {
-    const tournament = this.tournament()
+    const tournament = this.tournament();
     if (!tournament) return;
     this.tournamentService.youtubeUpdate(tournament, {}).subscribe({
-      next: () => {
-      },
+      next: () => {},
       error: (e) => {
         console.error('youtube_update failed', e);
-      }
+      },
     });
   }
 
   /*
-  * loads viedos datas after the tournaent is loaded
-  *
-  * @param tournament - The tournament to load videos for.
-  * */
+   * loads viedos datas after the tournaent is loaded
+   *
+   * @param tournament - The tournament to load videos for.
+   * */
   private tournament_loaded(tournament: Tournament): void {
     this.tournamentService.video_metadatas(tournament, true).subscribe({
       next: (videos: VideoMetadata[]) => {
         this.videos.set(videos);
         this.dataSource.data = videos;
         // Load team names and status for each video, and the miniature
-        videos.forEach(v => this.loadVideoStatus(v));
-        videos.forEach(v => this.loadTeamsNames(v));
-        videos.forEach(v => this.loadMiniature(v));
+        videos.forEach((v) => this.loadVideoStatus(v));
+        videos.forEach((v) => this.loadTeamsNames(v));
+        videos.forEach((v) => this.loadMiniature(v));
       },
 
       error: (e) => {
         console.error('Erreur lors du chargement des vidéos', e);
         return of([] as VideoMetadata[]);
       },
-    })
+    });
   }
 
   /**
@@ -184,19 +198,18 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit, OnDe
    */
   private loadVideoStatus(video: VideoMetadata): void {
     this.videoMetadataService.linked_yt_videos(video).subscribe({
-        next: (yt_videos: Yt_Video[]) => {
-          for (let yt_vid of yt_videos) {
-            const next1 = {...this.video_status()};
-            next1[video.pk] = this.getYTVideoStatus(yt_vid);
-            this.video_status.set(next1);
-            this.dataSource.data = [...this.dataSource.data];
-          }
-        },
-        error: (e) => {
-          console.error(`Erreur linked_yt_videos pour video ${video.pk}`, e);
+      next: (yt_videos: Yt_Video[]) => {
+        for (let yt_vid of yt_videos) {
+          const next1 = { ...this.video_status() };
+          next1[video.pk] = this.getYTVideoStatus(yt_vid);
+          this.video_status.set(next1);
+          this.dataSource.data = [...this.dataSource.data];
         }
-      }
-    )
+      },
+      error: (e) => {
+        console.error(`Erreur linked_yt_videos pour video ${video.pk}`, e);
+      },
+    });
   }
 
   /**
@@ -206,18 +219,17 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit, OnDe
    * @returns Status label string.
    */
   private getYTVideoStatus(yt_video: Yt_Video): string {
-    const date = Date.parse(yt_video.publication_date)
+    const date = Date.parse(yt_video.publication_date);
 
-    if (yt_video.privacy_status == "public") {
-      return "public"
-    } else if (yt_video.privacy_status == "unlisted") {
-      return "unlistede"
-    } else if (yt_video.privacy_status == "private" && date >= Date.now()) {
-      return "publiec"
+    if (yt_video.privacy_status == 'public') {
+      return 'public';
+    } else if (yt_video.privacy_status == 'unlisted') {
+      return 'unlistede';
+    } else if (yt_video.privacy_status == 'private' && date >= Date.now()) {
+      return 'publiec';
     } else {
-      return "schedulede"
+      return 'schedulede';
     }
-
   }
 
   /**
@@ -229,19 +241,20 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit, OnDe
     this.videoMetadataService.team1(video).subscribe({
       next: (team1: Team | null) => {
         if (team1) {
-          const next1 = {...this.team1_names()};
+          const next1 = { ...this.team1_names() };
           next1[video.pk] = team1.name;
           this.team1_names.set(next1);
           this.dataSource.data = [...this.dataSource.data];
         }
-      }, error: (e) => {
+      },
+      error: (e) => {
         console.error(`Erreur team1 pour video ${video.pk}`, e);
-      }
+      },
     });
     this.videoMetadataService.team2(video).subscribe({
       next: (team2: Team | null) => {
         if (team2) {
-          const next2 = {...this.team2_names()};
+          const next2 = { ...this.team2_names() };
           next2[video.pk] = team2.name;
           this.team2_names.set(next2);
           this.dataSource.data = [...this.dataSource.data];
@@ -249,7 +262,7 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit, OnDe
       },
       error: (e) => {
         console.error(`Erreur team2 pour video ${video.pk}`, e);
-      }
+      },
     });
   }
 
@@ -258,7 +271,7 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit, OnDe
       {
         label: 'Video Editing',
         routerLink: ['/tournament/video-editing'],
-        queryParams: {url: tournamentUrl},
+        queryParams: { url: tournamentUrl },
       },
     ]);
 
@@ -271,8 +284,6 @@ export class TournamentGamesViewComponent implements OnInit, AfterViewInit, OnDe
         label: 'Youtube Update',
         onClick: () => this.onYoutubeUpdate(),
       },
-
     ]);
   }
-
 }

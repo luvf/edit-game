@@ -37,20 +37,17 @@ from api.serializers import (
     TmpImageSerializer,
     TournamentSerializer,
     VideoMetadataSerializer,
+    VideoSerializer,
     YTVideoSerializer,
 )
-from core.models import (
-    Cut,
-    Game,
-    Team,
-    TmpImage,
-    Tournament,
-    VideoMetadata,
-    YTVideo,
-)
-from core.models import (
+from core.models.cut import Cut
+from core.models.game import Game
+from core.models.media import TmpImage, VideoMetadata, YTVideo
+from core.models.render_queue.base import (
     RenderQueueItemBase as RenderQueueItem,
 )
+from core.models.tournament import Team, Tournament
+from core.models.video import Video
 from core.tasks import run_async_task
 from core.utils.dataset_utils import get_base_json
 from jugger_video_manipulation.build_miniature import get_video_file_names
@@ -355,7 +352,7 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         base_json = json.loads(get_base_json())
         base_json["team1"] = ""
         base_json["team2"] = ""
-        base_json["dir"] = tournament.source_dir
+        base_json["dir"] = str(tournament.media_path)
         base_json["files"] = filenames
         base_json["filename"] = f"{slug}.json"
 
@@ -363,7 +360,6 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
             name=game_name,
             files=filenames,
             tournament=tournament,
-            rendered="",
             slug=slug,
         )
         content = ContentFile(json.dumps(base_json, indent=4).encode("utf-8"))
@@ -450,7 +446,7 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         """List source filenames from this tournament rushs directory."""
         _ = pk, request
         tournament = self.get_object()
-        rushs_dir = (tournament.source_dir_path / "rushs").absolute()
+        rushs_dir = (tournament.media_path / "rushs").absolute()
         if not rushs_dir.exists():
             return Response([])
         files = sorted(
@@ -480,7 +476,7 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
             )
 
         safe_name = Path(filename).name
-        rushs_dir = (tournament.source_dir_path / "rushs").resolve()
+        rushs_dir = (tournament.media_path / "rushs").resolve()
         source_path = (rushs_dir / safe_name).resolve()
         try:
             source_path.relative_to(rushs_dir)
@@ -513,7 +509,7 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         tournament.archive()
         tournament.drive_dir = str(settings.TOURNAMENTS_ARCHIVE_DIR)
         tournament.save(update_fields=["drive_dir"])
-        return Response({"status": "ok", "source_dir": tournament.source_dir})
+        return Response({"status": "ok", "source_dir": str(tournament.media_path)})
 
 
 class GameViewSet(viewsets.ModelViewSet[Game]):
@@ -526,12 +522,6 @@ class GameViewSet(viewsets.ModelViewSet[Game]):
     serializer_class = GameSerializer
     queryset = Game.objects.all()
     permission_classes: Sequence[PermissionClass] = [AllowAny]
-
-    def get_object(self) -> Game:
-        """Fetch a game and normalize stale proxy metadata before returning it."""
-        game = super().get_object()
-        game.normalize_source_proxy()
-        return game
 
     def retrieve(self, request: Request, *args: object, **kwargs: object) -> Response:
         """Return a single game with a normalized proxy reference."""
@@ -746,5 +736,28 @@ class RenderQueueItemViewSet(viewsets.ModelViewSet[RenderQueueItem]):
         item.reset()
         serializer = RenderQueueItemSerializer(
             item, context=self.get_serializer_context()
+        )
+        return Response(serializer.data)
+
+
+class VideoViewSet(viewsets.ReadOnlyModelViewSet[Video]):
+    """Read-only ViewSet for videos."""
+
+    queryset = (
+        Video.objects.select_related("game", "cut", "cut__game")
+        .prefetch_related("files")
+        .all()
+    )
+    serializer_class = VideoSerializer
+    pagination_class = StandardResultsSetPagination
+    permission_classes: Sequence[PermissionClass] = [AllowAny]
+
+    @action(detail=True, methods=["get"], url_path="files")
+    def files(self, request: Request, pk: str | None = None) -> Response:
+        """Return the files for one video."""
+        _ = pk
+        video = self.get_object()
+        serializer = VideoSerializer(
+            video.files.all(), many=True, context={"request": request}
         )
         return Response(serializer.data)

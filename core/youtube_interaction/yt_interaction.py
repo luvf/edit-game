@@ -16,7 +16,7 @@ from googleapiclient.http import MediaFileUpload
 if TYPE_CHECKING:
     from googleapiclient.discovery import Resource
 
-    from core.models import YTVideo
+    from core.models.media import YTVideo
 
 
 class YtVideoMetadata:

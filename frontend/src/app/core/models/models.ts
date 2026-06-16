@@ -9,20 +9,16 @@ export interface Link {
   profile?: string;
   title?: string;
   hreflang?: string;
-
 }
-
 
 export interface HalLinks {
   self: Link;
 
   [key: string]: Link | undefined;
-
 }
 
-
 export interface Curies {
-  curies?: Link[]
+  curies?: Link[];
 }
 
 type DefaultHalLinks = HalLinks & Curies;
@@ -37,7 +33,6 @@ export interface BaseHalModel {
   _embedded?: HalEmbedded;
 }
 
-
 export interface Team extends BaseHalModel {
   name: string;
   short_name: string;
@@ -46,13 +41,12 @@ export interface Team extends BaseHalModel {
   _links?: HalLinks & Curies;
 }
 
-
 export interface TournamentLinks extends HalLinks {
   self: Link;
   games?: Link;
   sync_videos?: Link;
   youtube_update?: Link;
-  generate_games?:Link;
+  generate_games?: Link;
   create_game?: Link;
   rendered?: Link;
   source_files?: Link;
@@ -75,7 +69,6 @@ export interface Tournament extends BaseHalModel {
   is_archived?: boolean;
   _links?: TournamentLinks & Curies;
 }
-
 
 export interface VideoMetadataLinks extends HalLinks {
   self: Link;
@@ -101,9 +94,8 @@ export interface VideoMetadata extends BaseHalModel {
   description: string;
   publication_date: string;
   _links?: VideoMetadataLinks & Curies;
-  _embedded?: HalEmbedded
+  _embedded?: HalEmbedded;
 }
-
 
 export interface Yt_VideoLinks extends HalLinks {
   self: Link;
@@ -116,56 +108,46 @@ export interface Yt_Video extends BaseHalModel {
   publication_date: string;
   privacy_status: string;
   _links?: Yt_VideoLinks & Curies;
-  _embedded?: HalEmbedded
-
+  _embedded?: HalEmbedded;
 }
-
 
 export interface TmpImage extends BaseHalModel {
   pk: number;
   name: string;
   image: string;
   _links?: HalLinks;
-  _embedded?: HalEmbedded
-
+  _embedded?: HalEmbedded;
 }
-export type VideoQuality = 'low' | 'medium' | 'high';
-
-export type RenderedVideo = Partial<Record<VideoQuality, string>>;
 
 export interface GameLinks extends HalLinks {
   self: Link;
   tournament?: Link;
-  team1?:Link;
-  team2?:Link;
-  cuts?:Link;
+  team1?: Link;
+  team2?: Link;
+  cuts?: Link;
   create_cut?: Link;
-  generate_proxy?:Link
+  generate_proxy?: Link;
+  video_proxy?: Link;
 }
 
 export interface Game extends BaseHalModel {
   pk: number;
   name: string;
   files: string;
-  rendered: string;
   json_file: string;
-  source_proxy:RenderedVideo;
   cuts: string[];
 
-
-
   _links?: GameLinks;
-  _embedded?: HalEmbedded
-
+  _embedded?: HalEmbedded;
 }
 
 export interface CutLinks extends HalLinks {
   self: Link;
-  render?:Link;
+  render?: Link;
   game?: Link;
   gen_from_file?: Link;
   gen_from_rendered?: Link;
-
+  rendered_video?: Link;
 }
 
 export interface Cut extends BaseHalModel {
@@ -173,11 +155,33 @@ export interface Cut extends BaseHalModel {
   name: string;
   type_cut: string;
   json_file: string;
-  rendered_video?: RenderedVideo;
-
   slug: string;
   valid?: boolean;
-  _links?: CutLinks
+  _links?: CutLinks;
+  _embedded?: HalEmbedded;
+}
+
+export type VideoQuality = 'low' | 'medium' | 'high';
+
+export type VideoFiles = Record<VideoQuality, VideoFile>;
+
+export interface VideoFile extends BaseHalModel {
+  url: string;
+  format: string;
+}
+export interface VideoLinks extends HalLinks {
+  self: Link;
+  game?: Link;
+  cut?: Link;
+}
+
+export interface Video extends BaseHalModel {
+  pk: number;
+  duration: number;
+  owner_type: string;
+  files: VideoFiles;
+  _links?: VideoLinks;
+  _embedded?: HalEmbedded;
 }
 
 export interface RenderQueueItemLinks extends HalLinks {

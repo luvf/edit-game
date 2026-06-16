@@ -144,7 +144,7 @@ class RenderQueueItemBase(models.Model):
 
         returncode = process.returncode
         self.pid = None
-        self.save(update_fields=["pid"])
+        self.save(update_fields=["pid", "error"])
         if returncode != 0:
             details = (stderr or stdout or "").strip()
             if details:

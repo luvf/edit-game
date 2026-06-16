@@ -4,7 +4,7 @@ import datetime
 
 from django.core.management.base import BaseCommand
 
-from core.models import TmpImage
+from core.models.media import TmpImage
 
 
 class Command(BaseCommand):

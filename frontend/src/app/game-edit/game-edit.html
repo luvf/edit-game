@@ -1,18 +1,16 @@
 <div class="game-edit">
-
-
   @if (game(); as game) {
     <div>
       <div class="name-row">
         <div class="name-field-block">
           <mat-form-field appearance="outline" class="name-field">
             <mat-label>Name</mat-label>
-            <input matInput [(ngModel)]="nameDraft">
+            <input matInput [(ngModel)]="nameDraft" />
           </mat-form-field>
 
           <span class="source-name" [title]="'files: ' + game.files">
-      files: {{ game.files }}
-    </span>
+            files: {{ game.files }}
+          </span>
         </div>
       </div>
       <div class="teams-row">
@@ -31,12 +29,15 @@
         ></app-team-select>
       </div>
 
-
-      <button mat-raised-button color="primary" type="button" (click)="onSaveNameTeam()">
+      <button
+        mat-raised-button
+        color="primary"
+        type="button"
+        (click)="onSaveNameTeam()"
+      >
         Save
       </button>
     </div>
-
 
     <div class="proxy-tools">
       <mat-form-field appearance="outline" class="proxy-quality">
@@ -47,10 +48,20 @@
           <mat-option value="high">high</mat-option>
         </mat-select>
       </mat-form-field>
-      <button mat-raised-button color="primary" type="button" (click)="onGenerateProxy()">
+      <button
+        mat-raised-button
+        color="primary"
+        type="button"
+        (click)="onGenerateProxy()"
+      >
         Generate proxy
       </button>
-      <button mat-raised-button color="accent" type="button" (click)="onQueueProxy()">
+      <button
+        mat-raised-button
+        color="accent"
+        type="button"
+        (click)="onQueueProxy()"
+      >
         Add proxy to queue
       </button>
     </div>

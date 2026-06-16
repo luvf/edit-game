@@ -1,9 +1,8 @@
-import {Injectable} from '@angular/core';
-import {HttpClient} from '@angular/common/http';
-import {Game, Tournament, VideoMetadata} from '../models/models';
-import {Observable} from 'rxjs';
-import {HateoasService, PaginatedResult} from '../hateoas.service';
-
+import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Game, Tournament, VideoMetadata } from '../models/models';
+import { Observable } from 'rxjs';
+import { HateoasService, PaginatedResult } from '../hateoas.service';
 
 /**
  * Service providing HATEOAS-powered operations for Tournament resources.
@@ -12,7 +11,7 @@ import {HateoasService, PaginatedResult} from '../hateoas.service';
  * - Configures the collection endpoint for listing/creating tournaments.
  * - Exposes helpers to follow relations (`games`, `videos`) and invoke actions (`sync_videos`, `youtube_update`).
  */
-@Injectable({providedIn: 'root'})
+@Injectable({ providedIn: 'root' })
 export class TournamentService extends HateoasService<Tournament> {
   /**
    * Creates the service and sets the default collection URL for tournaments.
@@ -23,7 +22,7 @@ export class TournamentService extends HateoasService<Tournament> {
    */
   constructor(http: HttpClient) {
     super(http);
-    this.setCollectionUrl("http://localhost:8000/api/tournaments/");
+    this.setCollectionUrl('http://localhost:8000/api/tournaments/');
 
     /*this.resources = [
       {type: InstanceType<OtherModel[]>, key: "games"},
@@ -33,26 +32,33 @@ export class TournamentService extends HateoasService<Tournament> {
 
   games(resource: Tournament, reload: boolean = false): Observable<Game[]> {
     const link = resource._links?.games;
-    if (link && "href" in link) {
+    if (link && 'href' in link) {
       const url = this.withQuery(link.href, {
-        no_embed: "1",
-        fields: "pk,name,files,source_proxy",
+        no_embed: '1',
+        fields: 'pk,name,files,source_proxy',
       });
       return this.http.get<Game[]>(url);
     }
     return this.follow_resource<Game[]>(resource, 'games', reload);
   }
 
-  video_metadatas(resource: Tournament, reload: boolean = false):Observable<VideoMetadata[]> {
+  video_metadatas(
+    resource: Tournament,
+    reload: boolean = false,
+  ): Observable<VideoMetadata[]> {
     const link = resource._links?.video_metadatas;
-    if (link && "href" in link) {
+    if (link && 'href' in link) {
       const url = this.withQuery(link.href, {
-        no_embed: "1",
-        fields: "pk,name,description",
+        no_embed: '1',
+        fields: 'pk,name,description',
       });
       return this.http.get<VideoMetadata[]>(url);
     }
-    return this.follow_resource<VideoMetadata[]>(resource, 'video_metadatas', reload);
+    return this.follow_resource<VideoMetadata[]>(
+      resource,
+      'video_metadatas',
+      reload,
+    );
   }
 
   rendered(resource: Tournament, reload: boolean = false) {
@@ -92,7 +98,10 @@ export class TournamentService extends HateoasService<Tournament> {
     return this.invoke_resource(resource, 'archive', body);
   }
 
-  listPage(pageIndex: number, pageSize: number): Observable<PaginatedResult<Tournament>> {
+  listPage(
+    pageIndex: number,
+    pageSize: number,
+  ): Observable<PaginatedResult<Tournament>> {
     const page = pageIndex + 1;
     const fields = encodeURIComponent('pk,name,date,color,is_archived');
     const url = `${this.baseUrl}?page=${page}&page_size=${pageSize}&no_embed=1&fields=${fields}`;
@@ -104,6 +113,6 @@ export class TournamentService extends HateoasService<Tournament> {
     if (!query) {
       return url;
     }
-    return `${url}${url.includes("?") ? "&" : "?"}${query}`;
+    return `${url}${url.includes('?') ? '&' : '?'}${query}`;
   }
 }

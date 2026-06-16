@@ -1,26 +1,24 @@
-import {Injectable} from '@angular/core';
-import {HttpClient} from '@angular/common/http';
-import {ApiDirectoryService} from './api-directory';
+import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { ApiDirectoryService } from './api-directory';
 import {
   CutsService,
   GamesService,
   RenderQueueService,
   TeamService,
   TmpImageService,
-  YTVideoService
+  YTVideoService,
 } from './services/misc-hateoas-models.service';
-import {VideoMetadataService} from './services/video-metadata.service';
-import {HateoasService} from './hateoas.service';
-import {TournamentService} from './services/tournament.service';
+import { VideoMetadataService } from './services/video-metadata.service';
+import { HateoasService } from './hateoas.service';
+import { TournamentService } from './services/tournament.service';
 
-
-@Injectable({providedIn: 'root'})
+@Injectable({ providedIn: 'root' })
 export class ApiGatewayService {
   constructor(
     private readonly http: HttpClient,
-    private readonly directory: ApiDirectoryService
-  ) {
-  }
+    private readonly directory: ApiDirectoryService,
+  ) {}
 
   // À appeler au démarrage (ou via APP_INITIALIZER)
   init(rootUrl: string) {
@@ -67,16 +65,20 @@ export class ApiGatewayService {
     return this.createService(RenderQueueService, 'render_queue');
   }
 
-  private createService<T extends HateoasService<any>>(serviceType: new (http: HttpClient) => T, urlKey: string): T {
+  private createService<T extends HateoasService<any>>(
+    serviceType: new (http: HttpClient) => T,
+    urlKey: string,
+  ): T {
     const service = new serviceType(this.http);
     service.setCollectionUrl(this.directory.url(urlKey));
-    return service
+    return service;
   }
-
 
   private ensureReady() {
     if (!this.directory.ready()) {
-      throw new Error('ApiDirectoryService non initialisé. Appelez ApiGatewayService.init(<API_ROOT_URL>).');
+      throw new Error(
+        'ApiDirectoryService non initialisé. Appelez ApiGatewayService.init(<API_ROOT_URL>).',
+      );
     }
   }
 }

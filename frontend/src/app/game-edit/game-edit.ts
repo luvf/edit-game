@@ -1,16 +1,19 @@
-import {Component, inject, OnDestroy, OnInit, signal} from '@angular/core';
-import {CommonModule} from '@angular/common';
-import {FormsModule} from '@angular/forms';
-import {ActivatedRoute} from '@angular/router';
-import {Game, Team} from '../core/models/models';
-import {GamesService, TeamService} from '../core/services/misc-hateoas-models.service';
-import {NavService} from '../core/services/nav.service';
-import {MatButtonModule} from '@angular/material/button';
-import {MatFormFieldModule} from '@angular/material/form-field';
-import {MatSelectModule} from '@angular/material/select';
-import {MatInputModule} from '@angular/material/input';
-import {GameEditCutsComponent} from './game-edit-cuts/game-edit-cuts';
-import {TeamSelectComponent} from '../game-miniature/team-select/team-select';
+import { Component, inject, OnDestroy, OnInit, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { ActivatedRoute } from '@angular/router';
+import { Game, Team } from '../core/models/models';
+import {
+  GamesService,
+  TeamService,
+} from '../core/services/misc-hateoas-models.service';
+import { NavService } from '../core/services/nav.service';
+import { MatButtonModule } from '@angular/material/button';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatSelectModule } from '@angular/material/select';
+import { MatInputModule } from '@angular/material/input';
+import { GameEditCutsComponent } from './game-edit-cuts/game-edit-cuts';
+import { TeamSelectComponent } from '../game-miniature/team-select/team-select';
 
 @Component({
   selector: 'app-game-edit',
@@ -24,9 +27,6 @@ import {TeamSelectComponent} from '../game-miniature/team-select/team-select';
     MatInputModule,
     GameEditCutsComponent,
     TeamSelectComponent,
-
-
-
   ],
   templateUrl: './game-edit.html',
   styleUrl: './game-edit.css',
@@ -39,7 +39,6 @@ export class GameEditComponent implements OnInit, OnDestroy {
   teams = signal<Team[]>([]);
   team1Draft = signal<string | null>(null);
   team2Draft = signal<string | null>(null);
-
 
   private route = inject(ActivatedRoute);
   private gamesService = inject(GamesService);
@@ -82,9 +81,9 @@ export class GameEditComponent implements OnInit, OnDestroy {
       name: nextName,
       team1: this.team1Draft(),
       team2: this.team2Draft(),
-    }
+    };
 
-    this.gamesService.update(current,payload).subscribe({
+    this.gamesService.update(current, payload).subscribe({
       next: (game) => {
         this.game.set(game);
         this.nameDraft.set(game.name ?? '');
@@ -95,24 +94,26 @@ export class GameEditComponent implements OnInit, OnDestroy {
     });
   }
 
-
   onGenerateProxy(): void {
     const current = this.game();
     if (!current) return;
-    this.gamesService.generateProxy(current, {quality: this.proxyQuality()}).subscribe({
-      next: () => {},
-      error: (e) => console.error('Erreur lors de la génération du proxy', e),
-    });
+    this.gamesService
+      .generateProxy(current, { quality: this.proxyQuality() })
+      .subscribe({
+        next: () => {},
+        error: (e) => console.error('Erreur lors de la génération du proxy', e),
+      });
   }
 
   onQueueProxy(): void {
     const current = this.game();
     if (!current) return;
     this.gamesService
-      .generateProxy(current, {quality: this.proxyQuality(), to_queue: true})
+      .generateProxy(current, { quality: this.proxyQuality(), to_queue: true })
       .subscribe({
         next: () => {},
-        error: (e) => console.error('Erreur lors de la mise en file du proxy', e),
+        error: (e) =>
+          console.error('Erreur lors de la mise en file du proxy', e),
       });
   }
 
@@ -123,17 +124,17 @@ export class GameEditComponent implements OnInit, OnDestroy {
       return;
     }
     const embedded = game._embedded;
-    const tournament = embedded?.['tournament'] as { name?: string } | undefined;
+    const tournament = embedded?.['tournament'] as
+      | { name?: string }
+      | undefined;
     const tournamentName = tournament?.name;
     const label = tournamentName ?? 'Tournoi';
     this.navService.setLinks([
       {
         label,
         routerLink: ['/tournament/video-editing'],
-        queryParams: {url: tournamentUrl},
+        queryParams: { url: tournamentUrl },
       },
     ]);
   }
-
-
 }

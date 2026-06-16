@@ -1,16 +1,23 @@
-import {AfterViewInit, Component, inject, OnInit, signal, ViewChild} from '@angular/core';
-import {CommonModule} from '@angular/common';
-import {Router} from '@angular/router';
-import {Tournament} from '../core/models/models';
-import {TournamentService} from '../core/services/tournament.service';
-import {MatTableDataSource, MatTableModule} from '@angular/material/table';
-import {MatSort, MatSortModule} from '@angular/material/sort';
-import {MatButtonModule} from '@angular/material/button';
-import {PaginatedResult} from '../core/hateoas.service';
-import {FormsModule} from '@angular/forms';
-import {MatFormFieldModule} from '@angular/material/form-field';
-import {MatInputModule} from '@angular/material/input';
-import {CreateTournament} from '../create-tournament/create-tournament';
+import {
+  AfterViewInit,
+  Component,
+  inject,
+  OnInit,
+  signal,
+  ViewChild,
+} from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { Router } from '@angular/router';
+import { Tournament } from '../core/models/models';
+import { TournamentService } from '../core/services/tournament.service';
+import { MatTableDataSource, MatTableModule } from '@angular/material/table';
+import { MatSort, MatSortModule } from '@angular/material/sort';
+import { MatButtonModule } from '@angular/material/button';
+import { PaginatedResult } from '../core/hateoas.service';
+import { FormsModule } from '@angular/forms';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { CreateTournament } from '../create-tournament/create-tournament';
 
 /**
  * Container view that lists tournaments and provides actions per tournament.
@@ -35,25 +42,22 @@ import {CreateTournament} from '../create-tournament/create-tournament';
     MatFormFieldModule,
     MatInputModule,
     CreateTournament,
-
   ],
 
   styleUrl: './tournament-view.component.css',
 })
 export class TournamentViewComponent implements OnInit, AfterViewInit {
-  tournaments = signal<Tournament []>([]);
+  tournaments = signal<Tournament[]>([]);
   counts = signal<Record<string, number>>({});
   total = signal(0);
   dataSource = new MatTableDataSource<Tournament>([]);
   displayedColumns = ['color', 'name', 'date', 'nb_matches', 'actions'];
   @ViewChild(MatSort) sort!: MatSort;
 
-
   private tournamentService = inject(TournamentService);
   private router = inject(Router);
   private loadingMore = false;
   private pageSize = 20;
-
 
   /**
    * Initializes the component by loading the tournaments list.
@@ -68,7 +72,10 @@ export class TournamentViewComponent implements OnInit, AfterViewInit {
     this.sort.active = 'date';
     this.sort.direction = 'desc';
     this.dataSource.sort = this.sort;
-    this.sort.sortChange.emit({active: this.sort.active, direction: this.sort.direction});
+    this.sort.sortChange.emit({
+      active: this.sort.active,
+      direction: this.sort.direction,
+    });
     this.dataSource.sortingDataAccessor = (item, property) => {
       switch (property) {
         case 'nb_matches':
@@ -80,7 +87,9 @@ export class TournamentViewComponent implements OnInit, AfterViewInit {
         case 'color':
           return item.color?.toLowerCase() ?? '';
         default:
-          return (item as unknown as Record<string, string | number>)[property] ?? '';
+          return (
+            (item as unknown as Record<string, string | number>)[property] ?? ''
+          );
       }
     };
   }
@@ -92,11 +101,10 @@ export class TournamentViewComponent implements OnInit, AfterViewInit {
    */
   onSyncVideos(tournament: Tournament): void {
     this.tournamentService.syncVideos(tournament, {}).subscribe({
-      next: () => {
-      },
+      next: () => {},
       error: (e) => {
         console.error('sync_videos failed', e);
-      }
+      },
     });
   }
 
@@ -107,28 +115,26 @@ export class TournamentViewComponent implements OnInit, AfterViewInit {
    */
   onYoutubeUpdate(tournament: Tournament): void {
     this.tournamentService.youtubeUpdate(tournament, {}).subscribe({
-      next: () => {
-      },
+      next: () => {},
       error: (e) => {
         console.error('youtube_update failed', e);
-      }
+      },
     });
   }
 
   onArchive(tournament: Tournament): void {
     this.tournamentService.archive(tournament, {}).subscribe({
-      next: () => {
-      },
+      next: () => {},
       error: (e) => {
         console.error('archive failed', e);
-      }
+      },
     });
   }
 
   goToVideoEditing(tournament: Tournament): void {
     if (!tournament?._links?.self) return;
     this.router.navigate(['/tournament/video-editing'], {
-      queryParams: {url: tournament._links.self.href},
+      queryParams: { url: tournament._links.self.href },
     });
   }
 
@@ -140,12 +146,12 @@ export class TournamentViewComponent implements OnInit, AfterViewInit {
   openTournamentGames(tournament: Tournament): void {
     if (!tournament?._links?.self) return;
     this.router.navigate(['/tournament/games'], {
-      queryParams: {url: tournament._links.self.href},
+      queryParams: { url: tournament._links.self.href },
     });
   }
 
-  onTournamentCreated(created : Tournament|null){
-    if(!created) return;
+  onTournamentCreated(created: Tournament | null) {
+    if (!created) return;
     const next = [created, ...this.tournaments()];
     this.tournaments.set(next);
     this.dataSource.data = next;
@@ -163,14 +169,17 @@ export class TournamentViewComponent implements OnInit, AfterViewInit {
     this.tournamentService.video_metadatas(tournament).subscribe({
       next: (games) => {
         const len = Array.isArray(games) ? games.length : 0;
-        const next = {...this.counts()};
+        const next = { ...this.counts() };
         next[tournament.pk] = len;
         this.counts.set(next);
         this.dataSource.data = [...this.dataSource.data];
       },
       error: (e) => {
-        console.error(`Erreur lors du chargement des jeux pour tournament ${tournament.pk}`, e);
-      }
+        console.error(
+          `Erreur lors du chargement des jeux pour tournament ${tournament.pk}`,
+          e,
+        );
+      },
     });
   }
 
@@ -214,7 +223,7 @@ export class TournamentViewComponent implements OnInit, AfterViewInit {
     this.dataSource.data = data.items;
     this.total.set(data.count);
     this.counts.set({});
-    data.items.forEach(t => this.loadGamesCount(t));
+    data.items.forEach((t) => this.loadGamesCount(t));
   }
 
   private appendItems(items: Tournament[]): void {
@@ -222,19 +231,14 @@ export class TournamentViewComponent implements OnInit, AfterViewInit {
       return;
     }
     const existing = this.tournaments();
-    const seen = new Set(existing.map(item => item.pk));
-    const appended = items.filter(item => !seen.has(item.pk));
+    const seen = new Set(existing.map((item) => item.pk));
+    const appended = items.filter((item) => !seen.has(item.pk));
     if (appended.length === 0) {
       return;
     }
     const merged = [...existing, ...appended];
     this.tournaments.set(merged);
     this.dataSource.data = merged;
-    appended.forEach(t => this.loadGamesCount(t));
+    appended.forEach((t) => this.loadGamesCount(t));
   }
-
-
-
-
-
 }
