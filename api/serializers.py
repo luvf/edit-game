@@ -381,6 +381,9 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
     generate_proxy = serializers.HyperlinkedIdentityField(
         view_name="game-generate-proxy"
     )
+    create_archive = serializers.HyperlinkedIdentityField(
+        view_name="game-create-archive"
+    )
 
     default_hal_embedded: ClassVar[dict[str, str]] = {
         "tournament": "TournamentSerializer",
@@ -405,6 +408,7 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
             "cuts",
             "create_cut",
             "generate_proxy",
+            "create_archive",
             "video_proxy",
         ]
 

@@ -15,6 +15,7 @@ import {MatSelectModule} from '@angular/material/select';
 import {FormsModule} from '@angular/forms';
 import {GamesService} from '../core/services/misc-hateoas-models.service';
 import {NavService} from '../core/services/nav.service';
+import {renderPresets} from '../core/services/preset-service';
 
 @Component({
   selector: 'app-tournament-edit-games-view',
@@ -49,6 +50,7 @@ export class TournamentEditGamesView
   sourceFilePreviewUrl = '';
   @ViewChild(MatSort) sort!: MatSort;
   protected readonly Object = Object;
+  protected readonly renderPresets = renderPresets;
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private tournamentService = inject(TournamentService);

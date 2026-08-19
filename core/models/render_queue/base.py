@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import subprocess
@@ -16,6 +17,8 @@ if TYPE_CHECKING:
     from core.models.cut import Cut
     from core.models.game import Game
 
+logger = logging.getLogger(__name__)
+
 
 class RenderQueueItemBase(models.Model):
     """Concrete base for all render queue items (multi-table inheritance root)."""
@@ -26,6 +29,7 @@ class RenderQueueItemBase(models.Model):
         CUT_RENDER = "CUT_RENDER", "cut_render"
         GAME_PROXY = "GAME_PROXY", "game_proxy"
         GEN_CUT = "GEN_CUT", "gen_cut"
+        GAME_ARCHIVE = "GAME_ARCHIVE", "game_archive"
 
     class Status(models.TextChoices):
         """Status values for queue items."""
@@ -63,7 +67,7 @@ class RenderQueueItemBase(models.Model):
 
     def __str__(self) -> str:
         """To string representation."""
-        if self.job_type == self.JobType.GAME_PROXY:
+        if self.job_type in (self.JobType.GAME_PROXY, self.JobType.GAME_ARCHIVE):
             label = self.game.name if self.game else "unknown game"
         elif self.job_type in (self.JobType.CUT_RENDER, self.JobType.GEN_CUT):
             label = self.cut.name if self.cut else "unknown cut"
@@ -109,6 +113,7 @@ class RenderQueueItemBase(models.Model):
     def concrete(self) -> RenderQueueItemBase:
         """Return the concrete queue item instance for this row."""
         from core.models.render_queue.ffmpeg import (
+            RenderQueueItemArchive,
             RenderQueueItemCut,
             RenderQueueItemProxy,
         )
@@ -120,6 +125,8 @@ class RenderQueueItemBase(models.Model):
             return RenderQueueItemProxy.objects.get(pk=self.pk)
         if self.job_type == self.JobType.GEN_CUT:
             return RenderQueueItemGenCut.objects.get(pk=self.pk)
+        if self.job_type == self.JobType.GAME_ARCHIVE:
+            return RenderQueueItemArchive.objects.get(pk=self.pk)
         raise ValueError(f"Unsupported job type: {self.job_type}")
 
     def run(self) -> None:
@@ -132,12 +139,26 @@ class RenderQueueItemBase(models.Model):
 
     def _run_subprocess(self, command: list[str]) -> None:
         """Run a subprocess command while tracking its pid on the row."""
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        except OSError as exc:
+            logger.exception(
+                "Failed to spawn subprocess for render queue item %s "
+                "(errno=%s, strerror=%s). Command: %s",
+                self.pk,
+                exc.errno,
+                exc.strerror,
+                " ".join(command),
+            )
+            raise OSError(
+                exc.errno,
+                f"{exc.strerror} while spawning: {' '.join(command)}",
+            ) from exc
         self.pid = process.pid
         self.save(update_fields=["pid"])
         stdout, stderr = process.communicate()

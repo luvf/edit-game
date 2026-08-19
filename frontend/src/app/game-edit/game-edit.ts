@@ -1,19 +1,17 @@
-import { Component, inject, OnDestroy, OnInit, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
-import { Game, Team } from '../core/models/models';
-import {
-  GamesService,
-  TeamService,
-} from '../core/services/misc-hateoas-models.service';
-import { NavService } from '../core/services/nav.service';
-import { MatButtonModule } from '@angular/material/button';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatSelectModule } from '@angular/material/select';
-import { MatInputModule } from '@angular/material/input';
-import { GameEditCutsComponent } from './game-edit-cuts/game-edit-cuts';
-import { TeamSelectComponent } from '../game-miniature/team-select/team-select';
+import {Component, inject, OnDestroy, OnInit, signal} from '@angular/core';
+import {CommonModule} from '@angular/common';
+import {FormsModule} from '@angular/forms';
+import {ActivatedRoute} from '@angular/router';
+import {Game, Team} from '../core/models/models';
+import {GamesService, TeamService,} from '../core/services/misc-hateoas-models.service';
+import {NavService} from '../core/services/nav.service';
+import {MatButtonModule} from '@angular/material/button';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatSelectModule} from '@angular/material/select';
+import {MatInputModule} from '@angular/material/input';
+import {GameEditCutsComponent} from './game-edit-cuts/game-edit-cuts';
+import {TeamSelectComponent} from '../game-miniature/team-select/team-select';
+import {renderPresets} from '../core/services/preset-service';
 
 @Component({
   selector: 'app-game-edit',
@@ -27,6 +25,7 @@ import { TeamSelectComponent } from '../game-miniature/team-select/team-select';
     MatInputModule,
     GameEditCutsComponent,
     TeamSelectComponent,
+
   ],
   templateUrl: './game-edit.html',
   styleUrl: './game-edit.css',
@@ -39,7 +38,7 @@ export class GameEditComponent implements OnInit, OnDestroy {
   teams = signal<Team[]>([]);
   team1Draft = signal<string | null>(null);
   team2Draft = signal<string | null>(null);
-
+  protected readonly renderPresets = renderPresets;
   private route = inject(ActivatedRoute);
   private gamesService = inject(GamesService);
   private navService = inject(NavService);
@@ -115,6 +114,15 @@ export class GameEditComponent implements OnInit, OnDestroy {
         error: (e) =>
           console.error('Erreur lors de la mise en file du proxy', e),
       });
+  }
+
+  onCreateArchive(): void {
+    const current = this.game();
+    if (!current) return;
+    this.gamesService.create_archive(current).subscribe({
+      next: () => {},
+      error: (e) => console.error("Erreur lors de la création de l'archive", e),
+    });
   }
 
   private updateNav(game: Game) {

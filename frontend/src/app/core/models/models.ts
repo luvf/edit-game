@@ -127,6 +127,7 @@ export interface GameLinks extends HalLinks {
   cuts?: Link;
   create_cut?: Link;
   generate_proxy?: Link;
+  create_archive?: Link;
   video_proxy?: Link;
 }
 

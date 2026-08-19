@@ -138,6 +138,10 @@ export class GamesService extends HateoasService<Game> {
   create_cut(resource: Game, body: unknown = {}): Observable<Cut> {
     return this.invoke_resource<Cut>(resource, 'create_cut', body);
   }
+
+  create_archive(resource: Game, body: unknown = {}): Observable<Game> {
+    return this.invoke_resource<Game>(resource, 'create_archive', body);
+  }
 }
 
 @Injectable({ providedIn: 'root' })

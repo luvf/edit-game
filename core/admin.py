@@ -8,7 +8,11 @@ from django.contrib import admin
 from core.models.cut import Cut
 from core.models.game import Game
 from core.models.media import TmpImage, VideoMetadata, YTVideo
-from core.models.render_queue.ffmpeg import RenderQueueItemCut, RenderQueueItemProxy
+from core.models.render_queue.ffmpeg import (
+    RenderQueueItemArchive,
+    RenderQueueItemCut,
+    RenderQueueItemProxy,
+)
 from core.models.render_queue.gen_cut import RenderQueueItemGenCut
 from core.models.tournament import Team, Tournament
 from core.models.video import Video, VideoFile
@@ -63,8 +67,10 @@ class GameAdmin(GameAdminBase):
         "team2",
         "json_file",
         "video_proxy",
+        "archive_video",
     )
     prepopulated_fields: ClassVar[dict[str, Sequence[str]]] = {"slug": ["name"]}
+    autocomplete_fields = ("archive_video",)
 
 
 @admin.register(Team)
@@ -160,4 +166,5 @@ class VideoFileAdmin(VideoFileAdminBase):
 
 admin.site.register(RenderQueueItemCut)
 admin.site.register(RenderQueueItemProxy)
+admin.site.register(RenderQueueItemArchive)
 admin.site.register(RenderQueueItemGenCut)

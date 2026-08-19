@@ -6,11 +6,15 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import OneToOneField
 
 if TYPE_CHECKING:
-    from core.models.render_queue.ffmpeg import RenderQueueItemProxy
+    from core.models.render_queue.ffmpeg import (
+        RenderQueueItemArchive,
+        RenderQueueItemProxy,
+    )
 
 
 class Game(models.Model):
@@ -35,11 +39,27 @@ class Game(models.Model):
         blank=True,
         related_name="game",
     )
+    archive_video = models.ForeignKey(
+        "core.Video",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="game_archive",
+        help_text="Vidéo haute qualité utilisée comme archive/master pour les encodages de ce match.",
+    )
 
     class Meta:
         """Model metadata."""
 
         db_table = "game_edit_game"
+
+    def clean(self):
+        super().clean()
+
+        if self.archive_video and self.archive_video.game_id != self.id:
+            raise ValidationError(
+                {"archive_video": "The archive video must belong to this game."}
+            )
 
     @property
     def json_file_path(self) -> Path:
@@ -49,6 +69,43 @@ class Game(models.Model):
     def __str__(self) -> str:
         """To string representation."""
         return self.name
+
+    def ensure_archive_video(self):
+        """Ensure this game has an archive video object and return it."""
+        from core.models.video import Video
+
+        if self.archive_video:
+            return self.archive_video
+
+        video = Video.objects.create(
+            name=f"archive{self.name}",
+        )
+
+        self.archive_video = video
+        self.save(update_fields=["archive_video"])
+
+        return video
+
+    def get_source_files(self, force_rush=False) -> list[Path]:
+        """Retuns the source files to consider for encoding.
+
+        If an archive video is set and exists, it will be used as the only source
+        file, unless force_rush is set and the rush files are available, in which
+        case the rush files are used instead.
+        """
+        base_path = Path(self.tournament.media_path) / "rushs"
+        rush_files = [base_path / f for f in self.files]
+
+        if force_rush and all(f.exists() for f in rush_files):
+            return rush_files
+
+        if self.archive_video:
+            try:
+                return [self.archive_video.path_for_quality("archive")]
+            except FileNotFoundError:
+                pass
+
+        return rush_files
 
     def ensure_video(self) -> None:
         """Create and attach a video if missing."""
@@ -69,12 +126,9 @@ class Game(models.Model):
         with self.json_file_path.open("w") as f:
             json.dump(json_data, f, indent=4)
 
-    def generate_proxy(
+    def enqueue_proxy_render(
         self,
         preset: str = "low",
-        *,
-        overwrite: bool = False,
-        to_queue: bool = False,
     ) -> RenderQueueItemProxy:
         """Create a proxy render queue item handled by RenderQueueItemProxy.
 
@@ -87,18 +141,57 @@ class Game(models.Model):
         """
         from core.models.render_queue.ffmpeg import RenderQueueItemProxy
 
-        if preset not in ["low", "medium", "high"]:
+        if preset not in ["low", "medium", "high", "low_av1", "medium_av1", "high_av1"]:
             raise ValueError("Preset must be low, medium or high")
         self.ensure_video()
 
         item = RenderQueueItemProxy.objects.create(
             game=self,
             preset=preset,
+            status=RenderQueueItemProxy.Status.CREATED,
         )
-        if not to_queue:
-            item.run()
-        else:
-            item.status = RenderQueueItemProxy.Status.CREATED
-            item.save(update_fields=["status"])
-        _ = overwrite
+
+        return item
+
+    def enqueue_archive_render(
+        self, *, preset: str = "high", force: bool = False
+    ) -> RenderQueueItemArchive:
+        """Create a render queue item to generate the game archive."""
+        from core.models.render_queue.ffmpeg import RenderQueueItemArchive
+
+        if not force and self.archive_video:
+            try:
+                path = self.archive_video.path_for_quality("archive")
+            except FileNotFoundError:
+                pass
+            else:
+                if path.exists():
+                    raise ValidationError(
+                        "This game already has an archive. Use force=true to regenerate it."
+                    )
+
+        existing_item = (
+            RenderQueueItemArchive.objects.filter(
+                game=self,
+                preset=preset,
+            )
+            .exclude(
+                status__in=[
+                    RenderQueueItemArchive.Status.DONE,
+                    RenderQueueItemArchive.Status.FAILED,
+                ],
+            )
+            .first()
+        )
+
+        if existing_item and not force:
+            raise ValidationError(
+                "A render queue item for this game and preset already exists. Use force=true to create a new one."
+            )
+        item = RenderQueueItemArchive.objects.create(
+            game=self,
+            preset=preset,
+            status=RenderQueueItemArchive.Status.CREATED,
+        )
+
         return item

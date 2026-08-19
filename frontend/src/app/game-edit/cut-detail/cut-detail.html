@@ -11,8 +11,8 @@
                 <span class="label-row" (dblclick)="onSeekToFrame(pt.in)">
                   in
                   <span class="timecode" (dblclick)="onSeekToFrame(pt.in)">{{
-                    formatTimecode(pt.in)
-                  }}</span>
+                      formatTimecode(pt.in)
+                    }}</span>
                 </span>
                 <div class="input-row">
                   <input
@@ -33,15 +33,15 @@
               <span
                 class="duration-between"
                 [class.invalid]="isRangeInvalid(pt)"
-                >{{ formatDurationFrames(pt.in, pt.out) }}</span
+              >{{ formatDurationFrames(pt.in, pt.out) }}</span
               >
 
               <label>
                 <span class="label-row" (dblclick)="onSeekToFrame(pt.out)">
                   out
                   <span class="timecode" (dblclick)="onSeekToFrame(pt.out)">{{
-                    formatTimecode(pt.out)
-                  }}</span>
+                      formatTimecode(pt.out)
+                    }}</span>
                 </span>
                 <div class="input-row">
                   <input
@@ -127,32 +127,32 @@
               @if (ov.type === "TeamIntroduction") {
                 <label>
                   team1
-                  <input type="text" [(ngModel)]="ov.team1" />
+                  <input type="text" [(ngModel)]="ov.team1"/>
                 </label>
                 <label>
                   team2
-                  <input type="text" [(ngModel)]="ov.team2" />
+                  <input type="text" [(ngModel)]="ov.team2"/>
                 </label>
                 <label>
                   condition
-                  <input type="text" [(ngModel)]="ov.condition" />
+                  <input type="text" [(ngModel)]="ov.condition"/>
                 </label>
               } @else {
                 <label>
                   warning_type
-                  <input type="text" [(ngModel)]="ov.warning_type" />
+                  <input type="text" [(ngModel)]="ov.warning_type"/>
                 </label>
                 <label>
                   text
-                  <input type="text" [(ngModel)]="ov.text" />
+                  <input type="text" [(ngModel)]="ov.text"/>
                 </label>
                 <label>
                   tc
-                  <input type="number" [(ngModel)]="ov.tc" />
+                  <input type="number" [(ngModel)]="ov.tc"/>
                 </label>
                 <label>
                   length
-                  <input type="number" [(ngModel)]="ov.length" />
+                  <input type="number" [(ngModel)]="ov.length"/>
                 </label>
               }
               <div class="row-actions">
@@ -191,8 +191,8 @@
                   <span class="label-row" (dblclick)="onSeekToFrame(pt.in)">
                     in
                     <span class="timecode" (dblclick)="onSeekToFrame(pt.in)">{{
-                      formatTimecode(pt.in)
-                    }}</span>
+                        formatTimecode(pt.in)
+                      }}</span>
                   </span>
                   <div class="input-row">
                     <input
@@ -213,14 +213,14 @@
                 <span
                   class="duration-between"
                   [class.invalid]="isRangeInvalid(pt)"
-                  >{{ formatDurationFrames(pt.in, pt.out) }}</span
+                >{{ formatDurationFrames(pt.in, pt.out) }}</span
                 >
                 <label>
                   <span class="label-row" (dblclick)="onSeekToFrame(pt.out)">
                     out
                     <span class="timecode" (dblclick)="onSeekToFrame(pt.out)">{{
-                      formatTimecode(pt.out)
-                    }}</span>
+                        formatTimecode(pt.out)
+                      }}</span>
                   </span>
                   <div class="input-row">
                     <input
@@ -307,32 +307,32 @@
                 @if (ov.type === "TeamIntroduction") {
                   <label>
                     team1
-                    <input type="text" [(ngModel)]="ov.team1" />
+                    <input type="text" [(ngModel)]="ov.team1"/>
                   </label>
                   <label>
                     team2
-                    <input type="text" [(ngModel)]="ov.team2" />
+                    <input type="text" [(ngModel)]="ov.team2"/>
                   </label>
                   <label>
                     condition
-                    <input type="text" [(ngModel)]="ov.condition" />
+                    <input type="text" [(ngModel)]="ov.condition"/>
                   </label>
                 } @else {
                   <label>
                     warning_type
-                    <input type="text" [(ngModel)]="ov.warning_type" />
+                    <input type="text" [(ngModel)]="ov.warning_type"/>
                   </label>
                   <label>
                     text
-                    <input type="text" [(ngModel)]="ov.text" />
+                    <input type="text" [(ngModel)]="ov.text"/>
                   </label>
                   <label>
                     tc
-                    <input type="number" [(ngModel)]="ov.tc" />
+                    <input type="number" [(ngModel)]="ov.tc"/>
                   </label>
                   <label>
                     length
-                    <input type="number" [(ngModel)]="ov.length" />
+                    <input type="number" [(ngModel)]="ov.length"/>
                   </label>
                 }
                 <div class="row-actions">
@@ -374,11 +374,13 @@
   <button mat-stroked-button type="button" (click)="onFix()">Fix</button>
   <label class="cut-queue-label">
     <span>Preset</span>
-    <select [(ngModel)]="queuePreset">
-      <option value="low">low</option>
-      <option value="medium">medium</option>
-      <option value="high">high</option>
-    </select>
+    <mat-select [(ngModel)]="queuePreset">
+      @for (preset of renderPresets; track preset.value) {
+        <mat-option [value]="preset.value">
+          {{ preset.label }}
+        </mat-option>
+      }
+    </mat-select>
   </label>
   <button mat-stroked-button type="button" (click)="onAddToQueue()">
     Add to queue

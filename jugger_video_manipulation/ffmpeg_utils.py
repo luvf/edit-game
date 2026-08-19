@@ -124,9 +124,10 @@ def ffmpeg_command_builder(
     output_file: Path | None,
     preset_args: dict[str, list[str]],
     chapter_metadata_path: Path | None = None,
-    cuda_available: bool = False,
+    decode_cuda_available: bool = False,
+    encode_cuda_available: bool = False,
 ) -> list[str]:
-    """Build the ffmpeg comand.
+    """Build the ffmpeg command.
 
     Args:
         filter_complex : FilterComplexBuilder object
@@ -134,10 +135,19 @@ def ffmpeg_command_builder(
         output_file : output file path
         preset_args : dictionary of preset arguments
         chapter_metadata_path : path to metadata file
-        cuda_available : boolean indicating if cuda is available
+        decode_cuda_available : whether CUDA can be used for input decoding
+        encode_cuda_available : whether CUDA/NVENC can be used for output encoding
     """
+    if output_file is None:
+        raise ValueError("output_file must not be None")
+
+    _validate_encode_cuda_usage(
+        preset_args=preset_args,
+        encode_cuda_available=encode_cuda_available,
+    )
+
     cmd = ["ffmpeg"]
-    cmd += _add_input_files(input_files, cuda_available=cuda_available)
+    cmd += _add_input_files(input_files, decode_cuda_available=decode_cuda_available)
     filter_complex.create_inputs(len(input_files))
     if chapter_metadata_path:
         cmd += ["-i", str(chapter_metadata_path.absolute())]
@@ -151,6 +161,19 @@ def ffmpeg_command_builder(
         cmd += ["-map_metadata", str(len(input_files))]
     cmd += [str(output_file.absolute()), "-y"]
     return cmd
+
+
+def _validate_encode_cuda_usage(
+    *,
+    preset_args: dict[str, list[str]],
+    encode_cuda_available: bool,
+) -> None:
+    """Ensure NVENC presets are not used when CUDA/NVENC is unavailable."""
+    video_args = preset_args.get("video", [])
+    uses_nvenc = any(arg.endswith("_nvenc") for arg in video_args)
+
+    if uses_nvenc and not encode_cuda_available:
+        raise ValueError("NVENC encoder requested but CUDA/NVENC is not available.")
 
 
 @dataclass
@@ -193,11 +216,13 @@ def write_chapters_metadata(
     metadata_path.write_text("\n".join(lines))
 
 
-def _add_input_files(inputs: list[Path], *, cuda_available: bool = False) -> list[str]:
+def _add_input_files(
+    inputs: list[Path], *, decode_cuda_available: bool = False
+) -> list[str]:
     """Add input files to the ffmpeg command."""
     cmd = []
     for f in inputs:
-        if cuda_available:
+        if decode_cuda_available:
             cmd += ["-hwaccel", "cuda"]
         cmd += ["-i", str(f.absolute())]
     return cmd
@@ -276,6 +301,8 @@ def get_chapters(video_file: Path) -> list[tuple[float, float]]:
 
     Args:
         video_file: Path to the video file
+    Returns:
+        List of tuples containing start and end times of chapters
     """
     result = subprocess.run(
         [

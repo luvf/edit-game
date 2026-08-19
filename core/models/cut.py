@@ -114,7 +114,7 @@ class Cut(models.Model):
 
         return {"points": trim_points, "overlays": []}
 
-    def gen_from_rendered_queue(
+    def enqueue_cut_times_generation(
         self,
         rendered_path: str | Path,
         *,
@@ -129,10 +129,12 @@ class Cut(models.Model):
             tmp_dir=f"{tmp_path}",
         )
 
-    def render_to_queue(
+    def enqueue_cut_render(
         self, *, preset: str = "medium", run_now: bool = False
     ) -> RenderQueueItemCut:
         """Create a queue item for this cut render."""
+        if preset not in ["low", "medium", "high", "low_av1", "medium_av1", "high_av1"]:
+            raise ValueError("Preset must be low, medium or high")
         self.ensure_video()
 
         render_queue_item = RenderQueueItemCut.objects.create(

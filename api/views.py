@@ -17,8 +17,9 @@ from django.db.models import Model, Q
 from django.http import FileResponse, Http404
 from django.urls import resolve
 from django.utils.text import slugify
-from rest_framework import viewsets
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import (
     AllowAny,
     BasePermission,
@@ -547,15 +548,9 @@ class GameViewSet(viewsets.ModelViewSet[Game]):
         _ = pk
         game = self.get_object()
         preset = request.data.get("quality") or "low"
-        to_queue_value = request.data.get("to_queue")
-        to_queue = (
-            str(to_queue_value).strip().lower() in {"1", "true", "yes", "y", "on"}
-            if to_queue_value is not None
-            else True
-        )
 
         try:
-            item = game.generate_proxy(preset=preset, to_queue=to_queue)
+            item = game.enqueue_proxy_render(preset=preset)
         except ValueError as exc:
             return Response({"status": "failed", "error": str(exc)}, status=400)
         except Exception as exc:
@@ -582,6 +577,35 @@ class GameViewSet(viewsets.ModelViewSet[Game]):
         )
         serializer = CutSerializer(cut, context=self.get_serializer_context())
         return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="create_archive")
+    def create_archive(self, request, pk=None):
+        """Create a render queue item that generates the game archive."""
+        game = self.get_object()
+
+        preset = request.data.get("preset", "high")
+        force = bool(request.data.get("force", False))
+
+        try:
+            item = game.enqueue_archive_render(preset=preset, force=force)
+        except ValidationError as exc:
+            return Response(
+                {
+                    "detail": str(exc),
+                    "archive_video_id": exc.archive_video_id,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        return Response(
+            {
+                "detail": "La génération de l'archive a été ajoutée à la file de rendu.",
+                "render_queue_item_id": item.id,
+                "status": item.status,
+                "preset": item.preset,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class TeamViewSet(viewsets.ModelViewSet[Team]):
@@ -613,7 +637,7 @@ class CutViewSet(viewsets.ModelViewSet[Cut]):
         )
 
         try:
-            item = cut.render_to_queue(preset=preset, run_now=not to_queue)
+            item = cut.enqueue_cut_render(preset=preset, run_now=not to_queue)
         except Exception as exc:
             return Response({"status": "failed", "error": str(exc)}, status=500)
         serializer = RenderQueueItemSerializer(
@@ -681,7 +705,7 @@ class CutViewSet(viewsets.ModelViewSet[Cut]):
             )
 
         try:
-            payload = cut.gen_from_rendered_queue(candidate)
+            payload = cut.enqueue_cut_times_generation(candidate)
         except Exception as exc:
             return Response({"status": "failed", "error": str(exc)}, status=500)
         serializer = RenderQueueItemSerializer(

@@ -86,6 +86,12 @@ class Video(models.Model):
         elif hasattr(self, "cut"):
             subdir = "generated_rendered"
             tournament = self.cut.game.tournament
+        elif hasattr(self, "game_archive"):
+            subdir = "archive"
+            game = self.game_archive.first()
+            if game is None:
+                raise ValueError("Archive video is not linked to a game")
+            tournament = game.tournament
         else:
             raise ValueError("Video is not linked to a game or a cut")
         return f"{tournament.tournament_media_url}/{subdir}"
@@ -99,6 +105,12 @@ class Video(models.Model):
         elif hasattr(self, "cut"):
             subdir = "generated_rendered"
             tournament = self.cut.game.tournament
+        elif hasattr(self, "game_archive"):
+            subdir = "archive"
+            game = self.game_archive.first()
+            if game is None:
+                raise ValueError("Archive video is not linked to a game")
+            tournament = game.tournament
         else:
             raise ValueError("Video is not linked to a game or a cut")
         return tournament.media_path / subdir
@@ -113,6 +125,11 @@ class VideoFile(models.Model):
         LOW = "low", "low"
         MEDIUM = "medium", "medium"
         HIGH = "high", "high"
+        LOW_AV1 = "low_av1", "low_av1"
+        MEDIUM_AV1 = "medium_av1", "medium_av1"
+        HIGH_AV1 = "high_av1", "high_av1"
+
+        ARCHIVE = "archive", "archive"
 
     class Format(models.TextChoices):
         """Available video formats."""

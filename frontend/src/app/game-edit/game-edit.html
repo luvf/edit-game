@@ -5,7 +5,7 @@
         <div class="name-field-block">
           <mat-form-field appearance="outline" class="name-field">
             <mat-label>Name</mat-label>
-            <input matInput [(ngModel)]="nameDraft" />
+            <input matInput [(ngModel)]="nameDraft"/>
           </mat-form-field>
 
           <span class="source-name" [title]="'files: ' + game.files">
@@ -43,9 +43,11 @@
       <mat-form-field appearance="outline" class="proxy-quality">
         <mat-label>Proxy quality</mat-label>
         <mat-select [(ngModel)]="proxyQuality">
-          <mat-option value="low">low</mat-option>
-          <mat-option value="medium">medium</mat-option>
-          <mat-option value="high">high</mat-option>
+          @for (preset of renderPresets; track preset.value) {
+            <mat-option [value]="preset.value">
+              {{ preset.label }}
+            </mat-option>
+          }
         </mat-select>
       </mat-form-field>
       <button
@@ -64,6 +66,15 @@
       >
         Add proxy to queue
       </button>
+      <button
+        mat-raised-button
+        color="accent"
+        type="button"
+        (click)="onCreateArchive()"
+      >
+        Create archive
+      </button>
+
     </div>
 
     <app-game-edit-cuts [game]="game"></app-game-edit-cuts>

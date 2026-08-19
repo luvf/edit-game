@@ -15,7 +15,8 @@ from django.utils.text import slugify
 from core.models.tournament import Team, Tournament
 from core.youtube_interaction.yt_interaction import YTInteraction, YtVideoMetadata
 from jugger_video_manipulation.build_miniature import Rescale, generate_miniature
-from jugger_video_manipulation.utils import get_chapters, get_frame
+from jugger_video_manipulation.ffmpeg_utils import get_chapters
+from jugger_video_manipulation.utils import get_frame, get_ms_time
 
 if TYPE_CHECKING:
     from django.db.models.fields.related_descriptors import RelatedManager
@@ -105,10 +106,10 @@ class VideoMetadataManager(models.Manager["VideoMetadata"]):
             "",
         ]
         timecodes: list[str] = []
-        for i, chapter in enumerate(
+        for i, (start, _) in enumerate(
             get_chapters(tournament.get_rendered_path() / Path(name))
         ):
-            timecodes.append(chapter["start"] + " Point " + str(i + 1))
+            timecodes.append(f"{get_ms_time(start) } Point {i + 1}")
         description += timecodes
         return "\n".join(description)
 

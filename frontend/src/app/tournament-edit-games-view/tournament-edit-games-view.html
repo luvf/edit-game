@@ -8,9 +8,11 @@
         [ngModel]="proxyQuality()"
         (ngModelChange)="proxyQuality.set($event)"
       >
-        <mat-option value="low">low</mat-option>
-        <mat-option value="medium">medium</mat-option>
-        <mat-option value="high">high</mat-option>
+        @for (preset of renderPresets; track preset.value) {
+          <mat-option [value]="preset.value">
+            {{ preset.label }}
+          </mat-option>
+        }
       </mat-select>
     </mat-form-field>
     <button mat-stroked-button color="primary" (click)="onGenerateAllProxy()">

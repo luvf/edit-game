@@ -28,10 +28,6 @@ from jugger_video_manipulation.ffmpeg_utils import (
 class RenderQueueItemFFMPEG(RenderQueueItemBase):
     """Concrete base for ffmpeg-driven jobs; treat `build_command` as abstract."""
 
-    RUSH_DIRNAME = "rushs"
-    PROXY_DIRNAME = "proxy"
-    GENERATED_RENDERED_DIRNAME = "generated_rendered"
-
     PRESET_ARGS_GPU: ClassVar[dict[str, dict[str, list[str]]]] = {
         "low": {
             "scale": ["854", "-2"],
@@ -69,6 +65,19 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
             "video": ["-c:v", "libx264", "-preset", "slow", "-crf", "20"],
             "audio": ["-c:a", "aac", "-b:a", "192k"],
         },
+        "low_av1": {
+            "scale": ["854", "-2"],
+            "video": ["-c:v", "libsvtav1", "-crf", "61", "-preset", "6"],
+            "audio": ["-c:a", "aac", "-b:a", "96k"],
+        },
+        "medium_av1": {
+            "video": ["-c:v", "libsvtav1", "-crf", "55", "-preset", "6"],
+            "audio": ["-c:a", "aac", "-b:a", "160k"],
+        },
+        "high_av1": {
+            "video": ["-c:v", "libsvtav1", "-crf", "24", "-preset", "6"],
+            "audio": ["-c:a", "aac", "-b:a", "192k"],
+        },
     }
 
     preset = models.CharField(max_length=10, default="medium")
@@ -80,6 +89,63 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
         """Model metadata."""
 
         db_table = "game_edit_render_queue_ffmpeg"
+
+    @staticmethod
+    def _source_has_av1_video(file_path: Path) -> bool:
+        """Return True when the source file contains an AV1 video stream."""
+        try:
+            result = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "v:0",
+                    "-show_entries",
+                    "stream=codec_name",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    str(file_path),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except (subprocess.CalledProcessError, OSError):
+            return False
+
+        return result.stdout.strip().lower() == "av1"
+
+    def _can_use_cuda_for_decode(self, source_files: list[Path]) -> bool:
+        """Return True when CUDA can safely be used for decoding all sources."""
+        if not self._is_cuda_available():
+            return False
+
+        return not any(
+            self._source_has_av1_video(source_file) for source_file in source_files
+        )
+
+    def _can_use_cuda_for_encode(self) -> bool:
+        """Return True when CUDA can be used for NVENC encoding."""
+        return self._is_cuda_available()
+
+    @staticmethod
+    def _is_cuda_available() -> bool:
+        """Check if CUDA is available."""
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            return False
+        try:
+            result = subprocess.run(
+                [ffmpeg_path, "-hide_banner", "-hwaccels"],
+                check=False,
+                capture_output=True,
+            )
+            if result.returncode != 0:
+                return False
+            return "cuda" in result.stdout.lower().decode("utf-8")
+        except (subprocess.CalledProcessError, OSError):
+            return False
 
     @property
     def command_parameters(self) -> str:
@@ -150,11 +216,30 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
             final_path = self.final_output_path
             final_path.parent.mkdir(parents=True, exist_ok=True)
 
-            shutil.move(str(tmp_output_path), str(final_path))
+            self._move_into_place(tmp_output_path, final_path)
 
         finally:
             metadata_path.unlink(missing_ok=True)
             tmp_output_path.unlink(missing_ok=True)
+
+    @staticmethod
+    def _move_into_place(tmp_path: Path, final_path: Path) -> None:
+        """Move the rendered file to its final path.
+
+        tmp_path and final_path can live on different filesystems (e.g. a
+        local tmp dir and a network mount), so a plain rename isn't possible.
+        Instead, copy to a staging file in final_path's own directory, then
+        atomically rename it over final_path. This never truncates/opens
+        final_path itself, so an existing file there (e.g. still open for
+        reading elsewhere) is only ever swapped out atomically, never
+        corrupted mid-write.
+        """
+        staging_path = final_path.with_name(f".{final_path.name}.tmp-{uuid.uuid4().hex}")
+        try:
+            shutil.copyfile(str(tmp_path), str(staging_path))
+            staging_path.replace(final_path)
+        finally:
+            staging_path.unlink(missing_ok=True)
 
     def _probe_file(self, file_path: Path) -> Any:
         """Return ffprobe metadata as a dict."""
@@ -211,27 +296,16 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
 
     def _preset_args(self) -> dict[str, list[str]]:
         """Return ffmpeg args for the selected preset."""
-        if self._is_cuda_available():
-            return self.PRESET_ARGS_GPU.get(self.preset, self.PRESET_ARGS_GPU["medium"])
-        return self.PRESET_ARGS_CPU.get(self.preset, self.PRESET_ARGS_CPU["medium"])
+        default_preset_cpu = list(self.PRESET_ARGS_CPU.keys())[0]
+        cpu_preset_args = self.PRESET_ARGS_CPU.get(
+            self.preset,
+            self.PRESET_ARGS_CPU[default_preset_cpu],
+        )
 
-    @staticmethod
-    def _is_cuda_available() -> bool:
-        """Check if CUDA is available."""
-        ffmpeg_path = shutil.which("ffmpeg")
-        if not ffmpeg_path:
-            return False
-        try:
-            result = subprocess.run(
-                [ffmpeg_path, "-hide_banner", "-hwaccels"],
-                check=False,
-                capture_output=True,
-            )
-            if result.returncode != 0:
-                return False
-            return "cuda" in result.stdout.lower().decode("utf-8")
-        except (subprocess.CalledProcessError, OSError):
-            return False
+        if not self._is_cuda_available():
+            return cpu_preset_args
+
+        return self.PRESET_ARGS_GPU.get(self.preset, cpu_preset_args)
 
     def delete(
         self,
@@ -295,21 +369,27 @@ class RenderQueueItemCut(RenderQueueItemFFMPEG):
             The ffmpeg command for subprocess.
         """
         game = self.cut.game
-        input_dir = game.tournament.media_path
         out_file = output_file or self.final_output_path
         out_file.parent.mkdir(parents=True, exist_ok=True)
 
         points, _ = CutJsonParser(self.cut.json_file.path).parse()
 
         preset_args = self._preset_args()
-        nb_files = len(game.files)
-        fps = get_fps(input_dir / self.RUSH_DIRNAME / game.files[0])
 
-        w, h = preset_args["scale"]
+        source_files = game.get_source_files()
+        nb_files = len(source_files)
+
+        fps = get_fps(source_files[0])
+
         filter_complex = FilterComplexBuilder(nb_files)
         filter_complex.filter_concat(filter_complex.inputs_v, filter_complex.inputs_a)
         filter_complex.filter_cut(fps, points)
-        filter_complex.filter_scale(w, h)
+
+        scale = preset_args.get("scale")
+        if scale:
+            w, h = scale
+            filter_complex.filter_scale(w, h)
+
         if chapter_metadata_tmp_path:
             write_chapters_metadata(
                 points=points,
@@ -319,17 +399,18 @@ class RenderQueueItemCut(RenderQueueItemFFMPEG):
 
         cmd = ffmpeg_command_builder(
             filter_complex=filter_complex,
-            input_files=[(input_dir / self.RUSH_DIRNAME / f) for f in game.files],
+            input_files=source_files,
             output_file=out_file,
             chapter_metadata_path=chapter_metadata_tmp_path,
             preset_args=preset_args,
-            cuda_available=self._is_cuda_available(),
+            decode_cuda_available=self._can_use_cuda_for_decode(source_files),
+            encode_cuda_available=self._can_use_cuda_for_encode(),
         )
         self.command = " ".join(cmd)
         return cmd
 
 
-class RenderQueueItemProxy(RenderQueueItemFFMPEG):
+class RenderQueueItemGameRender(RenderQueueItemFFMPEG):
     """Queue item for proxy renders."""
 
     game = models.ForeignKey("core.Game", on_delete=models.CASCADE)
@@ -337,12 +418,7 @@ class RenderQueueItemProxy(RenderQueueItemFFMPEG):
     class Meta:
         """Model metadata."""
 
-        db_table = "game_edit_render_queue_proxy"
-
-    def save(self, *args: Any, **kwargs: Any) -> None:
-        """Ensure the job type matches proxy renders."""
-        self.job_type = self.JobType.GAME_PROXY
-        super().save(*args, **kwargs)
+        abstract = True
 
     @property
     def final_output_path(self) -> Path:
@@ -357,6 +433,13 @@ class RenderQueueItemProxy(RenderQueueItemFFMPEG):
         final_path = video_file.expected_path()
         video_file.set_real_path(final_path)
         return final_path
+
+    def get_source_files(self) -> list[Path]:
+        """Return the source files to consider for encoding.
+
+        If an archive video is set and exists, it will be used as the only source file.
+        """
+        return self.game.get_source_files()
 
     def build_command(
         self,
@@ -377,32 +460,118 @@ class RenderQueueItemProxy(RenderQueueItemFFMPEG):
         """
         _ = chapter_metadata_tmp_path
 
-        input_dir = self.game.tournament.media_path
         out_file = output_file or self.final_output_path
         out_file.parent.mkdir(parents=True, exist_ok=True)
 
         preset_args = self._preset_args()
-        nb_files = len(self.game.files)
 
-        w, h = preset_args["scale"]
+        source_files = self.get_source_files()
+        nb_files = len(source_files)
 
         filter_complex = FilterComplexBuilder(nb_files)
         filter_complex.filter_concat(filter_complex.inputs_v, filter_complex.inputs_a)
-        filter_complex.filter_scale(w, h)
+
+        scale = preset_args.get("scale")
+        if scale:
+            w, h = scale
+            filter_complex.filter_scale(w, h)
 
         cmd = ffmpeg_command_builder(
             filter_complex=filter_complex,
-            input_files=[(input_dir / self.RUSH_DIRNAME / f) for f in self.game.files],
+            input_files=source_files,
             output_file=out_file,
             preset_args=preset_args,
-            cuda_available=self._is_cuda_available(),
+            decode_cuda_available=self._can_use_cuda_for_decode(source_files),
+            encode_cuda_available=self._can_use_cuda_for_encode(),
         )
 
         self.command = " ".join(cmd)
         return cmd
 
 
-class RenderQueueItemArchive(RenderQueueItemFFMPEG):
+class RenderQueueItemProxy(RenderQueueItemGameRender):
+    """Queue item for proxy renders."""
+
+    class Meta:
+        """Model metadata."""
+
+        db_table = "game_edit_render_queue_proxy"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Ensure the job type matches proxy renders."""
+        self.job_type = self.JobType.GAME_PROXY
+        super().save(*args, **kwargs)
+
+    @property
+    def final_output_path(self) -> Path:
+        """Return the final output path for this proxy render."""
+        self.game.ensure_video()
+        video = self.game.video_proxy
+        video_file, _ = VideoFile.objects.get_or_create(
+            video=video,
+            quality=self.preset,
+            format=VideoFile.Format.MP4,
+        )
+        final_path = video_file.expected_path()
+        video_file.set_real_path(final_path)
+        return final_path
+
+
+class RenderQueueItemArchive(RenderQueueItemGameRender):
     """Queue item for archive renders."""
 
-    game = models.ForeignKey("core.Game", on_delete=models.CASCADE)
+    DEFAULT_PRESET = "archive"
+
+    PRESET_ARGS_GPU: ClassVar[dict[str, dict[str, list[str]]]] = {}
+
+    PRESET_ARGS_CPU: ClassVar[dict[str, dict[str, list[str]]]] = {
+        "archive": {
+            "video": ["-c:v", "libsvtav1", "-crf", "34", "-preset", "6"],
+            "audio": ["-c:a", "aac", "-b:a", "192k"],
+        },
+    }
+
+    def _preset_args(self) -> dict[str, list[str]]:
+        """Return CPU-only ffmpeg args for archive presets."""
+        return self.PRESET_ARGS_CPU.get(
+            self.preset,
+            self.PRESET_ARGS_CPU[self.DEFAULT_PRESET],
+        )
+
+    class Meta:
+        """Model metadata."""
+
+        db_table = "game_edit_render_queue_archive"
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Set archive default preset when no preset is explicitly provided."""
+        if not args:
+            kwargs["preset"] = self.DEFAULT_PRESET
+        super().__init__(*args, **kwargs)
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Ensure the job type matches archive renders."""
+        self.job_type = self.JobType.GAME_ARCHIVE
+
+        super().save(*args, **kwargs)
+
+    def get_source_files(self) -> list[Path]:
+        """Return the source files to consider for encoding.
+
+        If an archive video is set and exists, it will be used as the only source file.
+        """
+        return self.game.get_source_files(force_rush=True)
+
+    @property
+    def final_output_path(self) -> Path:
+        """Return the final output path for this archive render."""
+        self.game.ensure_archive_video()
+        video = self.game.ensure_archive_video()
+        video_file, _ = VideoFile.objects.get_or_create(
+            video=video,
+            quality=self.preset,
+            format=VideoFile.Format.MP4,
+        )
+        final_path = video_file.expected_path()
+        video_file.set_real_path(final_path)
+        return final_path

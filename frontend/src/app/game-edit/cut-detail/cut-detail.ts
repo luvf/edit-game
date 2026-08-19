@@ -1,21 +1,14 @@
-import {
-  Component,
-  EventEmitter,
-  inject,
-  Input,
-  OnChanges,
-  Output,
-  signal,
-  SimpleChanges,
-} from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { HttpClient } from '@angular/common/http';
-import { Cut } from '../../core/models/models';
-import { MatButtonModule } from '@angular/material/button';
-import { CutsService } from '../../core/services/misc-hateoas-models.service';
-import { FormsModule } from '@angular/forms';
-import { MatTabsModule } from '@angular/material/tabs';
-import { GameEditCutsStateService } from '../game-edit-cuts/game-edit-cuts-state';
+import {Component, EventEmitter, inject, Input, OnChanges, Output, signal, SimpleChanges,} from '@angular/core';
+import {CommonModule} from '@angular/common';
+import {HttpClient} from '@angular/common/http';
+import {Cut} from '../../core/models/models';
+import {MatButtonModule} from '@angular/material/button';
+import {CutsService} from '../../core/services/misc-hateoas-models.service';
+import {FormsModule} from '@angular/forms';
+import {MatTabsModule} from '@angular/material/tabs';
+import {GameEditCutsStateService} from '../game-edit-cuts/game-edit-cuts-state';
+import {renderPresets} from '../../core/services/preset-service';
+import {MatOption, MatSelect} from '@angular/material/select';
 
 type Point = {
   in: number;
@@ -49,7 +42,14 @@ type CutPayload = {
   selector: 'app-cut-detail',
   standalone: true,
 
-  imports: [CommonModule, MatButtonModule, FormsModule, MatTabsModule],
+  imports: [
+    CommonModule,
+    MatButtonModule,
+    FormsModule,
+    MatTabsModule,
+    MatSelect,
+    MatOption,
+  ],
   templateUrl: './cut-detail.html',
   styleUrl: './cut-detail.css',
 })
@@ -61,6 +61,7 @@ export class CutDetailComponent implements OnChanges {
   parseError: string | null = null;
   valid = signal(true);
   queuePreset = 'medium';
+  protected readonly renderPresets = renderPresets;
   private http = inject(HttpClient);
   private cutService = inject(CutsService);
   private state = inject(GameEditCutsStateService);
