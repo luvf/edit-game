@@ -53,15 +53,6 @@ class Game(models.Model):
 
         db_table = "game_edit_game"
 
-    def clean(self):
-        """Clean the game instance."""
-        super().clean()
-
-        if self.archive_video and self.archive_video.game_id != self.id:
-            raise ValidationError(
-                {"archive_video": "The archive video must belong to this game."}
-            )
-
     @property
     def json_file_path(self) -> Path:
         """Get the path to the json file."""
