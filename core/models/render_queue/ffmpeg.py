@@ -234,7 +234,9 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
         reading elsewhere) is only ever swapped out atomically, never
         corrupted mid-write.
         """
-        staging_path = final_path.with_name(f".{final_path.name}.tmp-{uuid.uuid4().hex}")
+        staging_path = final_path.with_name(
+            f".{final_path.name}.tmp-{uuid.uuid4().hex}"
+        )
         try:
             shutil.copyfile(str(tmp_path), str(staging_path))
             staging_path.replace(final_path)
@@ -545,7 +547,7 @@ class RenderQueueItemArchive(RenderQueueItemGameRender):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Set archive default preset when no preset is explicitly provided."""
-        if not args:
+        if not args and "preset" not in kwargs:
             kwargs["preset"] = self.DEFAULT_PRESET
         super().__init__(*args, **kwargs)
 

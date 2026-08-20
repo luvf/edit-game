@@ -103,6 +103,10 @@ class RenderQueueItemBase(models.Model):
         try:
             return self.renderqueueitemffmpeg.renderqueueitemproxy.game
         except ObjectDoesNotExist:
+            pass
+        try:
+            return self.renderqueueitemffmpeg.renderqueueitemarchive.game
+        except ObjectDoesNotExist:
             return None
 
     @property

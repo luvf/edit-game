@@ -22,7 +22,7 @@ install-angular:
 
 
 test:
-	uv run pytest tests --cov src --cov-report term --cov-report=html --cov-report xml --junit-xml=tests-results.xml
+	uv run pytest tests --cov core --cov api --cov jugger_video_manipulation --cov-report term --cov-report=html --cov-report xml --junit-xml=tests-results.xml
 
 format-check:
 	uv run ruff format --check jugger_video_manipulation api core

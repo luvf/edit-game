@@ -361,10 +361,10 @@ class TournamentSerializer(
             name=validated_data.get("name"),
             short_name=validated_data.get("short_name", validated_data.get("name")),
             date=validated_data.get("date"),
-            place=validated_data.get("place"),
-            JTR=validated_data.get("JTR"),
-            tugeny_link=validated_data.get("tugeny_link"),
-            color=validated_data.get("color"),
+            place=validated_data.get("place") or "",
+            JTR=validated_data.get("JTR") or "",
+            tugeny_link=validated_data.get("tugeny_link") or "",
+            color=validated_data.get("color") or "#0000",
             slug=slugify(validated_data.get("name")),
             drive_dir=validated_data.get("drive_dir"),
             tournament_dir=validated_data.get("tournament_dir"),
@@ -442,6 +442,22 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
             "gen_from_file",
             "gen_from_rendered",
         ]
+
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        """Let json_file bypass FileField validation when it's raw JSON, not an upload.
+
+        DRF's auto-generated FileField rejects any non-file value before
+        `update()` ever runs, so a plain str/dict/list payload for json_file
+        must be pulled out here and re-injected after the base validation.
+        """
+        raw_json_file = None
+        if "json_file" in data and not hasattr(data.get("json_file"), "read"):
+            data = data.copy()
+            raw_json_file = data.pop("json_file")
+        validated = super().to_internal_value(data)
+        if raw_json_file is not None:
+            validated["json_file"] = raw_json_file
+        return validated
 
     def update(self, instance: Cut, validated_data: dict[str, Any]) -> Cut:
         """Update a cut, handling JSON payloads for json_file."""

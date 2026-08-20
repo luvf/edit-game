@@ -12,6 +12,7 @@ from typing import cast
 from xml.etree import ElementTree
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.base import ContentFile
 from django.db.models import Model, Q
 from django.http import FileResponse, Http404
@@ -19,7 +20,6 @@ from django.urls import resolve
 from django.utils.text import slugify
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import (
     AllowAny,
     BasePermission,
@@ -581,6 +581,7 @@ class GameViewSet(viewsets.ModelViewSet[Game]):
     @action(detail=True, methods=["post"], url_path="create_archive")
     def create_archive(self, request, pk=None):
         """Create a render queue item that generates the game archive."""
+        _ = pk
         game = self.get_object()
 
         preset = request.data.get("preset", "high")
@@ -588,10 +589,10 @@ class GameViewSet(viewsets.ModelViewSet[Game]):
 
         try:
             item = game.enqueue_archive_render(preset=preset, force=force)
-        except ValidationError as exc:
+        except DjangoValidationError as exc:
             return Response(
                 {
-                    "detail": str(exc),
+                    "detail": exc.message,
                     "archive_video_id": exc.archive_video_id,
                 },
                 status=status.HTTP_409_CONFLICT,

@@ -54,6 +54,7 @@ class Game(models.Model):
         db_table = "game_edit_game"
 
     def clean(self):
+        """Clean the game instance."""
         super().clean()
 
         if self.archive_video and self.archive_video.game_id != self.id:
@@ -86,7 +87,7 @@ class Game(models.Model):
 
         return video
 
-    def get_source_files(self, force_rush=False) -> list[Path]:
+    def get_source_files(self, *, force_rush=False) -> list[Path]:
         """Retuns the source files to consider for encoding.
 
         If an archive video is set and exists, it will be used as the only source
@@ -145,13 +146,11 @@ class Game(models.Model):
             raise ValueError("Preset must be low, medium or high")
         self.ensure_video()
 
-        item = RenderQueueItemProxy.objects.create(
+        return RenderQueueItemProxy.objects.create(
             game=self,
             preset=preset,
             status=RenderQueueItemProxy.Status.CREATED,
         )
-
-        return item
 
     def enqueue_archive_render(
         self, *, preset: str = "high", force: bool = False
@@ -166,9 +165,11 @@ class Game(models.Model):
                 pass
             else:
                 if path.exists():
-                    raise ValidationError(
+                    exc = ValidationError(
                         "This game already has an archive. Use force=true to regenerate it."
                     )
+                    exc.archive_video_id = self.archive_video_id
+                    raise exc
 
         existing_item = (
             RenderQueueItemArchive.objects.filter(
@@ -185,13 +186,13 @@ class Game(models.Model):
         )
 
         if existing_item and not force:
-            raise ValidationError(
+            exc = ValidationError(
                 "A render queue item for this game and preset already exists. Use force=true to create a new one."
             )
-        item = RenderQueueItemArchive.objects.create(
+            exc.archive_video_id = self.archive_video_id
+            raise exc
+        return RenderQueueItemArchive.objects.create(
             game=self,
             preset=preset,
             status=RenderQueueItemArchive.Status.CREATED,
         )
-
-        return item
