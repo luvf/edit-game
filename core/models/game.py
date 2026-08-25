@@ -15,6 +15,16 @@ if TYPE_CHECKING:
         RenderQueueItemArchive,
         RenderQueueItemProxy,
     )
+    from core.models.video import Video
+
+
+class ArchiveAlreadyExistsError(ValidationError):
+    """Raised when an archive render is requested but one already exists or is pending."""
+
+    def __init__(self, message: str, archive_video_id: int | None) -> None:
+        """Initialize with the conflicting archive video's id, if any."""
+        super().__init__(message)
+        self.archive_video_id = archive_video_id
 
 
 class Game(models.Model):
@@ -62,7 +72,7 @@ class Game(models.Model):
         """To string representation."""
         return self.name
 
-    def ensure_archive_video(self):
+    def ensure_archive_video(self) -> Video:
         """Ensure this game has an archive video object and return it."""
         from core.models.video import Video
 
@@ -78,7 +88,7 @@ class Game(models.Model):
 
         return video
 
-    def get_source_files(self, *, force_rush=False) -> list[Path]:
+    def get_source_files(self, *, force_rush: bool = False) -> list[Path]:
         """Retuns the source files to consider for encoding.
 
         If an archive video is set and exists, it will be used as the only source
@@ -156,11 +166,10 @@ class Game(models.Model):
                 pass
             else:
                 if path.exists():
-                    exc = ValidationError(
-                        "This game already has an archive. Use force=true to regenerate it."
+                    raise ArchiveAlreadyExistsError(
+                        "This game already has an archive. Use force=true to regenerate it.",
+                        self.archive_video_id,
                     )
-                    exc.archive_video_id = self.archive_video_id
-                    raise exc
 
         existing_item = (
             RenderQueueItemArchive.objects.filter(
@@ -177,11 +186,10 @@ class Game(models.Model):
         )
 
         if existing_item and not force:
-            exc = ValidationError(
-                "A render queue item for this game and preset already exists. Use force=true to create a new one."
+            raise ArchiveAlreadyExistsError(
+                "A render queue item for this game and preset already exists. Use force=true to create a new one.",
+                self.archive_video_id,
             )
-            exc.archive_video_id = self.archive_video_id
-            raise exc
         return RenderQueueItemArchive.objects.create(
             game=self,
             preset=preset,

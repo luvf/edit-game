@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
+import fcntl
 import importlib
 import logging
 import threading
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-import fcntl
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, TextIO
 
 from django.db import IntegrityError, transaction
 from django.db.models import Case, IntegerField, Value, When
@@ -28,8 +24,8 @@ logger = logging.getLogger(__name__)
 RENDER_QUEUE_LOCK_FILE = "/tmp/render-queue-worker.lock"
 
 
-def _acquire_render_queue_lock():
-    lock_file = open(RENDER_QUEUE_LOCK_FILE, "w")
+def _acquire_render_queue_lock() -> TextIO | None:
+    lock_file = Path(RENDER_QUEUE_LOCK_FILE).open("w")  # noqa: SIM115
 
     try:
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -64,6 +60,73 @@ def run_async_task(
     return thread
 
 
+def _claim_next_render_item() -> RenderQueueItem | None:
+    """Atomically claim the next queued render item, or return None if none is available."""
+    item = None
+    try:
+        with transaction.atomic():
+            # Lock one candidate to avoid multiple workers taking the same job.
+            item = (
+                RenderQueueItem.objects.select_for_update(skip_locked=True)
+                .filter(
+                    status__in=[
+                        RenderQueueItem.Status.CREATED,
+                        RenderQueueItem.Status.WAITING,
+                    ]
+                )
+                .annotate(
+                    status_rank=Case(
+                        When(status=RenderQueueItem.Status.WAITING, then=Value(0)),
+                        default=Value(1),
+                        output_field=IntegerField(),
+                    )
+                )
+                .order_by("status_rank", "created_at")
+                .first()
+            )
+            if not item:
+                return None
+            # Attempt to flip to RUNNING; DB constraint guarantees single RUNNING.
+            item.status = RenderQueueItem.Status.RUNNING
+            item.started_at = timezone.now()
+            item.save(update_fields=["status", "started_at"])
+    except IntegrityError:
+        # Another worker won the race; put this item back to WAITING and stop.
+        if item:
+            item.refresh_from_db(fields=["status"])
+            if item.status != RenderQueueItem.Status.RUNNING:
+                item.status = RenderQueueItem.Status.WAITING
+                item.started_at = None
+                item.save(update_fields=["status", "started_at"])
+        return None
+
+    return item
+
+
+def _run_claimed_render_item(item: RenderQueueItem) -> None:
+    """Execute a claimed render item and record its terminal status."""
+    try:
+        # Execute render outside the transaction to avoid long-held locks.
+        item.concrete().run()
+    except Exception as exc:
+        logger.exception("Render queue item %s failed", item.pk)
+        RenderQueueItem.objects.filter(
+            pk=item.pk, status=RenderQueueItem.Status.RUNNING
+        ).update(
+            status=RenderQueueItem.Status.FAILED,
+            error=str(exc),
+            finished_at=timezone.now(),
+        )
+        return
+
+    RenderQueueItem.objects.filter(
+        pk=item.pk, status=RenderQueueItem.Status.RUNNING
+    ).update(
+        status=RenderQueueItem.Status.DONE,
+        finished_at=timezone.now(),
+    )
+
+
 def process_render_queue() -> None:
     """Process render queue items sequentially, enforcing a single RUNNING item."""
     lock_file = _acquire_render_queue_lock()
@@ -79,69 +142,11 @@ def process_render_queue() -> None:
                 status=RenderQueueItem.Status.RUNNING
             ).exists():
                 return
-            item = None
-            try:
-                with transaction.atomic():
-                    # Lock one candidate to avoid multiple workers taking the same job.
-                    item = (
-                        RenderQueueItem.objects.select_for_update(skip_locked=True)
-                        .filter(
-                            status__in=[
-                                RenderQueueItem.Status.CREATED,
-                                RenderQueueItem.Status.WAITING,
-                            ]
-                        )
-                        .annotate(
-                            status_rank=Case(
-                                When(
-                                    status=RenderQueueItem.Status.WAITING, then=Value(0)
-                                ),
-                                default=Value(1),
-                                output_field=IntegerField(),
-                            )
-                        )
-                        .order_by("status_rank", "created_at")
-                        .first()
-                    )
-                    if not item:
-                        return
-                    # Attempt to flip to RUNNING; DB constraint guarantees single RUNNING.
-                    item.status = RenderQueueItem.Status.RUNNING
-                    item.started_at = timezone.now()
-                    item.save(update_fields=["status", "started_at"])
-            except IntegrityError:
-                # Another worker won the race; put this item back to WAITING and stop.
-                if item:
-                    item.refresh_from_db(fields=["status"])
-                    if item.status != RenderQueueItem.Status.RUNNING:
-                        item.status = RenderQueueItem.Status.WAITING
-                        item.started_at = None
-                        item.save(update_fields=["status", "started_at"])
+
+            item = _claim_next_render_item()
+            if item is None:
                 return
 
-            try:
-                # Execute render outside the transaction to avoid long-held locks.
-                item.concrete().run()
-            except Exception as exc:
-                logger.exception("Render queue item %s failed", item.pk)
-                updated = RenderQueueItem.objects.filter(
-                    pk=item.pk, status=RenderQueueItem.Status.RUNNING
-                ).update(
-                    status=RenderQueueItem.Status.FAILED,
-                    error=str(exc),
-                    finished_at=timezone.now(),
-                )
-                if not updated:
-                    continue
-                continue
-
-            updated = RenderQueueItem.objects.filter(
-                pk=item.pk, status=RenderQueueItem.Status.RUNNING
-            ).update(
-                status=RenderQueueItem.Status.DONE,
-                finished_at=timezone.now(),
-            )
-            if not updated:
-                continue
+            _run_claimed_render_item(item)
     finally:
         lock_file.close()

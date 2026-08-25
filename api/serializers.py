@@ -454,7 +454,7 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
         if "json_file" in data and not hasattr(data.get("json_file"), "read"):
             data = data.copy()
             raw_json_file = data.pop("json_file")
-        validated = super().to_internal_value(data)
+        validated: dict[str, Any] = super().to_internal_value(data)
         if raw_json_file is not None:
             validated["json_file"] = raw_json_file
         return validated

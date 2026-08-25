@@ -12,7 +12,6 @@ from typing import cast
 from xml.etree import ElementTree
 
 from django.conf import settings
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.base import ContentFile
 from django.db.models import Model, Q
 from django.http import FileResponse, Http404
@@ -42,7 +41,7 @@ from api.serializers import (
     YTVideoSerializer,
 )
 from core.models.cut import Cut
-from core.models.game import Game
+from core.models.game import ArchiveAlreadyExistsError, Game
 from core.models.media import TmpImage, VideoMetadata, YTVideo
 from core.models.render_queue.base import (
     RenderQueueItemBase as RenderQueueItem,
@@ -579,7 +578,7 @@ class GameViewSet(viewsets.ModelViewSet[Game]):
         return Response(serializer.data)
 
     @action(detail=True, methods=["post"], url_path="create_archive")
-    def create_archive(self, request, pk=None):
+    def create_archive(self, request: Request, pk: str | None = None) -> Response:
         """Create a render queue item that generates the game archive."""
         _ = pk
         game = self.get_object()
@@ -589,7 +588,7 @@ class GameViewSet(viewsets.ModelViewSet[Game]):
 
         try:
             item = game.enqueue_archive_render(preset=preset, force=force)
-        except DjangoValidationError as exc:
+        except ArchiveAlreadyExistsError as exc:
             return Response(
                 {
                     "detail": exc.message,

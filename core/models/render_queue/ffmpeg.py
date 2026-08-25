@@ -298,7 +298,7 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
 
     def _preset_args(self) -> dict[str, list[str]]:
         """Return ffmpeg args for the selected preset."""
-        default_preset_cpu = list(self.PRESET_ARGS_CPU.keys())[0]
+        default_preset_cpu = next(iter(self.PRESET_ARGS_CPU.keys()))
         cpu_preset_args = self.PRESET_ARGS_CPU.get(
             self.preset,
             self.PRESET_ARGS_CPU[default_preset_cpu],
