@@ -9,7 +9,7 @@ import {
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
-import {Video, VideoFiles, VideoQuality} from '../../core/models/models';
+import {Video, VideoFile, VideoFiles, VideoQuality} from '../../core/models/models';
 import {MatButton} from '@angular/material/button';
 import {MatFormField, MatLabel} from '@angular/material/input';
 import {MatOption, MatSelect} from '@angular/material/select';
@@ -17,7 +17,11 @@ import {HttpClient} from '@angular/common/http';
 
 type Quality = 'high' | 'medium' | 'low';
 
-export const VIDEO_FPS = 60;
+/**
+ * Utilise seulement quand l'API ne renvoie pas de fps : fichier jamais sonde,
+ * absent du disque, ou illisible. Les rushs sont en 60000/1001.
+ */
+export const FALLBACK_FPS = 60000 / 1001;
 @Component({
   selector: 'app-video-player',
   imports: [MatButton, MatFormField, MatLabel, MatSelect, MatOption],
@@ -31,11 +35,13 @@ export class VideoPlayer implements OnInit {
 
   currentFrame: number = 0;
   @Output() currentFrameChange = new EventEmitter<number>();
+  /** Frame rate reelle de la source affichee, une fois la qualite choisie. */
+  @Output() fpsChange = new EventEmitter<number>();
   availableQualities = signal<VideoQuality[]>([]);
   selectedQuality = signal<VideoQuality | null>(null);
   currentVideoUrl = signal<string | null>(null);
   currentTimecode: string = '00:00:00'; //signal('00:00:00');
-  private readonly FPS = VIDEO_FPS;
+  private fps = FALLBACK_FPS;
   private animationFrameId?: number;
 
   private pendingSeekTime: number | null = null;
@@ -58,7 +64,7 @@ export class VideoPlayer implements OnInit {
 
     const timeSeconds = video.currentTime;
     this.currentFrame = this.timeToFrame(timeSeconds);
-    this.currentTimecode = this.formatTimecode(timeSeconds, this.FPS);
+    this.currentTimecode = this.formatTimecode(timeSeconds, this.fps);
     this.currentFrameChange.emit(this.currentFrame);
   }
 
@@ -107,8 +113,7 @@ export class VideoPlayer implements OnInit {
     const wasPlaying = !!video && !video.paused && !video.ended;
     const currentTime = video?.currentTime ?? 0;
 
-    this.selectedQuality.set(q);
-    this.currentVideoUrl.set(nextUrl.url);
+    this.applySource(q, nextUrl);
 
     this.isApplyingQuality = true;
     this.pendingSeekTime = currentTime;
@@ -120,7 +125,7 @@ export class VideoPlayer implements OnInit {
     const video = this.videoElement?.nativeElement;
     if (!video) return;
 
-    const targetSeconds = Math.max(0, frame / this.FPS);
+    const targetSeconds = Math.max(0, frame / this.fps);
 
     // Source en cours de rechargement : on applique le seek sur loadedmetadata.
     if (this.isApplyingQuality) {
@@ -145,11 +150,11 @@ export class VideoPlayer implements OnInit {
 
   // Utilitaires
   frameToTime(frame: number): number {
-    return frame / this.FPS;
+    return frame / this.fps;
   }
 
   timeToFrame(time: number): number {
-    return Math.round(time * this.FPS);
+    return Math.round(time * this.fps);
   }
 
   ngOnDestroy() {
@@ -167,16 +172,27 @@ export class VideoPlayer implements OnInit {
       this.availableQualities().includes(quality),
     );
     if (!ordered_included.length) return;
-    this.selectedQuality.set(ordered_included[0]);
-    this.currentVideoUrl.set(sourceVideoFiles[ordered_included[0]].url);
+    const quality = ordered_included[0];
+    this.applySource(quality, sourceVideoFiles[quality]);
+  }
+
+  /** Selectionne un fichier et adopte sa frame rate reelle. */
+  private applySource(quality: VideoQuality, file: VideoFile): void {
+    this.selectedQuality.set(quality);
+    this.currentVideoUrl.set(file.url);
+    this.fps = file.fps ?? FALLBACK_FPS;
+    this.fpsChange.emit(this.fps);
   }
 
   private formatTimecode(timeSeconds: number, fps: number): string {
     if (!Number.isFinite(timeSeconds) || timeSeconds < 0) return '00:00:00';
+    // Le compteur de frames s'exprime en fps nominal (60 pour du 59.94),
+    // sinon le modulo rend une fraction.
+    const nominalFps = Math.max(1, Math.round(fps));
     const totalFrames = Math.floor(timeSeconds * fps);
-    const minutes = Math.floor(totalFrames / (fps * 60));
-    const seconds = Math.floor(totalFrames / fps) % 60;
-    const frames = totalFrames % fps;
+    const minutes = Math.floor(totalFrames / nominalFps / 60);
+    const seconds = Math.floor(totalFrames / nominalFps) % 60;
+    const frames = totalFrames % nominalFps;
     return `${minutes.toString().padStart(2, '0')}:${seconds
       .toString()
       .padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;

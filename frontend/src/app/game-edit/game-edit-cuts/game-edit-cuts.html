@@ -5,6 +5,7 @@
         <app-video-player
           #rushPlayer
           [sourceVideo]="video"
+          (fpsChange)="rushFps.set($event)"
           (currentFrameChange)="rushFrame.set($event)">
         </app-video-player>
       }

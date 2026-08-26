@@ -68,6 +68,7 @@ export class GameEditCutsComponent implements OnChanges, OnInit {
   private state = inject(GameEditCutsStateService);
   rushFrame = this.state.rushFrame;
   renderedFrame = this.state.renderedFrame;
+  rushFps = this.state.rushFps;
   activeCut = this.state.activeCut;
   private gameService = inject(GamesService);
   private cutService = inject(CutsService);

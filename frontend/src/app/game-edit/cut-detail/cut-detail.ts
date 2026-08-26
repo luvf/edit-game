@@ -188,7 +188,7 @@ export class CutDetailComponent implements OnChanges {
 
   formatTimecode(frameValue: number): string {
     if (!Number.isFinite(frameValue) || frameValue < 0) return '00:00:00:00';
-    const fps = 60;
+    const fps = this.nominalRushFps();
     const totalFrames = Math.floor(frameValue);
     const totalSeconds = Math.floor(totalFrames / fps);
     const hours = Math.floor(totalSeconds / 3600);
@@ -205,7 +205,7 @@ export class CutDetailComponent implements OnChanges {
   formatDurationFrames(startFrame: number, endFrame: number): string {
     if (!Number.isFinite(startFrame) || !Number.isFinite(endFrame))
       return '00:00:00';
-    const fps = 60;
+    const fps = this.nominalRushFps();
     const totalFrames = Math.max(
       0,
       Math.floor(endFrame) - Math.floor(startFrame),
@@ -223,6 +223,14 @@ export class CutDetailComponent implements OnChanges {
     const frame = this.state.rushFrame();
     if (!Number.isFinite(frame as number)) return;
     point[field] = Math.max(0, Math.floor(frame as number));
+  }
+
+  /**
+   * Fps du rush arrondi a l'entier : les timecodes affichent un compteur de
+   * frames, qui doit rester entier meme sur du 59.94.
+   */
+  private nominalRushFps(): number {
+    return Math.max(1, Math.round(this.state.rushFps()));
   }
 
   onSeekToFrame(frameValue: number): void {
