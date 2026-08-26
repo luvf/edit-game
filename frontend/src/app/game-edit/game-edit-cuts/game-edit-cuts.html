@@ -3,6 +3,7 @@
     <mat-card class="video-slot">
       @if (proxyGameVideo(); as video) {
         <app-video-player
+          #rushPlayer
           [sourceVideo]="video"
           (currentFrameChange)="rushFrame.set($event)">
         </app-video-player>
@@ -45,7 +46,7 @@
           <div class="tab-content">
             <app-cut-detail
               [cut]="cut"
-              (seekToFrame)="rushFrame.set($event)"
+              (seekToFrame)="onSeekRush($event)"
             ></app-cut-detail>
             <button
               mat-stroked-button

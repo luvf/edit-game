@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import subprocess
 import uuid
 from pathlib import Path
 from typing import Any
 
 from django.db import models
 from django.utils.text import slugify
+
+from jugger_video_manipulation.ffmpeg_utils import get_fps
 
 
 class Video(models.Model):
@@ -145,6 +148,7 @@ class VideoFile(models.Model):
     )
     path = models.CharField(max_length=512)
     size = models.PositiveBigIntegerField(null=True, blank=True)
+    fps = models.FloatField(null=True, blank=True)
     is_primary = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -228,4 +232,26 @@ class VideoFile(models.Model):
         """Persist the real path for this video file."""
         self.path = str(path)
         self.size = path.stat().st_size if path.exists() else None
-        self.save(update_fields=["path", "size"])
+        self.fps = self.probe_fps(path)
+        self.save(update_fields=["path", "size", "fps"])
+
+    @staticmethod
+    def probe_fps(path: Path) -> float | None:
+        """Read the frame rate of a file, or None if it cannot be determined.
+
+        The front-end converts frames to seconds with this value, so an
+        approximation (60 instead of 60000/1001) drifts by seconds over a
+        full game. Never fatal: a missing fps only degrades that conversion.
+        """
+        if not path.exists():
+            return None
+        try:
+            return get_fps(path)
+        except (
+            subprocess.SubprocessError,
+            OSError,
+            KeyError,
+            IndexError,
+            ValueError,
+        ):
+            return None

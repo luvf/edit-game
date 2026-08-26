@@ -604,6 +604,7 @@ class VideoSerializer(HALMixin[Video], serializers.HyperlinkedModelSerializer[Vi
                 files[video_file.quality] = {
                     "url": url,
                     "format": video_file.format,
+                    "fps": video_file.fps,
                 }
 
         return files

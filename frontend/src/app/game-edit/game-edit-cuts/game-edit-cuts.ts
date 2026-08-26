@@ -63,6 +63,7 @@ export class GameEditCutsComponent implements OnChanges, OnInit {
   selectedCutTabIndex = signal(0);
 
   @ViewChild('proxyVideo') proxyVideo?: ElementRef<HTMLVideoElement>;
+  @ViewChild('rushPlayer') rushPlayer?: VideoPlayer;
   protected readonly length = length;
   private state = inject(GameEditCutsStateService);
   rushFrame = this.state.rushFrame;
@@ -73,11 +74,9 @@ export class GameEditCutsComponent implements OnChanges, OnInit {
   private tournamentService = inject(TournamentService);
 
   ngOnInit(): void {
+    // Les cuts, rendered et la vidéo du match sont chargés par ngOnChanges,
+    // qui se déclenche avant ngOnInit sur le premier binding de `game`.
     this.loadCutTemplates();
-    if (!this.game) return;
-    this.loadCuts();
-    this.loadRenderedFiles();
-    this.loadGameVideo();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -182,6 +181,11 @@ export class GameEditCutsComponent implements OnChanges, OnInit {
       next: () => {},
       error: (e) => console.error('Erreur lors du render du cut', e),
     });
+  }
+
+  onSeekRush(frame: number): void {
+    this.rushFrame.set(frame);
+    this.rushPlayer?.goToFrame(frame);
   }
 
   onSelectedCutTabChange(index: number): void {

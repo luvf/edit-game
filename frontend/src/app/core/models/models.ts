@@ -169,6 +169,8 @@ export type VideoFiles = Record<VideoQuality, VideoFile>;
 export interface VideoFile extends BaseHalModel {
   url: string;
   format: string;
+  /** Frame rate reelle du fichier, null si non sondee. */
+  fps: number | null;
 }
 export interface VideoLinks extends HalLinks {
   self: Link;
