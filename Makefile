@@ -64,6 +64,9 @@ autoedit-splits:
 autoedit-embeddings:
 	$(AUTOEDIT) build-embeddings
 
+autoedit-beats:
+	$(AUTOEDIT) build-beats
+
 autoedit-dashboard:
 	$(RUN) streamlit run game_autoedit/dashboard/app.py
 

@@ -25,10 +25,10 @@ if TYPE_CHECKING:
 
     from game_autoedit.config import Paths
     from game_autoedit.data.catalog import Catalog
-    from game_autoedit.data.labels import GameLabels
+    from game_autoedit.data.labels import GameLabels, Segment
     from game_autoedit.datasets.dataset import DatasetSpec
     from game_autoedit.datasets.splits import Split
-    from game_autoedit.eval.decode import DecodeSpec
+    from game_autoedit.eval.decode import Decoded, DecodeSpec
     from game_autoedit.training import TrainSpec
 
 
@@ -273,6 +273,68 @@ def build_embeddings(args: argparse.Namespace, paths: Paths) -> int:
     return 0
 
 
+def build_beats(args: argparse.Namespace, paths: Paths) -> int:
+    """Compute and cache the onset envelope of every selected game."""
+    import soundfile as sf
+
+    from game_autoedit.data.beats import (
+        DRUM_PERIOD,
+        DRUM_TOLERANCE,
+        ENVELOPE_RATE,
+        estimate_grid,
+        load_envelope,
+        onset_envelope,
+        save_envelope,
+    )
+
+    catalog = _catalog_from_args(args)
+    prepared, skipped = prepare_games(catalog.games, paths)
+    _report_skipped(skipped, "audio")
+    if not prepared:
+        print("Aucun audio en cache : lancer d'abord `build-cache`.")
+        return 1
+
+    root = paths.beats
+    root.mkdir(parents=True, exist_ok=True)
+    print(f"{len(prepared)} game(s) -> {root}\n")
+
+    periods: list[float] = []
+    for index, item in enumerate(prepared, start=1):
+        game_id = item.game.game_id
+        envelope = None if args.force else load_envelope(root, game_id)
+        if envelope is None:
+            waveform, rate = sf.read(
+                str(item.audio_path), dtype="float32", always_2d=False
+            )
+            if waveform.ndim > 1:
+                waveform = waveform.mean(axis=1)
+            envelope = onset_envelope(waveform, rate)
+            save_envelope(root, game_id, envelope)
+
+        grid = estimate_grid(envelope, centre=item.duration / 2, span=30.0)
+        if grid is not None:
+            periods.append(grid.period)
+            print(
+                f"[{index}/{len(prepared)}] game {game_id:5d}  "
+                f"{len(envelope) / ENVELOPE_RATE / 60:5.1f} min  "
+                f"tambour {grid.period:.2f}s (force {grid.strength:.2f})"
+            )
+        else:
+            print(f"[{index}/{len(prepared)}] game {game_id:5d}  aucune grille")
+
+    if periods:
+        ordered = sorted(periods)
+        near = sum(1 for p in periods if abs(p - DRUM_PERIOD) < DRUM_TOLERANCE)
+        print(
+            f"\nPériode médiane {ordered[len(ordered) // 2]:.2f}s — "
+            f"{near}/{len(periods)} games à {DRUM_PERIOD}s "
+            f"± {DRUM_TOLERANCE}"
+        )
+    size = sum(path.stat().st_size for path in root.glob("*.npy"))
+    print(f"{len(prepared)} enveloppe(s), {size / 1e6:.0f} Mo")
+    return 0
+
+
 def cache_status(paths: Paths) -> int:
     """Report what the cache holds and how much room it takes."""
     if not paths.root.exists():
@@ -331,6 +393,7 @@ def _decode_spec_from_args(args: argparse.Namespace) -> DecodeSpec:
     from game_autoedit.eval.decode import DecodeSpec
 
     return DecodeSpec(
+        snap_fraction=args.snap_fraction,
         threshold={"in": args.threshold_in, "out": args.threshold_out},
         min_peak_distance=args.min_peak_distance,
         min_gap=args.min_gap,
@@ -340,6 +403,23 @@ def _decode_spec_from_args(args: argparse.Namespace) -> DecodeSpec:
         inside_weight=args.inside_weight,
         inside_smoothing=args.inside_smoothing,
     )
+
+
+def _snapped(
+    decoded: Decoded, game_id: int, paths: Paths, spec: DecodeSpec, *, enabled: bool
+) -> list[Segment]:
+    """Place the decoded boundaries on the drum grid, when asked and possible."""
+    if not enabled:
+        return decoded.segments
+
+    from game_autoedit.data.beats import load_envelope
+    from game_autoedit.eval.snap import snap_segments
+
+    envelope = load_envelope(paths.beats, game_id)
+    if envelope is None:
+        return decoded.segments
+    segments, _ = snap_segments(decoded.segments, envelope, spec)
+    return segments
 
 
 def _report_skipped(skipped: list[tuple[int, str]], label: str) -> None:
@@ -615,10 +695,13 @@ def evaluate(args: argparse.Namespace, paths: Paths) -> int:
     for prepared in games:
         probabilities, times = predictor.predict(prepared)
         decoded = decode(probabilities, times, decode_spec)
+        segments = _snapped(
+            decoded, prepared.game.game_id, paths, decode_spec, enabled=args.snap
+        )
 
         for channel, predicted, expected in (
-            ("in", [s.start for s in decoded.segments], prepared.labels.ins),
-            ("out", [s.end for s in decoded.segments], prepared.labels.outs),
+            ("in", [s.start for s in segments], prepared.labels.ins),
+            ("out", [s.end for s in segments], prepared.labels.outs),
         ):
             score = match_boundaries(
                 predicted, expected, channel=channel, tolerance=args.tolerance
@@ -626,7 +709,7 @@ def evaluate(args: argparse.Namespace, paths: Paths) -> int:
             aggregate.add_boundaries(score)
 
         segment_score = score_segments(
-            decoded.segments,
+            segments,
             prepared.labels.segments,
             duration=prepared.duration,
         )
@@ -676,8 +759,10 @@ def predict(args: argparse.Namespace, paths: Paths) -> int:
     for prepared in games:
         probabilities, times = predictor.predict(prepared)
         decoded = decode(probabilities, times, decode_spec)
-
         game_id = prepared.game.game_id
+        segments = _snapped(decoded, game_id, paths, decode_spec, enabled=args.snap)
+        decoded.segments = segments
+
         fps = prepared.game.fps
         payload: dict[str, Any] = {
             "points": [

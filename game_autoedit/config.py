@@ -72,6 +72,11 @@ class Paths:
         return self.features / encoder
 
     @property
+    def beats(self) -> Path:
+        """Onset envelopes, used to place cuts on the drum grid."""
+        return self.root / "beats"
+
+    @property
     def runs(self) -> Path:
         """Training runs: checkpoints, metrics, configs."""
         return self.root / "runs"
@@ -83,7 +88,14 @@ class Paths:
 
     def all_dirs(self) -> list[Path]:
         """Return every managed directory, in creation order."""
-        return [self.root, self.audio, self.features, self.runs, self.predictions]
+        return [
+            self.root,
+            self.audio,
+            self.features,
+            self.beats,
+            self.runs,
+            self.predictions,
+        ]
 
     def ensure(self) -> None:
         """Create the cache tree if it is not there yet."""

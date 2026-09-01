@@ -118,6 +118,20 @@ def _decode_controls() -> DecodeSpec:
         "des milliers de fois par game. Trop large, elle noie les vraies "
         "transitions : à 4 s on repasse de 2.0 à 3.9 points manqués.",
     )
+    snap_fraction = st.sidebar.slider(
+        "Position entre deux coups de tambour",
+        0.0,
+        1.0,
+        0.5,
+        0.05,
+        help="Le jeu est rythmé par un tambour toutes les 1.50 s — mesuré sur "
+        "94 % des run-ups. Les frontières sont replacées sur cette grille : "
+        "0 tombe sur le coup, 0.5 exactement au milieu, ce qui évite d'ouvrir "
+        "un clip sur une attaque. À ±2 s de tolérance ça ne coûte rien "
+        "(F1 0.744 contre 0.748) et la distance au coup le plus proche passe "
+        "de 0.53 s à 0.75 s, le maximum possible. Le monteur humain, lui, ne "
+        "cale pas ses coupes sur le tambour.",
+    )
     inside_veto = st.sidebar.slider(
         "Veto « dans un cut »",
         0.0,
@@ -137,6 +151,7 @@ def _decode_controls() -> DecodeSpec:
         inside_veto=inside_veto,
         inside_weight=inside_weight,
         inside_smoothing=inside_smoothing,
+        snap_fraction=snap_fraction,
     )
 
 
@@ -250,6 +265,22 @@ def render() -> None:
     duration = float(times[-1]) if len(times) else 0.0
     truth = loading.labels(game_id, duration)
     decoded = decode(probabilities, times, decode_spec)
+
+    snap = st.sidebar.checkbox(
+        "Caler sur le tambour",
+        value=True,
+        help="Désactiver pour voir les frontières telles que le modèle les "
+        "place, sans replacement sur la grille.",
+    )
+    if snap:
+        from game_autoedit.data.beats import load_envelope
+        from game_autoedit.eval.snap import snap_segments
+
+        envelope = load_envelope(loading.paths().beats, game_id)
+        if envelope is None:
+            st.sidebar.caption("Pas d'enveloppe : lancer `build-beats`.")
+        else:
+            decoded.segments, _ = snap_segments(decoded.segments, envelope, decode_spec)
 
     score = score_segments(decoded.segments, truth.segments, duration=duration)
     boundary = {

@@ -119,6 +119,13 @@ class DecodeSpec:
             The defaults are the joint optimum measured on the validation
             games; retune them with a sweep after a run.
         min_peak_distance: seconds between two peaks of the same channel.
+        snap_fraction: where between two drum beats a boundary is placed.
+            0.5 puts it halfway, because a clip that opens on a drum hit
+            sounds like a mistake.
+        snap_strength: how periodic the envelope must be before a boundary is
+            moved onto the grid at all.
+        snap_span: seconds of envelope used to estimate the grid locally; the
+            drum is struck by hand and its phase drifts over a game.
         min_gap: shortest dead time allowed between two kept segments. A game
             gives the teams time to reset between points, so a shorter gap
             means one point was cut in two rather than two points played back
@@ -152,6 +159,9 @@ class DecodeSpec:
     min_duration: float = 4.0
     max_duration: float = 240.0
     inside_veto: float = 0.25
+    snap_fraction: float = 0.5
+    snap_strength: float = 0.15
+    snap_span: float = 16.0
     inside_smoothing: float = 0.5
     smooth_kernel: SmoothKernel = "gaussian"
     inside_weight: float = 0.30

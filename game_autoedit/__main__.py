@@ -96,6 +96,13 @@ def _register_data_commands(subparsers: argparse._SubParsersAction) -> None:  # 
 
     subparsers.add_parser("cache-status", help="taille et contenu du cache")
 
+    beats = subparsers.add_parser(
+        "build-beats",
+        help="calculer l'enveloppe d'attaques, pour caler les cuts sur le tambour",
+    )
+    _add_selection_args(beats)
+    beats.add_argument("--force", action="store_true")
+
     embed = subparsers.add_parser(
         "build-embeddings",
         help="encoder l'audio avec un encodeur pré-entraîné gelé (une fois)",
@@ -252,6 +259,22 @@ def _add_decode_args(parser: argparse.ArgumentParser) -> None:
     group.add_argument("--max-duration", type=float, default=240.0)
     group.add_argument("--inside-veto", type=float, default=0.25)
     group.add_argument(
+        "--snap",
+        dest="snap",
+        action="store_true",
+        default=True,
+        help="caler les frontières entre deux coups de tambour (défaut)",
+    )
+    group.add_argument(
+        "--no-snap", dest="snap", action="store_false", help="ne pas caler"
+    )
+    group.add_argument(
+        "--snap-fraction",
+        type=float,
+        default=0.5,
+        help="position entre deux coups : 0 sur le coup, 0.5 au milieu",
+    )
+    group.add_argument(
         "--inside-weight",
         type=float,
         default=0.30,
@@ -283,6 +306,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "build-cache": commands.build_cache,
         "cache-status": lambda _args, paths: commands.cache_status(paths),
         "build-embeddings": commands.build_embeddings,
+        "build-beats": commands.build_beats,
         "splits": commands.splits,
         "train": commands.train,
         "evaluate": commands.evaluate,
