@@ -55,6 +55,25 @@ Le cache est jetable : `$GAME_AUTOEDIT_CACHE` (défaut
 `/mnt/video/juggerData/cache_game_edit/`) peut être effacé et reconstruit
 entièrement depuis la base et les archives.
 
+## Tableau de bord
+
+```bash
+make autoedit-dashboard        # ou : uv run streamlit run game_autoedit/dashboard/app.py
+```
+
+Trois écrans :
+
+- **Game** — le principal. On choisit un run et une game, et on voit les trois
+  courbes de probabilité le long du temps, le montage humain et le montage
+  proposé sur le même axe, et les seuils en pointillés. Les curseurs de
+  décodage recalculent tout en direct, sans réentraîner ni recalculer les
+  courbes. Un game du jeu de test affiche un avertissement : le regarder pour
+  choisir un réglage revient à le brûler.
+- **Runs** — comparaison de tous les entraînements, courbes de loss et d'AP par
+  epoch, configuration complète de chacun.
+- **Dataset** — couverture, distribution des labels par game, motifs
+  d'exclusion.
+
 ## Construction du dataset
 
 C'est le principal levier sur ce problème, donc chaque choix est une option

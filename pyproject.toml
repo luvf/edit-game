@@ -45,6 +45,7 @@ dependencies = [
     "torchaudio ==2.3",
     "transformers==4.*",
     "typed-ffmpeg-compatible>=4.1",
+    "streamlit>=1.62.0",
 ]
 
 
@@ -242,6 +243,9 @@ module = [
     "colorfield.*",
     "soundfile.*",
     "torchaudio.*",
+    "plotly.*",
+    "pandas.*",
+    "streamlit.*",
     "*.migrations.*"
 ]
 ignore_missing_imports = true

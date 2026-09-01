@@ -61,6 +61,12 @@ autoedit-cache-status:
 autoedit-splits:
 	$(AUTOEDIT) splits
 
+autoedit-embeddings:
+	$(AUTOEDIT) build-embeddings
+
+autoedit-dashboard:
+	$(RUN) streamlit run game_autoedit/dashboard/app.py
+
 
 ########################################################################################################################
 # Deployment
