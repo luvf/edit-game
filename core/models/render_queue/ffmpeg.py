@@ -132,8 +132,12 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
         db_table = "game_edit_render_queue_ffmpeg"
 
     @staticmethod
+    @functools.lru_cache(maxsize=1024)
     def _probe_video_stream_entry(file_path: Path, entry: str) -> str | None:
         """Return one `stream=<entry>` value of the first video stream.
+
+        Cached: a media file's resolution does not change under us, and
+        previewing a queue page probes every source of every pending item.
 
         Only the first line is kept, and that matters: a GoPro MP4 exposes two
         groups of streams, so `-select_streams v:0` matches twice and ffprobe
@@ -220,7 +224,25 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
 
     @property
     def command_parameters(self) -> str:
-        """Return command parameters for the render queue item."""
+        """Return the command this item will run.
+
+        For an item that has not run yet, the stored command is only whatever
+        was built the last time something asked — possibly by older code, since
+        `_execute` rebuilds the command before running it. Displaying that as
+        if it were the command to be executed is worse than showing nothing: a
+        queue full of items built before the downscale fix went on showing a
+        command with no rescale, while the render itself would have applied
+        one.
+
+        The preview is built against the stored output filename rather than
+        `final_output_path`, which creates rows and touches the disk.
+        """
+        if self.status in {self.Status.CREATED, self.Status.WAITING}:
+            with contextlib.suppress(Exception):
+                preview = self.build_command(
+                    output_file=Path(self.output_filename or "output.mp4")
+                )
+                return " ".join(preview)
         return self.command
 
     @property

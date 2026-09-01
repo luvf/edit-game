@@ -393,6 +393,10 @@ class TestProbeVideoStreamEntry:
     def _stub(monkeypatch, stdout: str, returncode: int = 0):
         import subprocess
 
+        # The probe is cached on (path, entry); tests reuse both, so the cache
+        # has to go or the second test would read the first one's answer.
+        RenderQueueItemFFMPEG._probe_video_stream_entry.cache_clear()
+
         def fake_run(*_args, **_kwargs):
             if returncode:
                 raise subprocess.CalledProcessError(returncode, "ffprobe")
@@ -480,3 +484,68 @@ class TestSourceVideoHeightParsing:
 
         assert args["scale"] == ["-2", "1080"]
         assert args["video"][args["video"].index("-crf") + 1] == "34"
+
+
+class TestCommandPreview:
+    """A pending item must show the command it will actually run."""
+
+    @pytest.fixture()
+    def pending(self, game, monkeypatch):
+        monkeypatch.setattr(
+            RenderQueueItemArchive,
+            "_source_video_height",
+            classmethod(lambda cls, path: 2160),
+        )
+        item = baker.make(
+            "core.RenderQueueItemArchive",
+            game=game,
+            command="ffmpeg -stale-command",
+            output_filename="out.mp4",
+        )
+        item.status = item.Status.CREATED
+        return item
+
+    def test_a_pending_item_rebuilds_rather_than_show_a_stale_command(
+        self, pending, monkeypatch
+    ):
+        monkeypatch.setattr(
+            RenderQueueItemArchive,
+            "build_command",
+            lambda self, **_kwargs: ["ffmpeg", "scale=-2:1080"],
+        )
+
+        assert "stale" not in pending.command_parameters
+        assert "scale=-2:1080" in pending.command_parameters
+
+    def test_a_finished_item_shows_what_it_ran(self, pending):
+        pending.status = pending.Status.DONE
+
+        assert pending.command_parameters == "ffmpeg -stale-command"
+
+    def test_a_running_item_shows_what_it_is_running(self, pending):
+        pending.status = pending.Status.RUNNING
+
+        assert pending.command_parameters == "ffmpeg -stale-command"
+
+    def test_an_unbuildable_preview_falls_back_to_the_stored_command(
+        self, pending, monkeypatch
+    ):
+        def boom(self, **_kwargs):
+            raise RuntimeError("sources absentes")
+
+        monkeypatch.setattr(RenderQueueItemArchive, "build_command", boom)
+
+        assert pending.command_parameters == "ffmpeg -stale-command"
+
+    def test_the_preview_does_not_create_video_file_rows(self, pending, monkeypatch):
+        from core.models.video import VideoFile
+
+        monkeypatch.setattr(
+            RenderQueueItemArchive,
+            "build_command",
+            lambda self, **kwargs: ["ffmpeg", str(kwargs.get("output_file"))],
+        )
+        before = VideoFile.objects.count()
+
+        assert pending.command_parameters
+        assert VideoFile.objects.count() == before
