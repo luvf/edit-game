@@ -14,6 +14,10 @@ HOP = 0.1
 # data and are pinned by a test of their own.
 LOOSE = {"in": 0.3, "out": 0.3}
 
+# The logic tests read the boundary channels alone; the `inside` weighting is
+# measured and pinned by tests of its own.
+RAW = {"threshold": LOOSE, "inside_weight": 0.0}
+
 
 def grid(duration):
     steps = int(duration / HOP)
@@ -80,7 +84,7 @@ class TestDecode:
     def test_recovers_clean_segments(self):
         probabilities, times = curves_for([(20, 60), (100, 150)])
 
-        decoded = decode(probabilities, times, DecodeSpec(threshold=LOOSE))
+        decoded = decode(probabilities, times, DecodeSpec(**RAW))
 
         assert len(decoded.segments) == 2
         assert decoded.segments[0].start == pytest.approx(20.0, abs=0.3)
@@ -90,7 +94,7 @@ class TestDecode:
         probabilities, times = grid(100.0)
         add_peak(probabilities[:, CHANNEL_INDEX["out"]], times, 50.0)
 
-        decoded = decode(probabilities, times, DecodeSpec(threshold=LOOSE))
+        decoded = decode(probabilities, times, DecodeSpec(**RAW))
 
         assert decoded.segments == []
         assert any("out sans in" in reason for reason in decoded.dropped)
@@ -99,7 +103,7 @@ class TestDecode:
         probabilities, times = grid(100.0)
         add_peak(probabilities[:, CHANNEL_INDEX["in"]], times, 50.0)
 
-        decoded = decode(probabilities, times, DecodeSpec(threshold=LOOSE))
+        decoded = decode(probabilities, times, DecodeSpec(**RAW))
 
         assert decoded.segments == []
         assert any("non refermé" in reason for reason in decoded.dropped)
@@ -111,7 +115,7 @@ class TestDecode:
         add_peak(probabilities[:, CHANNEL_INDEX["out"]], times, 100.0)
         probabilities[(times >= 60) & (times < 100), CHANNEL_INDEX["inside"]] = 0.9
 
-        decoded = decode(probabilities, times, DecodeSpec(threshold=LOOSE))
+        decoded = decode(probabilities, times, DecodeSpec(**RAW))
 
         assert len(decoded.segments) == 1
         assert decoded.segments[0].start == pytest.approx(60.0, abs=0.3)
@@ -120,9 +124,7 @@ class TestDecode:
     def test_short_segment_is_dropped(self):
         probabilities, times = curves_for([(20, 22)])
 
-        decoded = decode(
-            probabilities, times, DecodeSpec(threshold=LOOSE, min_duration=5.0)
-        )
+        decoded = decode(probabilities, times, DecodeSpec(**RAW, min_duration=5.0))
 
         assert decoded.segments == []
         assert any("trop court" in reason for reason in decoded.dropped)
@@ -130,9 +132,7 @@ class TestDecode:
     def test_long_segment_is_dropped(self):
         probabilities, times = curves_for([(10, 190)])
 
-        decoded = decode(
-            probabilities, times, DecodeSpec(threshold=LOOSE, max_duration=60.0)
-        )
+        decoded = decode(probabilities, times, DecodeSpec(**RAW, max_duration=60.0))
 
         assert decoded.segments == []
         assert any("trop long" in reason for reason in decoded.dropped)
@@ -140,9 +140,7 @@ class TestDecode:
     def test_inside_veto_rejects_a_dead_segment(self):
         probabilities, times = curves_for([(20, 60)], inside=0.05)
 
-        decoded = decode(
-            probabilities, times, DecodeSpec(threshold=LOOSE, inside_veto=0.25)
-        )
+        decoded = decode(probabilities, times, DecodeSpec(**RAW, inside_veto=0.25))
 
         assert decoded.segments == []
         assert any("probabilité" in reason for reason in decoded.dropped)
@@ -152,7 +150,9 @@ class TestDecode:
         probabilities[:, CHANNEL_INDEX["out"]] *= 0.3
 
         decoded = decode(
-            probabilities, times, DecodeSpec(threshold={"in": 0.3, "out": 0.9})
+            probabilities,
+            times,
+            DecodeSpec(threshold={"in": 0.3, "out": 0.9}, inside_weight=0.0),
         )
 
         assert decoded.segments == []
@@ -160,7 +160,7 @@ class TestDecode:
     def test_peaks_are_reported_in_time_order(self):
         probabilities, times = curves_for([(20, 60), (100, 150)])
 
-        decoded = decode(probabilities, times, DecodeSpec(threshold=LOOSE))
+        decoded = decode(probabilities, times, DecodeSpec(**RAW))
 
         assert [peak.time for peak in decoded.peaks] == sorted(
             peak.time for peak in decoded.peaks
@@ -179,3 +179,10 @@ class TestDefaultThresholds:
         spec = DecodeSpec()
 
         assert spec.threshold == {"in": 0.50, "out": 0.70}
+        assert spec.inside_weight == 0.30
+        assert spec.inside_smoothing == 0.5
+
+    def test_inside_weighs_in_but_does_not_take_over(self):
+        # Past 0.35 the boundary channels stop being heard and the result
+        # collapses: they do carry real information.
+        assert 0.0 < DecodeSpec().inside_weight < 0.4

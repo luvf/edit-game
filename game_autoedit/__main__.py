@@ -235,6 +235,18 @@ def _add_decode_args(parser: argparse.ArgumentParser) -> None:
     group.add_argument("--min-duration", type=float, default=4.0)
     group.add_argument("--max-duration", type=float, default=240.0)
     group.add_argument("--inside-veto", type=float, default=0.25)
+    group.add_argument(
+        "--inside-weight",
+        type=float,
+        default=0.30,
+        help="part du score d'une frontière venant de la marche de `inside`",
+    )
+    group.add_argument(
+        "--inside-smoothing",
+        type=float,
+        default=0.5,
+        help="largeur du lissage de `inside`, en secondes",
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

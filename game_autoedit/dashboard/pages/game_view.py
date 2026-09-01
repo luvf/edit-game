@@ -80,6 +80,30 @@ def _decode_controls() -> DecodeSpec:
         help="Au-delà, une fin a forcément été manquée et le segment avale "
         "plusieurs points. Le plus long point réel du dataset fait 205 s.",
     )
+    inside_weight = st.sidebar.slider(
+        "Poids de « inside »",
+        0.0,
+        0.9,
+        0.30,
+        0.05,
+        help="Part du score d'une frontière venant de la marche que fait la "
+        "courbe « dans un point », plutôt que du pic de son propre canal. À 0, "
+        "le canal le plus fiable ne sert que de videur. Mesuré : 0 → 2.5 "
+        "points manqués et 5.0 segments en trop par game ; 0.30 → 2.0 et 2.8. "
+        "Au-delà de 0.35 tout s'effondre, les canaux de frontière portent une "
+        "vraie information.",
+    )
+    inside_smoothing = st.sidebar.slider(
+        "Lissage de « inside » (s)",
+        0.1,
+        4.0,
+        0.5,
+        0.1,
+        help="Largeur du lissage gaussien appliqué à la courbe « dans un "
+        "point » avant d'en lire les marches. Brute, elle traverse son seuil "
+        "des milliers de fois par game. Trop large, elle noie les vraies "
+        "transitions : à 4 s on repasse de 2.0 à 3.9 points manqués.",
+    )
     inside_veto = st.sidebar.slider(
         "Veto « dans un cut »",
         0.0,
@@ -96,6 +120,8 @@ def _decode_controls() -> DecodeSpec:
         min_duration=min_duration,
         max_duration=max_duration,
         inside_veto=inside_veto,
+        inside_weight=inside_weight,
+        inside_smoothing=inside_smoothing,
     )
 
 

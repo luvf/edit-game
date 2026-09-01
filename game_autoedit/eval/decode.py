@@ -127,9 +127,11 @@ class DecodeSpec:
             before its edges are read.
         smooth_kernel: ``gaussian``, which cannot invent a peak, or ``box``.
         inside_weight: how much of a boundary's score comes from the ``inside``
-            edge rather than from the channel's own peak. 0 keeps the previous
-            behaviour, where the strongest channel was only ever a veto; 1
-            ignores the boundary channels entirely.
+            edge rather than from the channel's own peak. 0 makes the strongest
+            channel a mere veto, as it once was; 1 ignores the boundary
+            channels entirely, which is worse than either — they do carry real
+            information. The default is the measured optimum: past 0.35 the
+            result collapses.
         evidence_span: seconds averaged either side of an instant when reading
             an ``inside`` edge.
     """
@@ -141,9 +143,9 @@ class DecodeSpec:
     min_duration: float = 4.0
     max_duration: float = 240.0
     inside_veto: float = 0.25
-    inside_smoothing: float = 1.0
+    inside_smoothing: float = 0.5
     smooth_kernel: SmoothKernel = "gaussian"
-    inside_weight: float = 0.0
+    inside_weight: float = 0.30
     evidence_span: float = 3.0
 
 

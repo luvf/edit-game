@@ -330,6 +330,8 @@ def _decode_spec_from_args(args: argparse.Namespace) -> DecodeSpec:
         min_duration=args.min_duration,
         max_duration=args.max_duration,
         inside_veto=args.inside_veto,
+        inside_weight=args.inside_weight,
+        inside_smoothing=args.inside_smoothing,
     )
 
 
