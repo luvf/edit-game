@@ -114,3 +114,51 @@ class TestAggregate:
 
     def test_empty_aggregate_has_zero_iou(self):
         assert Aggregate.empty(("in",)).iou == 0.0
+
+
+class TestMergedAndSplit:
+    def test_one_prediction_swallowing_two_points_is_merged(self):
+        score = score_segments(
+            [Segment(10, 100)],
+            [Segment(10, 40), Segment(60, 100)],
+            duration=120.0,
+        )
+
+        assert score.merged_segments == 1
+        assert score.missed_points == 0
+
+    def test_a_clean_one_to_one_match_is_not_merged(self):
+        segments = [Segment(10, 40), Segment(60, 100)]
+        score = score_segments(segments, segments, duration=120.0)
+
+        assert score.merged_segments == 0
+        assert score.split_points == 0
+
+    def test_a_point_cut_in_two_is_split(self):
+        score = score_segments(
+            [Segment(10, 24), Segment(26, 40)],
+            [Segment(10, 40)],
+            duration=120.0,
+        )
+
+        assert score.split_points == 1
+        # The two halves together still cover the point, so nothing is missed.
+        assert score.missed_points == 0
+
+    def test_two_overlapping_predictions_on_one_point_are_split(self):
+        score = score_segments(
+            [Segment(10, 40), Segment(12, 42)],
+            [Segment(10, 40)],
+            duration=120.0,
+        )
+
+        assert score.split_points == 1
+
+    def test_merged_segment_still_counts_its_kept_time(self):
+        score = score_segments(
+            [Segment(10, 100)],
+            [Segment(10, 40), Segment(60, 100)],
+            duration=120.0,
+        )
+
+        assert score.kept_predicted == pytest.approx(90.0, abs=0.2)

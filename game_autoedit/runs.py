@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 import torch
@@ -51,17 +51,28 @@ def _model_spec(payload: dict[str, Any]) -> ModelSpec:
     )
 
 
-def load_run(
-    run_dir: Path, device: torch.device
-) -> tuple[nn.Module, DatasetSpec, dict[str, Any]]:
-    """Load a trained model and the specs it was trained with.
+@dataclass
+class LoadedRun:
+    """A trained run, ready to predict.
 
-    Args:
-        run_dir: the run directory holding ``best.pt``.
-        device: where to place the model.
+    `encoder` names the frozen encoder when the run trained a head on cached
+    embeddings; it is None for the end-to-end model, which reads waveforms.
+    """
 
-    Returns:
-        The model in eval mode, its dataset spec, and the stored run config.
+    model: nn.Module
+    payload: dict[str, Any]
+    encoder: str | None
+    dataset: DatasetSpec | None = None
+    receptive_field: int = 1024
+
+    @property
+    def on_embeddings(self) -> bool:
+        """Tell whether this run predicts from cached embeddings."""
+        return self.encoder is not None
+
+
+def _read_checkpoint(run_dir: Path, device: torch.device) -> dict[str, Any]:
+    """Load a run's checkpoint and its stored configuration.
 
     Raises:
         RunNotFoundError: if the checkpoint is missing.
@@ -70,21 +81,57 @@ def load_run(
     if not checkpoint_path.exists():
         raise RunNotFoundError(f"aucun checkpoint dans {run_dir}")
 
-    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    checkpoint: dict[str, Any] = torch.load(
+        checkpoint_path, map_location=device, weights_only=False
+    )
+    if not checkpoint.get("run") and (run_dir / "run.json").exists():
+        checkpoint["run"] = json.loads((run_dir / "run.json").read_text())
+    return checkpoint
+
+
+def load_run(run_dir: Path, device: torch.device) -> LoadedRun:
+    """Load a trained model, whichever of the two paths produced it.
+
+    Args:
+        run_dir: the run directory holding ``best.pt``.
+        device: where to place the model.
+
+    Returns:
+        The model in eval mode plus what is needed to feed it.
+    """
+    checkpoint = _read_checkpoint(run_dir, device)
     payload = checkpoint.get("run", {})
-    if not payload and (run_dir / "run.json").exists():
-        payload = json.loads((run_dir / "run.json").read_text())
+    encoder = payload.get("encoder")
+
+    if encoder:
+        from game_autoedit.models.head import EmbeddingTagger, HeadSpec
+
+        raw = dict(payload.get("model", {}))
+        if "dilations" in raw:
+            raw["dilations"] = tuple(raw["dilations"])
+        head = HeadSpec(**raw)
+        input_dim = checkpoint["model"]["project.weight"].shape[1]
+        model: nn.Module = EmbeddingTagger(int(input_dim), head).to(device)
+        model.load_state_dict(checkpoint["model"])
+        model.eval()
+        return LoadedRun(
+            model=model,
+            payload=payload,
+            encoder=str(encoder),
+            receptive_field=head.receptive_field(),
+        )
 
     dataset_spec = _dataset_spec(payload)
-    model = build_model(_model_spec(payload)).to(device)
-    model.load_state_dict(checkpoint["model"])
-    model.eval()
-
+    waveform_model = build_model(_model_spec(payload)).to(device)
+    waveform_model.load_state_dict(checkpoint["model"])
+    waveform_model.eval()
     # Inference always walks the game end to end, whatever the run trained on.
     dataset_spec = replace(
         dataset_spec, sampling=replace(dataset_spec.sampling, strategy="dense")
     )
-    return model, dataset_spec, payload
+    return LoadedRun(
+        model=waveform_model, payload=payload, encoder=None, dataset=dataset_spec
+    )
 
 
 def resolve_device(name: str | None) -> torch.device:

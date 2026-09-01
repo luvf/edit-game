@@ -21,11 +21,12 @@ from game_autoedit.datasets.targets import CHANNELS
 
 if TYPE_CHECKING:
     import argparse
+    from collections.abc import Callable, Sequence
 
     from game_autoedit.config import Paths
     from game_autoedit.data.catalog import Catalog
     from game_autoedit.data.labels import GameLabels
-    from game_autoedit.datasets.dataset import DatasetSpec, PreparedGame
+    from game_autoedit.datasets.dataset import DatasetSpec
     from game_autoedit.datasets.splits import Split
     from game_autoedit.eval.decode import DecodeSpec
     from game_autoedit.training import TrainSpec
@@ -508,23 +509,73 @@ def train(args: argparse.Namespace, paths: Paths) -> int:
     return _train_on_waveform(args, paths, split)
 
 
-def _predict_curves(
-    model: object,
-    prepared: PreparedGame,
-    spec: DatasetSpec,
-    device: object,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Run the model over one full game."""
-    from game_autoedit.eval.inference import predict_game
+@dataclass
+class _Predictor:
+    """A loaded run bound to the games it can predict.
 
-    return predict_game(
-        model,  # type: ignore[arg-type]
-        prepared.audio_path,
-        duration=prepared.duration,
-        spec=spec,
-        device=device,  # type: ignore[arg-type]
-        batch_size=8,
-    )
+    Hides which of the two paths produced the run: callers ask for a game's
+    curves and get them, whether they come from a single pass over cached
+    embeddings or from sliding windows over the audio.
+    """
+
+    games: list[Any]
+    predict: Callable[[Any], tuple[np.ndarray, np.ndarray]]
+
+
+def _make_predictor(
+    args: argparse.Namespace, paths: Paths, games: Sequence[Any], device: Any
+) -> _Predictor | None:
+    """Load the run named by `args` and bind it to the games it can read."""
+    from game_autoedit.data.embeddings import EmbeddingStore
+    from game_autoedit.datasets.embedding_dataset import prepare_embedding_games
+    from game_autoedit.eval.inference import predict_game
+    from game_autoedit.eval.whole_game import predict_whole_game
+    from game_autoedit.runs import RunNotFoundError, load_run
+
+    try:
+        run = load_run(paths.runs / args.run, device)
+    except RunNotFoundError as error:
+        print(error)
+        return None
+
+    if run.on_embeddings:
+        encoder = str(args.encoder or run.encoder)
+        store = EmbeddingStore.open(paths.embeddings(encoder))
+        if store is None:
+            print(f"Aucun cache de plongements pour '{encoder}'.")
+            return None
+        prepared, skipped = prepare_embedding_games(games, store)
+        _report_skipped(skipped, "plongements")
+
+        def predict(item: Any) -> tuple[np.ndarray, np.ndarray]:
+            return predict_whole_game(
+                run.model,
+                store,
+                item.game.game_id,
+                device,
+                receptive_field=run.receptive_field,
+            )
+
+        return _Predictor(games=prepared, predict=predict)
+
+    prepared_audio, skipped_audio = prepare_games(games, paths)
+    _report_skipped(skipped_audio, "audio")
+    spec = run.dataset
+    if spec is None:
+        print("Run illisible : ni encodeur ni spécification de dataset.")
+        return None
+
+    def predict_audio(item: Any) -> tuple[np.ndarray, np.ndarray]:
+        return predict_game(
+            run.model,
+            item.audio_path,
+            duration=item.duration,
+            spec=spec,
+            device=device,
+            batch_size=8,
+        )
+
+    return _Predictor(games=prepared_audio, predict=predict_audio)
 
 
 def evaluate(args: argparse.Namespace, paths: Paths) -> int:
@@ -535,19 +586,15 @@ def evaluate(args: argparse.Namespace, paths: Paths) -> int:
         match_boundaries,
         score_segments,
     )
-    from game_autoedit.runs import RunNotFoundError, load_run, resolve_device
+    from game_autoedit.runs import resolve_device
 
     device = resolve_device(args.device)
-    try:
-        model, spec, _ = load_run(paths.runs / args.run, device)
-    except RunNotFoundError as error:
-        print(error)
-        return 1
-
     catalog = _catalog_from_args(args)
     split = _split_from_args(args, catalog)
-    games, skipped = prepare_games(getattr(split, args.part), paths)
-    _report_skipped(skipped, args.part)
+    predictor = _make_predictor(args, paths, getattr(split, args.part), device)
+    if predictor is None:
+        return 1
+    games = predictor.games
     if not games:
         print(f"Aucun game exploitable dans la partition {args.part}.")
         return 1
@@ -557,7 +604,7 @@ def evaluate(args: argparse.Namespace, paths: Paths) -> int:
     print(f"Évaluation de {len(games)} game(s) sur {device}\n")
 
     for prepared in games:
-        probabilities, times = _predict_curves(model, prepared, spec, device)
+        probabilities, times = predictor.predict(prepared)
         decoded = decode(probabilities, times, decode_spec)
 
         for channel, predicted, expected in (
@@ -583,12 +630,15 @@ def evaluate(args: argparse.Namespace, paths: Paths) -> int:
     for channel in ("in", "out"):
         print("  " + aggregate.boundary_score(channel).line())
     print(f"  IoU temporel   : {aggregate.iou:.3f}")
-    print(
-        f"  Coût de revue  : {aggregate.missed_points} point(s) manqué(s), "
-        f"{aggregate.extra_segments} segment(s) en trop "
-        f"({aggregate.missed_points / max(aggregate.games, 1):.1f} et "
-        f"{aggregate.extra_segments / max(aggregate.games, 1):.1f} par game)"
-    )
+    games_count = max(aggregate.games, 1)
+    print("  Coût de revue, par game :")
+    for label, total in (
+        ("points manqués (à retrouver à la main)", aggregate.missed_points),
+        ("segments en trop (un clic pour supprimer)", aggregate.extra_segments),
+        ("segments fusionnés (recouvrent plusieurs points)", aggregate.merged_segments),
+        ("points coupés en deux", aggregate.split_points),
+    ):
+        print(f"    {total / games_count:5.1f}  {label}  (total {total})")
     return 0
 
 
@@ -598,18 +648,14 @@ def predict(args: argparse.Namespace, paths: Paths) -> int:
 
     from game_autoedit.eval.decode import decode
     from game_autoedit.eval.report import build_comment
-    from game_autoedit.runs import RunNotFoundError, load_run, resolve_device
+    from game_autoedit.runs import resolve_device
 
     device = resolve_device(args.device)
-    try:
-        model, spec, run_payload = load_run(paths.runs / args.run, device)
-    except RunNotFoundError as error:
-        print(error)
-        return 1
-
     catalog = _catalog_from_args(args)
-    games, skipped = prepare_games(catalog.games, paths)
-    _report_skipped(skipped, "prédiction")
+    predictor = _make_predictor(args, paths, catalog.games, device)
+    if predictor is None:
+        return 1
+    games = predictor.games
     if not games:
         print("Aucun game exploitable.")
         return 1
@@ -619,7 +665,7 @@ def predict(args: argparse.Namespace, paths: Paths) -> int:
     decode_spec = _decode_spec_from_args(args)
 
     for prepared in games:
-        probabilities, times = _predict_curves(model, prepared, spec, device)
+        probabilities, times = predictor.predict(prepared)
         decoded = decode(probabilities, times, decode_spec)
 
         game_id = prepared.game.game_id
@@ -639,7 +685,7 @@ def predict(args: argparse.Namespace, paths: Paths) -> int:
                 duration=prepared.duration,
                 fps=fps,
                 decode_spec=decode_spec,
-                model_info={"run": args.run, "epoch": run_payload.get("epoch")},
+                model_info={"run": args.run},
             ),
         }
 
@@ -650,10 +696,12 @@ def predict(args: argparse.Namespace, paths: Paths) -> int:
         curves["times"] = times.astype(np.float32)
         np.savez_compressed(curves_path, **curves)
         payload["comment"]["curves_file"] = curves_path.name
-        payload["comment"]["curves_hop"] = spec.target.hop
+        payload["comment"]["curves_hop"] = (
+            float(times[1] - times[0]) if len(times) > 1 else 0.0
+        )
         if args.embed_curves:
             payload["curves"] = {
-                "hop": spec.target.hop,
+                "hop": payload["comment"]["curves_hop"],
                 **{
                     name: [round(float(v), 4) for v in probabilities[:, index]]
                     for index, name in enumerate(CHANNELS)

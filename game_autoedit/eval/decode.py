@@ -31,11 +31,13 @@ class DecodeSpec:
     Attributes:
         threshold: per-channel trigger level; a peak below it is not a
             candidate. Separate values because the two channels are not
-            equally confident: the `in` head puts almost all its true
-            boundaries above 0.9, so a low trigger buys nothing but false
-            positives, while the `out` head is far less sure and loses real
-            boundaries above 0.7. The defaults are the joint optimum measured
-            on the validation games; retune them with a sweep after a run.
+            equally confident, and the two errors do not cost the same. A
+            missed point has to be hunted for by scrubbing the game, while an
+            extra segment is one delete — so `in` sits low enough to keep
+            recall. `out` sits high because a premature end truncates a real
+            point, which is the expensive failure dressed up as a cheap one.
+            The defaults are the joint optimum measured on the validation
+            games; retune them with a sweep after a run.
         min_peak_distance: seconds between two peaks of the same channel.
         min_duration: shortest segment kept, in seconds.
         max_duration: longest segment kept; beyond this an ``out`` was missed.
@@ -44,7 +46,7 @@ class DecodeSpec:
     """
 
     threshold: dict[str, float] = field(
-        default_factory=lambda: {"in": 0.90, "out": 0.70}
+        default_factory=lambda: {"in": 0.50, "out": 0.70}
     )
     min_peak_distance: float = 3.0
     min_duration: float = 4.0

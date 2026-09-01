@@ -119,7 +119,14 @@ def _mask(segments: Sequence[Segment], times: np.ndarray) -> np.ndarray:
 
 @dataclass(frozen=True)
 class SegmentScore:
-    """How much of the game the prediction agrees on, and what it costs to fix."""
+    """How much of the game the prediction agrees on, and what it costs to fix.
+
+    The three failure counts are not interchangeable. A missed point has to be
+    hunted for by scrubbing the game, so it is the expensive one. An extra
+    segment is one delete. A merged segment — one prediction swallowing several
+    real points — is expensive too: deleting it loses real material, and keeping
+    it hides the boundary the model failed to find.
+    """
 
     intersection: float
     union: float
@@ -127,6 +134,8 @@ class SegmentScore:
     kept_expected: float
     missed_points: int
     extra_segments: int
+    merged_segments: int = 0
+    split_points: int = 0
 
     @property
     def iou(self) -> float:
@@ -138,8 +147,8 @@ class SegmentScore:
         return (
             f"IoU {self.iou:.3f}  gardé {self.kept_predicted / 60:.1f} min "
             f"vs {self.kept_expected / 60:.1f} min attendues  "
-            f"{self.missed_points} point(s) manqué(s), "
-            f"{self.extra_segments} segment(s) en trop"
+            f"{self.missed_points} manqué(s), {self.extra_segments} en trop, "
+            f"{self.merged_segments} fusionné(s), {self.split_points} coupé(s)"
         )
 
 
@@ -169,21 +178,26 @@ def score_segments(
     predicted_mask = _mask(predicted, times)
     expected_mask = _mask(expected, times)
 
-    missed = 0
-    for segment in expected:
-        window = (times >= segment.start) & (times < segment.end)
-        if not window.any():
-            continue
-        if predicted_mask[window].mean() < overlap_ratio:
-            missed += 1
-
-    extra = 0
-    for segment in predicted:
-        window = (times >= segment.start) & (times < segment.end)
-        if not window.any():
-            continue
-        if expected_mask[window].mean() < overlap_ratio:
-            extra += 1
+    missed = sum(
+        1
+        for segment in expected
+        if _covered_fraction(segment, predicted_mask, times) < overlap_ratio
+    )
+    extra = sum(
+        1
+        for segment in predicted
+        if _covered_fraction(segment, expected_mask, times) < overlap_ratio
+    )
+    merged = sum(
+        1
+        for segment in predicted
+        if _overlap_count(segment, expected, overlap_ratio) > 1
+    )
+    split = sum(
+        1
+        for segment in expected
+        if _overlap_count(segment, predicted, overlap_ratio) > 1
+    )
 
     return SegmentScore(
         intersection=float((predicted_mask & expected_mask).sum()) * step,
@@ -192,7 +206,25 @@ def score_segments(
         kept_expected=float(expected_mask.sum()) * step,
         missed_points=missed,
         extra_segments=extra,
+        merged_segments=merged,
+        split_points=split,
     )
+
+
+def _covered_fraction(segment: Segment, mask: np.ndarray, times: np.ndarray) -> float:
+    """Return how much of `segment` the mask covers, in [0, 1]."""
+    window = (times >= segment.start) & (times < segment.end)
+    return float(mask[window].mean()) if window.any() else 1.0
+
+
+def _overlap_count(segment: Segment, others: Sequence[Segment], ratio: float) -> int:
+    """Count how many of `others` have at least `ratio` of themselves inside."""
+    total = 0
+    for other in others:
+        span = min(segment.end, other.end) - max(segment.start, other.start)
+        if other.end > other.start and span / (other.end - other.start) >= ratio:
+            total += 1
+    return total
 
 
 @dataclass
@@ -205,6 +237,8 @@ class Aggregate:
     errors: dict[str, list[float]]
     missed_points: int = 0
     extra_segments: int = 0
+    merged_segments: int = 0
+    split_points: int = 0
     intersection: float = 0.0
     union: float = 0.0
     games: int = 0
@@ -230,6 +264,8 @@ class Aggregate:
         """Accumulate one game's segment score."""
         self.missed_points += score.missed_points
         self.extra_segments += score.extra_segments
+        self.merged_segments += score.merged_segments
+        self.split_points += score.split_points
         self.intersection += score.intersection
         self.union += score.union
         self.games += 1

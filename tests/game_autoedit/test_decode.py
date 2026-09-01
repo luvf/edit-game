@@ -168,12 +168,14 @@ class TestDecode:
 
 
 class TestDefaultThresholds:
-    def test_in_is_stricter_than_out(self):
+    def test_out_is_stricter_than_in(self):
+        # A premature `out` truncates a real point, which costs more than an
+        # extra segment; a strict `in` would simply lose points.
         spec = DecodeSpec()
 
-        assert spec.threshold["in"] > spec.threshold["out"]
+        assert spec.threshold["out"] > spec.threshold["in"]
 
     def test_defaults_match_the_measured_optimum(self):
         spec = DecodeSpec()
 
-        assert spec.threshold == {"in": 0.90, "out": 0.70}
+        assert spec.threshold == {"in": 0.50, "out": 0.70}
