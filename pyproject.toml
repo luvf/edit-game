@@ -115,6 +115,7 @@ target-version = 'py312'
 extend-exclude = [
     "**/migrations/*.py",
     "**/old/*.py",
+    "game_autoedit/legacy/*.py",
 ]
 
 
@@ -217,7 +218,7 @@ check_untyped_defs = true
 
 # Make __init__.py file optional for package definitions; if missing, mypy requires __init__.py at packages roots, see https://mypy.readthedocs.io/en/stable/running_mypy.html#mapping-file-paths-to-modules
 explicit_package_bases = true
-exclude = "core/migrations/.*"
+exclude = "(core/migrations/.*|game_autoedit/legacy/.*)"
 
 
 plugins = ["mypy_django_plugin.main"]
@@ -237,7 +238,10 @@ module = [
     # see https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-library-stubs-or-py-typed-marker
     # and https://mypy.readthedocs.io/en/stable/config_file.html#using-a-pyproject-toml-file
     "jugger_video_manipulation.*",
+    "game_autoedit.legacy.*",
     "colorfield.*",
+    "soundfile.*",
+    "torchaudio.*",
     "*.migrations.*"
 ]
 ignore_missing_imports = true

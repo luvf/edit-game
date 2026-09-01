@@ -21,24 +21,45 @@ install-angular:
 ########################################################################################################################
 
 
+SOURCES := jugger_video_manipulation api core game_autoedit
+
 test:
-	uv run pytest tests --cov core --cov api --cov jugger_video_manipulation --cov-report term --cov-report=html --cov-report xml --junit-xml=tests-results.xml
+	uv run pytest tests --cov core --cov api --cov jugger_video_manipulation --cov game_autoedit --cov-report term --cov-report=html --cov-report xml --junit-xml=tests-results.xml
 
 format-check:
-	uv run ruff format --check jugger_video_manipulation api core
+	uv run ruff format --check $(SOURCES)
 
 format-fix:
-	uv run ruff format jugger_video_manipulation api core
+	uv run ruff format $(SOURCES)
 
 lint-check:
-	uv run ruff check jugger_video_manipulation api core
+	uv run ruff check $(SOURCES)
 
 lint-fix:
-	uv run ruff check jugger_video_manipulation api core --fix
+	uv run ruff check $(SOURCES) --fix
 
 type-check:
-	uv run mypy api core
+	uv run mypy api core game_autoedit
 
+
+
+########################################################################################################################
+# Auto-edit (génération de cuts par ML)
+########################################################################################################################
+
+AUTOEDIT := uv run python -m game_autoedit
+
+autoedit-inspect:
+	$(AUTOEDIT) inspect
+
+autoedit-cache:
+	$(AUTOEDIT) build-cache
+
+autoedit-cache-status:
+	$(AUTOEDIT) cache-status
+
+autoedit-splits:
+	$(AUTOEDIT) splits
 
 
 ########################################################################################################################

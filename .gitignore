@@ -207,3 +207,10 @@ marimo/_lsp/
 __marimo__/
 
 *.pyc
+
+# Médias de travail de l'ancien prototype d'auto-montage
+game_autoedit/legacy/*.mp4
+game_autoedit/legacy/*.mp3
+
+# Cache local du pipeline game_autoedit (reconstructible)
+game_autoedit/cache/
