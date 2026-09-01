@@ -69,6 +69,14 @@ autoedit-embeddings:
 autoedit-beats:
 	$(AUTOEDIT) build-beats
 
+# Archives restées au-dessus de 1080p parce que la sonde ffprobe échouait.
+# Aperçu par défaut ; --apply enfile réellement les rendus.
+archives-oversized:
+	$(RUN) python manage.py rerender_oversized_archives
+
+archives-oversized-apply:
+	$(RUN) python manage.py rerender_oversized_archives --apply
+
 # Le tableau de bord tourne en tâche de fond avec un fichier de PID, comme
 # nginx plus bas. Le relancer est la bonne réaction à un écran qui montre un
 # état périmé : Streamlit garde ses caches, et Django ne sait pas recharger un
