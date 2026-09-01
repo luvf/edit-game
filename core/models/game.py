@@ -109,6 +109,23 @@ class Game(models.Model):
 
         return rush_files
 
+    def has_archive_on_disk(self) -> bool:
+        """Tell whether this game already has an archive file on disk.
+
+        Any file attached to the archive video counts, whatever quality it is
+        filed under. A game has one archive; the quality label only records
+        which preset produced it, and renders enqueued by the batch command
+        used to be filed as "high" while everything else used "archive".
+        Looking at one label only made a game with the other look unarchived,
+        which is how some games ended up with two.
+        """
+        if not self.archive_video:
+            return False
+
+        return any(
+            video_file.exists_on_disk for video_file in self.archive_video.files.all()
+        )
+
     def ensure_video(self) -> None:
         """Create and attach a video if missing."""
         if self.video_proxy:
@@ -166,17 +183,11 @@ class Game(models.Model):
 
         preset = preset or RenderQueueItemArchive.DEFAULT_PRESET
 
-        if not force and self.archive_video:
-            try:
-                path = self.archive_video.path_for_quality("archive")
-            except FileNotFoundError:
-                pass
-            else:
-                if path.exists():
-                    raise ArchiveAlreadyExistsError(
-                        "This game already has an archive. Use force=true to regenerate it.",
-                        self.archive_video_id,
-                    )
+        if not force and self.archive_video and self.has_archive_on_disk():
+            raise ArchiveAlreadyExistsError(
+                "This game already has an archive. Use force=true to regenerate it.",
+                self.archive_video_id,
+            )
 
         existing_item = (
             RenderQueueItemArchive.objects.filter(

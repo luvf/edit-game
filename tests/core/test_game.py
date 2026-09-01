@@ -8,6 +8,7 @@ import pytest
 from django.core.exceptions import ValidationError
 from model_bakery import baker
 
+from core.models.game import ArchiveAlreadyExistsError
 from core.models.render_queue.ffmpeg import RenderQueueItemArchive
 from core.models.video import Video, VideoFile
 
@@ -210,3 +211,81 @@ class TestEnqueueArchiveRender:
         item = game.enqueue_archive_render(preset="high", force=True)
 
         assert item.game == game
+
+
+class TestArchivePresetLabelling:
+    """The preset is also the quality the file is filed under."""
+
+    def test_the_default_preset_is_the_archive_one(self, db):
+        from core.models.render_queue.ffmpeg import RenderQueueItemArchive
+
+        game = baker.make("core.Game", files=[])
+
+        item = game.enqueue_archive_render()
+
+        assert item.preset == RenderQueueItemArchive.DEFAULT_PRESET
+        assert item.preset == "archive"
+
+    def test_the_batch_command_no_longer_hardcodes_high(self):
+        from core.management.commands.enque_archives import Command
+        from core.models.render_queue.ffmpeg import RenderQueueItemArchive
+
+        parser = Command().create_parser("manage.py", "enque_archives")
+        default = parser.get_default("preset")
+
+        assert default == RenderQueueItemArchive.DEFAULT_PRESET
+
+    def test_an_archive_filed_as_high_blocks_a_second_one(self, db, tmp_path):
+        # The guard used to look only at quality "archive", so a game whose
+        # archive sat under "high" looked unarchived and got a second file.
+        path = tmp_path / "old.mp4"
+        path.write_bytes(b"0")
+        video = baker.make("core.Video", name="g")
+        game = baker.make("core.Game", archive_video=video, files=[])
+        baker.make(
+            "core.VideoFile",
+            video=video,
+            quality="high",
+            format="mp4",
+            path=str(path),
+        )
+
+        with pytest.raises(ArchiveAlreadyExistsError):
+            game.enqueue_archive_render(preset="archive")
+
+    def test_a_row_whose_file_is_gone_does_not_block(self, db, tmp_path):
+        video = baker.make("core.Video", name="g")
+        game = baker.make("core.Game", archive_video=video, files=[])
+        baker.make(
+            "core.VideoFile",
+            video=video,
+            quality="high",
+            format="mp4",
+            path=str(tmp_path / "missing.mp4"),
+        )
+
+        assert game.has_archive_on_disk() is False
+        assert game.enqueue_archive_render().pk is not None
+
+    def test_an_existing_file_of_the_same_quality_does_block(self, db, tmp_path):
+        path = tmp_path / "old.mp4"
+        path.write_bytes(b"0")
+        video = baker.make("core.Video", name="g")
+        game = baker.make("core.Game", archive_video=video, files=[])
+        baker.make(
+            "core.VideoFile",
+            video=video,
+            quality="archive",
+            format="mp4",
+            path=str(path),
+        )
+
+        with pytest.raises(ArchiveAlreadyExistsError):
+            game.enqueue_archive_render(preset="archive")
+
+    def test_a_game_without_any_archive_file_is_not_blocked(self, db):
+        video = baker.make("core.Video", name="g")
+        game = baker.make("core.Game", archive_video=video, files=[])
+
+        assert game.has_archive_on_disk() is False
+        assert game.enqueue_archive_render().pk is not None

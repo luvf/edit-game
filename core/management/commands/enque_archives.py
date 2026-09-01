@@ -9,6 +9,7 @@ from django.core.management.base import BaseCommand
 from django.utils.dateparse import parse_date
 
 from core.models.game import Game
+from core.models.render_queue.ffmpeg import RenderQueueItemArchive
 
 if TYPE_CHECKING:
     from django.core.management.base import CommandParser
@@ -45,8 +46,11 @@ class Command(BaseCommand):
         parser.add_argument(
             "--preset",
             dest="preset",
-            default="high",
-            help="Archive render preset. Default: high.",
+            default=RenderQueueItemArchive.DEFAULT_PRESET,
+            help=(
+                "Archive render preset, which also becomes the VideoFile "
+                f"quality. Default: {RenderQueueItemArchive.DEFAULT_PRESET}."
+            ),
         )
         parser.add_argument(
             "--force",
