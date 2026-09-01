@@ -3,7 +3,9 @@ NGINX_PREFIX := $(CURDIR)/nginx
 NGINX_CONF := .nginx/nginx.conf
 NGINX_PID := tmp/nginx/nginx.pid
 
-.PHONY: nginx-start nginx-stop nginx-reload nginx-status runserver dev
+.PHONY: nginx-start nginx-stop nginx-reload nginx-status runserver dev \
+	autoedit-dashboard autoedit-dashboard-fg autoedit-dashboard-stop \
+	autoedit-dashboard-status autoedit-dashboard-logs
 
 
 ########################################################################################################################
@@ -67,8 +69,45 @@ autoedit-embeddings:
 autoedit-beats:
 	$(AUTOEDIT) build-beats
 
-autoedit-dashboard:
-	$(RUN) streamlit run game_autoedit/dashboard/app.py
+# Le tableau de bord tourne en tâche de fond avec un fichier de PID, comme
+# nginx plus bas. Le relancer est la bonne réaction à un écran qui montre un
+# état périmé : Streamlit garde ses caches, et Django ne sait pas recharger un
+# modèle une fois enregistré.
+STREAMLIT_PID := tmp/streamlit/streamlit.pid
+STREAMLIT_LOG := tmp/streamlit/streamlit.log
+STREAMLIT_PORT ?= 8501
+
+autoedit-dashboard: autoedit-dashboard-stop
+	@mkdir -p $(dir $(STREAMLIT_PID))
+	@echo "Démarrage du tableau de bord sur http://localhost:$(STREAMLIT_PORT)"
+	@setsid $(RUN) streamlit run game_autoedit/dashboard/app.py \
+		--server.headless true --server.port $(STREAMLIT_PORT) \
+		> "$(STREAMLIT_LOG)" 2>&1 < /dev/null & echo $$! > "$(STREAMLIT_PID)"
+	@sleep 3
+	@echo "PID $$(cat $(STREAMLIT_PID)) — journal : $(STREAMLIT_LOG)"
+
+autoedit-dashboard-fg: autoedit-dashboard-stop
+	$(RUN) streamlit run game_autoedit/dashboard/app.py \
+		--server.port $(STREAMLIT_PORT)
+
+autoedit-dashboard-stop:
+	@if [ -f "$(STREAMLIT_PID)" ] && kill -0 "$$(cat $(STREAMLIT_PID))" 2>/dev/null; then \
+		echo "Arrêt du tableau de bord (PID $$(cat $(STREAMLIT_PID)))"; \
+		kill "$$(cat $(STREAMLIT_PID))" 2>/dev/null || true; \
+		sleep 2; \
+		kill -9 "$$(cat $(STREAMLIT_PID))" 2>/dev/null || true; \
+	fi
+	@rm -f "$(STREAMLIT_PID)"
+
+autoedit-dashboard-status:
+	@if [ -f "$(STREAMLIT_PID)" ] && kill -0 "$$(cat $(STREAMLIT_PID))" 2>/dev/null; then \
+		echo "Tableau de bord lancé, PID $$(cat $(STREAMLIT_PID)), port $(STREAMLIT_PORT)"; \
+	else \
+		echo "Tableau de bord arrêté"; \
+	fi
+
+autoedit-dashboard-logs:
+	@tail -f "$(STREAMLIT_LOG)"
 
 # Tests d'intégration du dashboard : ils lisent la vraie base et se sautent
 # eux-mêmes dans la suite complète, où pytest-django a basculé la connexion

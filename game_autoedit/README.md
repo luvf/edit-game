@@ -58,8 +58,17 @@ entièrement depuis la base et les archives.
 ## Tableau de bord
 
 ```bash
-make autoedit-dashboard        # ou : uv run streamlit run game_autoedit/dashboard/app.py
+make autoedit-dashboard          # (re)démarre en tâche de fond sur le port 8501
+make autoedit-dashboard-status   # lancé ou pas
+make autoedit-dashboard-logs     # suivre le journal
+make autoedit-dashboard-stop
+make autoedit-dashboard-fg       # au premier plan, pour déboguer
 ```
+
+`autoedit-dashboard` **arrête toujours le serveur en cours avant de démarrer**.
+C'est la bonne réaction à un écran qui montre un état périmé : Streamlit garde
+ses caches d'une exécution à l'autre, et Django ne sait pas recharger un modèle
+une fois enregistré.
 
 Trois écrans :
 

@@ -29,33 +29,51 @@ def paths() -> Paths:
 
 
 @st.cache_resource
-def _django() -> bool:
-    """Configure Django once per session, and check the registry is whole.
-
-    Django cannot re-import a model: a partial reload leaves a fresh `Game`
-    class whose reverse relations were never built, and the next query fails
-    deep inside the ORM with a message that says nothing about the cause. The
-    check below turns that into something actionable.
-
-    Raises:
-        RuntimeError: when the model registry is half-built.
-    """
+def _setup() -> bool:
+    """Configure Django once per session."""
     from game_autoedit.bootstrap import setup_django
 
     setup_django()
+    return True
+
+
+def _django() -> bool:
+    """Configure Django, and make sure the model registry is whole.
+
+    The check runs on *every* script run rather than once: Streamlit reloads
+    the modules it watches, and a registry that was fine at startup can be
+    half-built later. Django rebuilds a model's reverse relations from its
+    caches, so expiring them is a real repair and not just a nicer error.
+
+    Raises:
+        RuntimeError: when the registry cannot be repaired.
+    """
+    _setup()
+
+    from django.apps import apps
 
     from core.models.game import Game
 
-    related = {field.name for field in Game._meta.get_fields()}  # noqa: SLF001
-    if "cuts" not in related:
-        message = (
-            "Le registre de modèles Django est incomplet : Game n'a pas sa "
-            "relation 'cuts'. Un module de core/models a été ré-importé sans "
-            "les autres. Redémarrer le serveur, et vérifier que "
-            ".streamlit/config.toml exclut bien 'core' de folderWatchBlacklist."
-        )
-        raise RuntimeError(message)
-    return True
+    def has_cuts() -> bool:
+        return any(field.name == "cuts" for field in Game._meta.get_fields())  # noqa: SLF001
+
+    if has_cuts():
+        return True
+
+    # Importing the package registers every model; clearing the cache makes
+    # Django rebuild the relations it derives from them.
+    import core.models  # noqa: F401
+
+    apps.clear_cache()
+    if has_cuts():
+        return True
+
+    message = (
+        "Le registre de modèles Django est incomplet : Game n'a pas sa "
+        "relation 'cuts', et vider le cache d'applications n'a pas suffi. "
+        "Redémarrer le serveur avec `make autoedit-dashboard`."
+    )
+    raise RuntimeError(message)
 
 
 @st.cache_data(ttl=300)
