@@ -67,6 +67,12 @@ autoedit-embeddings:
 autoedit-dashboard:
 	$(RUN) streamlit run game_autoedit/dashboard/app.py
 
+# Tests d'intégration du dashboard : ils lisent la vraie base et se sautent
+# eux-mêmes dans la suite complète, où pytest-django a basculé la connexion
+# sur la base de test.
+autoedit-test-dashboard:
+	$(RUN) pytest tests/game_autoedit/test_dashboard.py
+
 
 ########################################################################################################################
 # Deployment
