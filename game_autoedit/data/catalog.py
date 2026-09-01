@@ -159,6 +159,12 @@ def build_catalog(
     Returns:
         The usable games and the rejected ones.
     """
+    # `core/models/__init__.py` is empty, so nothing registers the models at
+    # app-loading time: they arrive as a side effect of `core/admin.py` being
+    # imported by the admin's autodiscovery. Import Cut explicitly rather than
+    # trust that chain — without it the `cuts` reverse accessor may not exist
+    # yet and prefetch_related fails with "Cannot find 'cuts' on Game object".
+    from core.models.cut import Cut  # noqa: F401
     from core.models.game import Game
 
     queryset = (
