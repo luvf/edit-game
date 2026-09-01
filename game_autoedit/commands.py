@@ -359,7 +359,7 @@ def train(args: argparse.Namespace, paths: Paths) -> int:
         output_dir=output_dir,
         device=device,
     )
-    print(f"\nMeilleure val_loss : {result['best_val_loss']:.4f}")
+    print(f"\nMeilleur score de sélection (AP frontières) : {result['best_score']:.4f}")
     return 0
 
 

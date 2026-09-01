@@ -36,6 +36,11 @@ MAX_POS_WEIGHT = 40.0
 # A soft target at or above this counts as a positive step.
 POSITIVE_LEVEL = 0.5
 
+# Which channels decide the best checkpoint. The validation loss is dominated
+# by the heavily weighted rare positives and starts diverging long before the
+# boundary channels stop improving, so it is the wrong thing to select on.
+SELECTION_CHANNELS = ("in", "out")
+
 
 @dataclass(frozen=True)
 class TrainSpec:
@@ -163,6 +168,21 @@ def average_precision(scores: np.ndarray, targets: np.ndarray) -> float:
     cumulative = np.cumsum(hits)
     precision = cumulative / np.arange(1, len(hits) + 1)
     return float(precision[hits].sum() / positives.sum())
+
+
+def selection_score(metrics: dict[str, Any]) -> float:
+    """Return the score the best checkpoint is chosen on.
+
+    The mean average precision of the boundary channels: what the tool is
+    actually for is finding the in and out instants, and `inside` is easy
+    enough that including it would drown the signal.
+    """
+    values = [
+        metrics[f"ap_{channel}"]
+        for channel in SELECTION_CHANNELS
+        if not math.isnan(metrics.get(f"ap_{channel}", math.nan))
+    ]
+    return sum(values) / len(values) if values else -math.inf
 
 
 def _learning_rate(step: int, *, total_steps: int, spec: TrainSpec) -> float:
@@ -350,7 +370,7 @@ def train(
         total_steps=total_steps,
     )
     history: list[dict[str, Any]] = []
-    best = math.inf
+    best = -math.inf
     global_step = 0
 
     for epoch in range(run.train.epochs):
@@ -374,10 +394,13 @@ def train(
             f"val {entry['val_loss']:.4f}  "
             + "  ".join(f"AP-{name} {entry[f'ap_{name}']:.3f}" for name in CHANNELS)
             + f"  {entry['seconds']:.0f}s"
+            + ("  *" if selection_score(entry) > best else "")
         )
 
-        if entry["val_loss"] < best:
-            best = entry["val_loss"]
+        score = selection_score(entry)
+        entry["selection_score"] = score
+        if score > best:
+            best = score
             torch.save(
                 {
                     "model": model.state_dict(),
@@ -391,4 +414,4 @@ def train(
         (output_dir / "history.json").write_text(json.dumps(history, indent=2))
         (output_dir / "run.json").write_text(json.dumps(run.to_json(), indent=2))
 
-    return {"history": history, "best_val_loss": best}
+    return {"history": history, "best_score": best}
