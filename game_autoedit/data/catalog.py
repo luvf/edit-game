@@ -12,7 +12,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from game_autoedit.config import AUDIO_QUALITY, CUT_TYPE_PRIORITY, DEFAULT_FPS
+from game_autoedit.config import (
+    ARCHIVE_QUALITIES,
+    AUDIO_QUALITY,
+    CUT_TYPE_PRIORITY,
+    DEFAULT_FPS,
+)
 from game_autoedit.data.labels import has_points
 
 if TYPE_CHECKING:
@@ -35,6 +40,7 @@ class LabeledGame:
     cut_json_path: Path
     audio_source: Path
     fps: float
+    quality: str = AUDIO_QUALITY
 
     @property
     def key(self) -> str:
@@ -92,21 +98,49 @@ def pick_cut(cuts: Sequence[Cut]) -> Cut:
     )
 
 
-def _audio_source(game: Game, quality: str) -> tuple[Path | None, float, str | None]:
-    """Return the on-disk audio source of a game, its fps, and a failure reason."""
+@dataclass(frozen=True)
+class AudioSource:
+    """Where a game's audio comes from, or why it cannot be read."""
+
+    path: Path | None
+    fps: float = DEFAULT_FPS
+    quality: str = AUDIO_QUALITY
+    reason: str | None = None
+
+
+def _qualities_for(quality: str) -> tuple[str, ...]:
+    """Return the quality names to try, in order of preference."""
+    return ARCHIVE_QUALITIES if quality == AUDIO_QUALITY else (quality,)
+
+
+def _audio_source(game: Game, quality: str) -> AudioSource:
+    """Return the on-disk audio source of a game.
+
+    The archive slot is tried under every name it has historically been filed
+    under, so a master rendered before the "archive" quality existed is still
+    found.
+    """
     video = game.archive_video if quality == AUDIO_QUALITY else game.video_proxy
     if video is None:
-        return None, DEFAULT_FPS, f"pas de vidéo {quality} rattachée"
+        return AudioSource(None, reason=f"pas de vidéo {quality} rattachée")
 
-    try:
-        video_file = video.get_file(quality)
-    except FileNotFoundError:
-        return None, DEFAULT_FPS, f"pas de fichier {quality} en base"
+    known: list[str] = []
+    for candidate in _qualities_for(quality):
+        try:
+            video_file = video.get_file(candidate)
+        except FileNotFoundError:
+            continue
+        known.append(candidate)
+        if video_file.exists_on_disk:
+            return AudioSource(
+                Path(video_file.path),
+                fps=video_file.fps or DEFAULT_FPS,
+                quality=candidate,
+            )
 
-    if not video_file.exists_on_disk:
-        return None, DEFAULT_FPS, f"fichier {quality} absent du disque"
-
-    return Path(video_file.path), video_file.fps or DEFAULT_FPS, None
+    if known:
+        return AudioSource(None, reason=f"fichier {'/'.join(known)} absent du disque")
+    return AudioSource(None, reason=f"pas de fichier {quality} en base")
 
 
 def build_catalog(
@@ -163,9 +197,11 @@ def build_catalog(
             )
             continue
 
-        audio, fps, reason = _audio_source(game, quality)
-        if audio is None:
-            rejected.append(Rejection(game.pk, game.name, tournament, reason or "?"))
+        source = _audio_source(game, quality)
+        if source.path is None:
+            rejected.append(
+                Rejection(game.pk, game.name, tournament, source.reason or "?")
+            )
             continue
 
         games.append(
@@ -177,8 +213,9 @@ def build_catalog(
                 cut_id=cut.pk,
                 cut_type=cut.type_cut,
                 cut_json_path=cut_path,
-                audio_source=audio,
-                fps=fps,
+                audio_source=source.path,
+                fps=source.fps,
+                quality=source.quality,
             )
         )
 

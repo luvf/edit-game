@@ -21,6 +21,13 @@ SAMPLE_RATE = 16000
 # only rendition rendered with a consistent audio profile.
 AUDIO_QUALITY = "archive"
 
+# A game's archive master has been filed under two different quality names over
+# the years: older renders sit under "high", newer ones under "archive". Both
+# live in the tournament's archive directory and carry the same audio profile
+# (AAC 48 kHz stereo, ~193 kb/s), so both are usable — only the label differs.
+# Taking just the newer name silently dropped half the archived tournaments.
+ARCHIVE_QUALITIES: tuple[str, ...] = ("archive", "high")
+
 # Which cut wins when a game carries several: OTIO and MAN come straight from a
 # real edit, VID is reconstructed by audio alignment and is the noisy one.
 CUT_TYPE_PRIORITY: tuple[str, ...] = ("OTIO", "MAN", "VID", "XML", "ML", "X")
