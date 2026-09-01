@@ -186,3 +186,60 @@ class TestDefaultThresholds:
         # Past 0.35 the boundary channels stop being heard and the result
         # collapses: they do carry real information.
         assert 0.0 < DecodeSpec().inside_weight < 0.4
+
+
+class TestMinimumGap:
+    """A game gives the teams time to reset, so points cannot touch."""
+
+    def test_two_segments_closer_than_the_gap_are_merged(self):
+        probabilities, times = curves_for([(20, 60), (70, 110)], duration=300.0)
+
+        decoded = decode(probabilities, times, DecodeSpec(**RAW, min_gap=30.0))
+
+        assert len(decoded.segments) == 1
+        assert decoded.segments[0].start == pytest.approx(20.0, abs=0.5)
+        assert decoded.segments[0].end == pytest.approx(110.0, abs=0.5)
+
+    def test_the_merge_is_reported_with_its_reason(self):
+        probabilities, times = curves_for([(20, 60), (70, 110)], duration=300.0)
+
+        decoded = decode(probabilities, times, DecodeSpec(**RAW, min_gap=30.0))
+
+        assert any("fusionnés" in reason for reason in decoded.dropped)
+
+    def test_a_long_enough_gap_is_left_alone(self):
+        probabilities, times = curves_for([(20, 60), (120, 160)], duration=300.0)
+
+        decoded = decode(probabilities, times, DecodeSpec(**RAW, min_gap=30.0))
+
+        assert len(decoded.segments) == 2
+
+    def test_zero_disables_the_rule(self):
+        probabilities, times = curves_for([(20, 60), (70, 110)], duration=300.0)
+
+        decoded = decode(probabilities, times, DecodeSpec(**RAW, min_gap=0.0))
+
+        assert len(decoded.segments) == 2
+
+    def test_a_chain_of_close_segments_collapses_into_one(self):
+        probabilities, times = curves_for(
+            [(20, 50), (60, 90), (100, 130)], duration=300.0
+        )
+
+        decoded = decode(probabilities, times, DecodeSpec(**RAW, min_gap=30.0))
+
+        assert len(decoded.segments) == 1
+        assert decoded.segments[0].end == pytest.approx(130.0, abs=0.5)
+
+    def test_merging_never_loses_material(self):
+        probabilities, times = curves_for([(20, 60), (70, 110)], duration=300.0)
+
+        merged = decode(probabilities, times, DecodeSpec(**RAW, min_gap=30.0))
+        apart = decode(probabilities, times, DecodeSpec(**RAW, min_gap=0.0))
+
+        kept_merged = sum(s.duration for s in merged.segments)
+        kept_apart = sum(s.duration for s in apart.segments)
+        assert kept_merged >= kept_apart
+
+    def test_the_default_is_the_business_rule(self):
+        assert DecodeSpec().min_gap == 30.0

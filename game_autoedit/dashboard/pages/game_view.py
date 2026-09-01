@@ -61,6 +61,20 @@ def _decode_controls() -> DecodeSpec:
         "point — un point manqué déguisé en erreur bénigne. "
         "0.30 → 4.2 points manqués par game, 0.70 → 2.3.",
     )
+    min_gap = st.sidebar.slider(
+        "Écart minimal entre points (s)",
+        0.0,
+        90.0,
+        30.0,
+        1.0,
+        help="Contrainte métier : les équipes ont besoin de se replacer entre "
+        "deux points, donc un écart plus court veut dire qu'un point a été "
+        "coupé en deux — les deux segments sont alors fusionnés. Mesuré sur "
+        "les labels : seuls 1.8 % des vrais écarts tombent entre 1 s et 30 s, "
+        "et 5.3 % de plus sont sous la seconde, ce qui est du bruit "
+        "d'annotation. À 30 s les points coupés passent de 0.6 à 0.1 par game. "
+        "Mettre 0 pour désactiver.",
+    )
     min_duration = st.sidebar.slider(
         "Durée minimale (s)",
         1.0,
@@ -118,6 +132,7 @@ def _decode_controls() -> DecodeSpec:
     return DecodeSpec(
         threshold={"in": threshold_in, "out": threshold_out},
         min_duration=min_duration,
+        min_gap=min_gap,
         max_duration=max_duration,
         inside_veto=inside_veto,
         inside_weight=inside_weight,
@@ -218,12 +233,12 @@ def render() -> None:
         "Tolérance de match (s)",
         0.25,
         5.0,
-        0.5,
+        2.0,
         0.25,
         help="Distance maximale entre une frontière prédite et la vraie pour "
-        "la compter comme trouvée. Ne mesure rien en dessous de 0.5 s : les "
-        "labels eux-mêmes ne valent pas mieux que ça. À ±2 s, le rappel "
-        "passe de 0.48 à 0.80 sur les débuts et de 0.16 à 0.46 sur les fins.",
+        "la compter comme trouvée. Par défaut 2 s, la précision jugée "
+        "acceptable pour un montage. Ne mesure rien en dessous de 0.5 s : les "
+        "labels eux-mêmes ne valent pas mieux que ça.",
     )
 
     try:

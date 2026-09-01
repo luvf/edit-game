@@ -327,6 +327,7 @@ def _decode_spec_from_args(args: argparse.Namespace) -> DecodeSpec:
     return DecodeSpec(
         threshold={"in": args.threshold_in, "out": args.threshold_out},
         min_peak_distance=args.min_peak_distance,
+        min_gap=args.min_gap,
         min_duration=args.min_duration,
         max_duration=args.max_duration,
         inside_veto=args.inside_veto,

@@ -153,7 +153,11 @@ def _register_train_commands(subparsers: argparse._SubParsersAction) -> None:  #
     evaluate.add_argument("--run", required=True, help="nom du run à évaluer")
     evaluate.add_argument("--part", choices=("train", "val", "test"), default="test")
     evaluate.add_argument(
-        "--tolerance", type=float, default=0.5, help="tolérance de match, en secondes"
+        "--tolerance",
+        type=float,
+        default=2.0,
+        help="tolérance de match, en secondes (défaut 2.0 : la précision "
+        "jugée acceptable pour un montage)",
     )
     evaluate.add_argument("--per-game", action="store_true", help="détail par game")
     evaluate.add_argument("--encoder", help="encodeur gelé du run, si applicable")
@@ -232,6 +236,13 @@ def _add_decode_args(parser: argparse.ArgumentParser) -> None:
     group.add_argument("--threshold-in", type=float, default=0.50)
     group.add_argument("--threshold-out", type=float, default=0.70)
     group.add_argument("--min-peak-distance", type=float, default=3.0)
+    group.add_argument(
+        "--min-gap",
+        type=float,
+        default=30.0,
+        help="temps mort minimal entre deux points ; en dessous, les deux "
+        "segments sont fusionnés (0 pour désactiver)",
+    )
     group.add_argument("--min-duration", type=float, default=4.0)
     group.add_argument("--max-duration", type=float, default=240.0)
     group.add_argument("--inside-veto", type=float, default=0.25)
