@@ -11,7 +11,7 @@ import json
 import math
 import time
 from dataclasses import asdict, dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import torch
@@ -19,15 +19,16 @@ from torch import nn
 from torch.amp.grad_scaler import GradScaler
 from torch.utils.data import DataLoader
 
-from game_autoedit.datasets.dataset import DatasetSpec, GameWindowDataset
+from game_autoedit.datasets.dataset import DatasetSpec
 from game_autoedit.datasets.targets import CHANNEL_INDEX, CHANNELS
-from game_autoedit.models.tcn import ModelSpec, build_model
+from game_autoedit.models.tcn import ModelSpec
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
     from pathlib import Path
 
-    from game_autoedit.datasets.dataset import PreparedGame
+    from torch.utils.data import Dataset
+
+    from game_autoedit.datasets.dataset import TargetRatesDataset
 
 # A rare channel gets at most this much extra weight; past it the loss stops
 # teaching the model and starts teaching it to guess.
@@ -52,7 +53,9 @@ class TrainSpec:
         learning_rate: peak learning rate of the cosine schedule.
         weight_decay: AdamW decay.
         warmup_fraction: share of the run spent ramping the learning rate up.
-        num_workers: dataloader workers; each one seeks in the cached WAVs.
+        patience: stop after this many epochs without a better selection
+            score; 0 disables it.
+        num_workers: dataloader workers; each one seeks in the cache.
         loss: ``bce`` weights the rare channels, ``focal`` down-weights the easy
             negatives instead.
         focal_gamma: focusing strength when `loss` is ``focal``.
@@ -63,6 +66,7 @@ class TrainSpec:
 
     epochs: int = 30
     batch_size: int = 8
+    patience: int = 0
     learning_rate: float = 3e-4
     weight_decay: float = 0.01
     warmup_fraction: float = 0.05
@@ -81,9 +85,10 @@ class RunSpec:
     """A full experiment: data, model and optimisation."""
 
     name: str
-    dataset: DatasetSpec = field(default_factory=DatasetSpec)
-    model: ModelSpec = field(default_factory=ModelSpec)
+    dataset: Any = field(default_factory=DatasetSpec)
+    model: Any = field(default_factory=ModelSpec)
     train: TrainSpec = field(default_factory=TrainSpec)
+    encoder: str | None = None
 
     def to_json(self) -> dict[str, Any]:
         """Return a JSON-serialisable description of the run."""
@@ -194,13 +199,27 @@ def _learning_rate(step: int, *, total_steps: int, spec: TrainSpec) -> float:
     return spec.learning_rate * 0.5 * (1.0 + math.cos(math.pi * progress))
 
 
+def _forward(model: nn.Module, inputs: torch.Tensor, steps: int | None) -> torch.Tensor:
+    """Call a model that may or may not take an explicit output length.
+
+    The waveform model needs to be told how many steps to produce, because the
+    frontend's frame count depends on rounding. The embedding head predicts one
+    step per input step and needs nothing.
+    """
+    if steps is None:
+        output: torch.Tensor = model(inputs)
+        return output
+    return model(inputs, steps=steps)  # type: ignore[no-any-return]
+
+
 @torch.no_grad()
 def evaluate_windows(
     model: nn.Module,
     loader: DataLoader[dict[str, Any]],
     loss_fn: nn.Module,
     device: torch.device,
-    steps: int,
+    steps: int | None,
+    input_key: str = "waveform",
 ) -> dict[str, float]:
     """Score the model on validation windows, without decoding.
 
@@ -212,12 +231,12 @@ def evaluate_windows(
     collected: list[tuple[np.ndarray, np.ndarray]] = []
 
     for batch in loader:
-        waveform = batch["waveform"].to(device, non_blocking=True)
+        inputs = batch[input_key].to(device, non_blocking=True)
         target = batch["target"].to(device, non_blocking=True)
         valid = batch["valid"].to(device, non_blocking=True)
 
         with torch.autocast(device.type, enabled=device.type == "cuda"):
-            logits = model(waveform, steps=steps)
+            logits = _forward(model, inputs, steps)
         total_loss += float(loss_fn(logits.float(), target, valid))
         batches += 1
 
@@ -252,8 +271,9 @@ class _EpochContext:
     scaler: GradScaler
     device: torch.device
     spec: TrainSpec
-    steps: int
+    steps: int | None
     total_steps: int
+    input_key: str = "waveform"
 
 
 def _run_epoch(
@@ -279,12 +299,12 @@ def _run_epoch(
         for group in optimizer.param_groups:
             group["lr"] = learning_rate
 
-        waveform = batch["waveform"].to(device, non_blocking=True)
+        inputs = batch[context.input_key].to(device, non_blocking=True)
         target = batch["target"].to(device, non_blocking=True)
         valid = batch["valid"].to(device, non_blocking=True)
 
         with torch.autocast(device.type, enabled=spec.amp):
-            logits = model(waveform, steps=steps)
+            logits = _forward(model, inputs, steps)
             loss = loss_fn(logits.float(), target, valid)
 
         optimizer.zero_grad(set_to_none=True)
@@ -301,11 +321,21 @@ def _run_epoch(
     return running / max(batches, 1), global_step
 
 
+@dataclass(frozen=True)
+class TrainingInputs:
+    """The concrete pieces a run needs beyond its specification."""
+
+    train_set: TargetRatesDataset
+    val_set: TargetRatesDataset
+    model: nn.Module
+    input_key: str = "waveform"
+    steps: int | None = None
+
+
 def train(
     run: RunSpec,
+    inputs: TrainingInputs,
     *,
-    train_games: Sequence[PreparedGame],
-    val_games: Sequence[PreparedGame],
     output_dir: Path,
     device: torch.device,
 ) -> dict[str, Any]:
@@ -313,8 +343,7 @@ def train(
 
     Args:
         run: the full experiment description.
-        train_games: games to learn from.
-        val_games: games to watch, never learned from.
+        inputs: the datasets and the model to train.
         output_dir: where the checkpoint, config and history land.
         device: where to run.
 
@@ -324,8 +353,9 @@ def train(
     torch.manual_seed(run.train.seed)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    train_set = GameWindowDataset(train_games, run.dataset, seed=run.train.seed)
-    val_set = GameWindowDataset(val_games, run.dataset, seed=run.train.seed + 1)
+    train_set, val_set = inputs.train_set, inputs.val_set
+    model = inputs.model.to(device)
+    steps, input_key = inputs.steps, inputs.input_key
     rates = train_set.target_rates()
 
     print(f"Fenêtres par epoch : {len(train_set)} (val {len(val_set)})")
@@ -339,7 +369,9 @@ def train(
         + "  ".join(f"{name} x{weights[i]:.1f}" for i, name in enumerate(CHANNELS))
     )
 
-    model = build_model(run.model).to(device)
+    print(
+        f"Paramètres         : {sum(p.numel() for p in model.parameters()) / 1e6:.2f} M"
+    )
     loss_fn = MaskedChannelLoss(run.train, rates).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -348,7 +380,6 @@ def train(
     )
     scaler = GradScaler(device.type, enabled=run.train.amp)
 
-    steps = run.dataset.steps_per_window()
     loader_args: dict[str, Any] = {
         "batch_size": run.train.batch_size,
         "num_workers": run.train.num_workers,
@@ -356,7 +387,7 @@ def train(
         "persistent_workers": run.train.num_workers > 0,
     }
     val_loader: DataLoader[dict[str, Any]] = DataLoader(
-        val_set, shuffle=False, **loader_args
+        cast("Dataset[dict[str, Any]]", val_set), shuffle=False, **loader_args
     )
 
     total_steps = max(run.train.epochs * (len(train_set) // run.train.batch_size), 1)
@@ -368,20 +399,25 @@ def train(
         spec=run.train,
         steps=steps,
         total_steps=total_steps,
+        input_key=input_key,
     )
     history: list[dict[str, Any]] = []
     best = -math.inf
+    since_best = 0
     global_step = 0
 
     for epoch in range(run.train.epochs):
         train_set.resample(epoch)
         train_loader: DataLoader[dict[str, Any]] = DataLoader(
-            train_set, shuffle=True, drop_last=True, **loader_args
+            cast("Dataset[dict[str, Any]]", train_set),
+            shuffle=True,
+            drop_last=True,
+            **loader_args,
         )
         started = time.monotonic()
         running, global_step = _run_epoch(model, train_loader, context, global_step)
 
-        metrics = evaluate_windows(model, val_loader, loss_fn, device, steps)
+        metrics = evaluate_windows(model, val_loader, loss_fn, device, steps, input_key)
         entry = {
             "epoch": epoch,
             "train_loss": running,
@@ -401,6 +437,7 @@ def train(
         entry["selection_score"] = score
         if score > best:
             best = score
+            since_best = 0
             torch.save(
                 {
                     "model": model.state_dict(),
@@ -413,5 +450,13 @@ def train(
 
         (output_dir / "history.json").write_text(json.dumps(history, indent=2))
         (output_dir / "run.json").write_text(json.dumps(run.to_json(), indent=2))
+
+        since_best += 1
+        if run.train.patience and since_best > run.train.patience:
+            print(
+                f"Arrêt anticipé : {run.train.patience} epochs sans progrès "
+                f"sur le score de sélection."
+            )
+            break
 
     return {"history": history, "best_score": best}

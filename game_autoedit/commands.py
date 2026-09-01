@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from game_autoedit.datasets.dataset import DatasetSpec, PreparedGame
     from game_autoedit.datasets.splits import Split
     from game_autoedit.eval.decode import DecodeSpec
+    from game_autoedit.training import TrainSpec
 
 
 def _catalog_from_args(args: argparse.Namespace) -> Catalog:
@@ -213,6 +214,58 @@ def build_cache(args: argparse.Namespace, paths: Paths) -> int:
     return 1 if failed else 0
 
 
+def build_embeddings(args: argparse.Namespace, paths: Paths) -> int:
+    """Encode every selected game once with a frozen pretrained encoder."""
+    import soundfile as sf
+
+    from game_autoedit.data.embeddings import EmbeddingStore
+    from game_autoedit.encoders import EncoderSpec, build_encoder
+    from game_autoedit.runs import resolve_device
+
+    catalog = _catalog_from_args(args)
+    prepared, skipped = prepare_games(catalog.games, paths)
+    _report_skipped(skipped, "audio")
+    if not prepared:
+        print("Aucun audio en cache : lancer d'abord `build-cache`.")
+        return 1
+
+    device = resolve_device(args.device)
+    spec = EncoderSpec(name=args.encoder, batch_size=args.batch_size)
+    print(f"Chargement de l'encodeur {spec.name} sur {device}…")
+    encoder = build_encoder(spec, device)
+
+    root = paths.embeddings(spec.cache_key)
+    store = EmbeddingStore.create(
+        root, rate=encoder.rate, dim=encoder.dim, encoder=spec.name
+    )
+    print(
+        f"{len(prepared)} game(s) -> {root}\n"
+        f"grille {store.rate:.3f} Hz, {store.dim} dimensions\n"
+    )
+
+    done, encoded_seconds = 0, 0.0
+    for index, item in enumerate(prepared, start=1):
+        if store.has(item.game.game_id) and not args.force:
+            done += 1
+            continue
+        waveform, _ = sf.read(str(item.audio_path), dtype="float32", always_2d=False)
+        embeddings = encoder.encode(waveform)
+        store.write(item.game.game_id, embeddings)
+        done += 1
+        encoded_seconds += item.duration
+        print(
+            f"[{index}/{len(prepared)}] game {item.game.game_id:5d}  "
+            f"{embeddings.shape[0]:6d} pas  {item.duration / 60:6.1f} min"
+        )
+
+    size = sum(path.stat().st_size for path in root.glob("*.npy"))
+    print(
+        f"\n{done} game(s) encodés ({encoded_seconds / 3600:.1f} h cette fois), "
+        f"{size / 1e9:.2f} Go"
+    )
+    return 0
+
+
 def cache_status(paths: Paths) -> int:
     """Report what the cache holds and how much room it takes."""
     if not paths.root.exists():
@@ -308,45 +361,121 @@ def splits(args: argparse.Namespace, paths: Paths) -> int:
     return 0
 
 
-def train(args: argparse.Namespace, paths: Paths) -> int:
-    """Train a model and store it under the cache's run directory."""
-    from game_autoedit.models.tcn import ModelSpec
+def _train_spec(args: argparse.Namespace) -> TrainSpec:
+    """Build the optimisation settings from the CLI flags."""
+    from game_autoedit.training import TrainSpec
+
+    return TrainSpec(
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
+        num_workers=args.num_workers,
+        loss=args.loss,
+        seed=args.seed,
+        patience=args.patience,
+    )
+
+
+def _train_on_embeddings(args: argparse.Namespace, paths: Paths, split: Split) -> int:
+    """Train a small head on top of a frozen encoder's cached embeddings."""
+    from game_autoedit.data.embeddings import EmbeddingStore
+    from game_autoedit.datasets.embedding_dataset import (
+        EmbeddingDatasetSpec,
+        EmbeddingWindowDataset,
+        prepare_embedding_games,
+    )
+    from game_autoedit.datasets.windows import SamplingSpec, WindowSpec
+    from game_autoedit.models.head import EmbeddingTagger, HeadSpec
     from game_autoedit.runs import resolve_device
-    from game_autoedit.training import RunSpec, TrainSpec
+    from game_autoedit.training import RunSpec, TrainingInputs
     from game_autoedit.training import train as run_training
 
-    catalog = _catalog_from_args(args)
-    split = _split_from_args(args, catalog)
-    print(split.summary())
+    store = EmbeddingStore.open(paths.embeddings(args.encoder))
+    if store is None:
+        print(
+            f"Aucun cache de plongements pour '{args.encoder}' : "
+            f"lancer `build-embeddings --encoder {args.encoder}`."
+        )
+        return 1
+
+    train_games, skipped_train = prepare_embedding_games(split.train, store)
+    val_games, skipped_val = prepare_embedding_games(split.val, store)
+    _report_skipped(skipped_train, "train")
+    _report_skipped(skipped_val, "val")
+    if args.limit_games:
+        train_games = train_games[: args.limit_games]
+        val_games = val_games[: max(args.limit_games // 4, 1)]
+    if not train_games or not val_games:
+        print("Pas assez de games encodés pour entraîner.")
+        return 1
+
+    spec = EmbeddingDatasetSpec.for_store(
+        store,
+        window=WindowSpec(duration=args.window),
+        sampling=SamplingSpec(
+            strategy=args.sampling,
+            positive_ratio=args.positive_ratio,
+            jitter=args.jitter,
+            density=args.density,
+        ),
+        tolerance=args.tolerance,
+        shape=args.target_shape,
+    )
+    head = HeadSpec(channels=args.head_channels, dropout=args.dropout)
+    run = RunSpec(
+        name=args.name,
+        dataset=spec,
+        model=head,
+        train=_train_spec(args),
+        encoder=args.encoder,
+    )
+    device = resolve_device(args.device)
+    output_dir = paths.runs / args.name
+    print(
+        f"Tête sur plongements {store.encoder} "
+        f"({store.rate:.2f} Hz, {store.dim} dim), champ réceptif "
+        f"{head.receptive_field() / store.rate:.0f}s"
+    )
+    print(f"Entraînement sur {device}, sortie dans {output_dir}")
+
+    result = run_training(
+        run,
+        TrainingInputs(
+            train_set=EmbeddingWindowDataset(train_games, store, spec, seed=args.seed),
+            val_set=EmbeddingWindowDataset(val_games, store, spec, seed=args.seed + 1),
+            model=EmbeddingTagger(store.dim, head),
+            input_key="embeddings",
+        ),
+        output_dir=output_dir,
+        device=device,
+    )
+    print(f"\nMeilleur score de sélection (AP frontières) : {result['best_score']:.4f}")
+    return 0
+
+
+def _train_on_waveform(args: argparse.Namespace, paths: Paths, split: Split) -> int:
+    """Train the end-to-end model directly on the cached audio."""
+    from game_autoedit.datasets.dataset import GameWindowDataset
+    from game_autoedit.models.tcn import ModelSpec, build_model
+    from game_autoedit.runs import resolve_device
+    from game_autoedit.training import RunSpec, TrainingInputs
+    from game_autoedit.training import train as run_training
 
     train_games, skipped_train = prepare_games(split.train, paths)
     val_games, skipped_val = prepare_games(split.val, paths)
     _report_skipped(skipped_train, "train")
     _report_skipped(skipped_val, "val")
-
     if args.limit_games:
         train_games = train_games[: args.limit_games]
         val_games = val_games[: max(args.limit_games // 4, 1)]
-
-    if not train_games:
+    if not train_games or not val_games:
         print("Aucun game entraînable : lancer d'abord `build-cache`.")
         return 1
-    if not val_games:
-        print("Aucun game de validation en cache : élargir le cache ou --val-fraction.")
-        return 1
 
+    spec = _dataset_spec_from_args(args)
+    model_spec = ModelSpec()
     run = RunSpec(
-        name=args.name,
-        dataset=_dataset_spec_from_args(args),
-        model=ModelSpec(),
-        train=TrainSpec(
-            epochs=args.epochs,
-            batch_size=args.batch_size,
-            learning_rate=args.learning_rate,
-            num_workers=args.num_workers,
-            loss=args.loss,
-            seed=args.seed,
-        ),
+        name=args.name, dataset=spec, model=model_spec, train=_train_spec(args)
     )
     device = resolve_device(args.device)
     output_dir = paths.runs / args.name
@@ -354,13 +483,29 @@ def train(args: argparse.Namespace, paths: Paths) -> int:
 
     result = run_training(
         run,
-        train_games=train_games,
-        val_games=val_games,
+        TrainingInputs(
+            train_set=GameWindowDataset(train_games, spec, seed=args.seed),
+            val_set=GameWindowDataset(val_games, spec, seed=args.seed + 1),
+            model=build_model(model_spec),
+            input_key="waveform",
+            steps=spec.steps_per_window(),
+        ),
         output_dir=output_dir,
         device=device,
     )
     print(f"\nMeilleur score de sélection (AP frontières) : {result['best_score']:.4f}")
     return 0
+
+
+def train(args: argparse.Namespace, paths: Paths) -> int:
+    """Train either the end-to-end model or a head over frozen embeddings."""
+    catalog = _catalog_from_args(args)
+    split = _split_from_args(args, catalog)
+    print(split.summary())
+
+    if args.encoder:
+        return _train_on_embeddings(args, paths, split)
+    return _train_on_waveform(args, paths, split)
 
 
 def _predict_curves(

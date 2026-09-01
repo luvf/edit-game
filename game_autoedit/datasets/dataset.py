@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 import torch
@@ -31,6 +31,30 @@ if TYPE_CHECKING:
     from game_autoedit.config import Paths
     from game_autoedit.data.catalog import LabeledGame
     from game_autoedit.data.labels import GameLabels
+
+
+class TargetRatesDataset(Protocol):
+    """What the trainer needs of a dataset: resampling and positive rates.
+
+    Both the waveform dataset and the embedding dataset satisfy it, so the
+    training loop never has to know which input it is being fed.
+    """
+
+    def __len__(self) -> int:
+        """Return the number of windows in the current epoch."""
+        ...
+
+    def resample(self, epoch: int) -> None:
+        """Draw the windows for one epoch."""
+        ...
+
+    def target_rates(self, max_windows: int = 512) -> dict[str, float]:
+        """Estimate the positive rate of each channel over the current epoch."""
+        ...
+
+    def __getitem__(self, item: int) -> dict[str, Any]:
+        """Return one window."""
+        ...
 
 
 @dataclass(frozen=True)

@@ -54,6 +54,10 @@ class Paths:
         """Precomputed features, one subdirectory per feature spec."""
         return self.root / "features"
 
+    def embeddings(self, encoder: str) -> Path:
+        """Frozen-encoder embeddings, one subdirectory per encoder."""
+        return self.features / encoder
+
     @property
     def runs(self) -> Path:
         """Training runs: checkpoints, metrics, configs."""

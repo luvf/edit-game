@@ -54,6 +54,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    for register in (
+        _register_data_commands,
+        _register_train_commands,
+    ):
+        register(subparsers)
+
+    return parser
+
+
+def _register_data_commands(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
+    """Register the commands that only look at data."""
     inspect = subparsers.add_parser(
         "inspect", help="état du dataset: couverture, labels, anomalies"
     )
@@ -85,6 +96,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("cache-status", help="taille et contenu du cache")
 
+    embed = subparsers.add_parser(
+        "build-embeddings",
+        help="encoder l'audio avec un encodeur pré-entraîné gelé (une fois)",
+    )
+    _add_selection_args(embed)
+    embed.add_argument("--encoder", default="ast", help="encodeur gelé (défaut: ast)")
+    embed.add_argument("--batch-size", type=int, default=16)
+    embed.add_argument("--force", action="store_true")
+    embed.add_argument("--device")
+
+
+def _register_train_commands(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
+    """Register the commands that train, evaluate or predict."""
     splits = subparsers.add_parser(
         "splits", help="afficher la partition train/val/test"
     )
@@ -106,6 +130,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train.add_argument("--device", help="cuda, cpu… (défaut: cuda si disponible)")
     train.add_argument("--seed", type=int, default=0)
+    train.add_argument(
+        "--encoder",
+        help="entraîner une tête sur les plongements de cet encodeur gelé "
+        "(défaut: modèle bout-en-bout sur la forme d'onde)",
+    )
+    train.add_argument("--head-channels", type=int, default=128)
+    train.add_argument("--dropout", type=float, default=0.2)
+    train.add_argument(
+        "--patience",
+        type=int,
+        default=0,
+        help="arrêter après N epochs sans progrès (0 = désactivé)",
+    )
 
     evaluate = subparsers.add_parser(
         "evaluate", help="décoder des games entières et scorer contre la vérité"
@@ -119,6 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--tolerance", type=float, default=0.5, help="tolérance de match, en secondes"
     )
     evaluate.add_argument("--per-game", action="store_true", help="détail par game")
+    evaluate.add_argument("--encoder", help="encodeur gelé du run, si applicable")
     evaluate.add_argument("--device")
 
     predict = subparsers.add_parser(
@@ -133,9 +171,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="inclure les courbes dans le json en plus du .npz",
     )
+    predict.add_argument("--encoder", help="encodeur gelé du run, si applicable")
     predict.add_argument("--device")
-
-    return parser
 
 
 def _add_split_args(parser: argparse.ArgumentParser) -> None:
@@ -217,6 +254,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "inspect": commands.inspect,
         "build-cache": commands.build_cache,
         "cache-status": lambda _args, paths: commands.cache_status(paths),
+        "build-embeddings": commands.build_embeddings,
         "splits": commands.splits,
         "train": commands.train,
         "evaluate": commands.evaluate,
