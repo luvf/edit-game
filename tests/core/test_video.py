@@ -84,9 +84,7 @@ class TestVideoFileSaveAutoPath:
         )
         video_file.save()
 
-        assert video_file.path == str(
-            video.base_path / video.expected_filename("low")
-        )
+        assert video_file.path == str(video.base_path / video.expected_filename("low"))
 
     def test_does_not_override_an_explicit_path(self, game):
         video = baker.make("core.Video", name="proxy")

@@ -73,9 +73,7 @@ class TestVideoAdmin:
         assert str(videos["cut"]) in content
         assert str(videos["game"]) in content
 
-    @pytest.mark.parametrize(
-        "key", ["proxy", "rendered", "archive", "orphan"], ids=str
-    )
+    @pytest.mark.parametrize("key", ["proxy", "rendered", "archive", "orphan"], ids=str)
     def test_change_page_renders_for_every_kind(self, admin_client, videos, key):
         url = reverse("admin:core_video_change", args=(videos[key].pk,))
 
@@ -297,9 +295,7 @@ def mixed_files(videos, tmp_path):
 
 class TestVideoFileOnDiskFilterAndSort:
     def _changelist(self, admin_client, params):
-        response = admin_client.get(
-            reverse("admin:core_videofile_changelist"), params
-        )
+        response = admin_client.get(reverse("admin:core_videofile_changelist"), params)
         return list(response.context["cl"].result_list)
 
     def test_filter_keeps_only_files_on_disk(self, admin_client, mixed_files):
@@ -380,9 +376,7 @@ class TestActionsWithoutSelection:
             row.pk for row in mixed_files["present"]
         )
 
-    def test_an_active_filter_still_narrows_the_target(
-        self, admin_client, mixed_files
-    ):
+    def test_an_active_filter_still_narrows_the_target(self, admin_client, mixed_files):
         url = reverse("admin:core_videofile_changelist")
 
         self._post(admin_client, f"{url}?on_disk=0", "check_files_and_refresh_fps")

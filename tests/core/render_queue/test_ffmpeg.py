@@ -377,3 +377,106 @@ class TestArchiveGetSourceFiles:
 
         assert item.get_source_files() == ["dummy"]
         assert calls == [True]
+
+
+class TestProbeVideoStreamEntry:
+    """The ffprobe parsing itself, which the downscale tests stub away.
+
+    A GoPro MP4 exposes two groups of streams, so `-select_streams v:0` matches
+    twice and ffprobe prints the value once per match. Reading the whole output
+    gave the height twice over, `int()` refused it, the height came back unknown
+    downscale was silently skipped — which is how 4K archives stayed at 40 GB
+    an hour.
+    """
+
+    @staticmethod
+    def _stub(monkeypatch, stdout: str, returncode: int = 0):
+        import subprocess
+
+        def fake_run(*_args, **_kwargs):
+            if returncode:
+                raise subprocess.CalledProcessError(returncode, "ffprobe")
+            return subprocess.CompletedProcess(
+                args=["ffprobe"], returncode=0, stdout=stdout, stderr=""
+            )
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+    def test_reads_a_single_value(self, monkeypatch):
+        self._stub(monkeypatch, "1080\n")
+
+        assert (
+            RenderQueueItemFFMPEG._probe_video_stream_entry(Path("/a.mp4"), "height")
+            == "1080"
+        )
+
+    def test_keeps_only_the_first_of_a_gopro_double_listing(self, monkeypatch):
+        self._stub(monkeypatch, "2160\n2160\n")
+
+        assert (
+            RenderQueueItemFFMPEG._probe_video_stream_entry(Path("/a.mp4"), "height")
+            == "2160"
+        )
+
+    def test_skips_leading_blank_lines(self, monkeypatch):
+        self._stub(monkeypatch, "\n\nhevc\nhevc\n")
+
+        assert (
+            RenderQueueItemFFMPEG._probe_video_stream_entry(
+                Path("/a.mp4"), "codec_name"
+            )
+            == "hevc"
+        )
+
+    def test_empty_output_is_none(self, monkeypatch):
+        self._stub(monkeypatch, "\n \n")
+
+        assert (
+            RenderQueueItemFFMPEG._probe_video_stream_entry(Path("/a.mp4"), "height")
+            is None
+        )
+
+    def test_a_failing_probe_is_none(self, monkeypatch):
+        self._stub(monkeypatch, "", returncode=1)
+
+        assert (
+            RenderQueueItemFFMPEG._probe_video_stream_entry(Path("/a.mp4"), "height")
+            is None
+        )
+
+
+class TestSourceVideoHeightParsing:
+    """The height must survive a GoPro's doubled ffprobe output."""
+
+    @staticmethod
+    def _stub_probe(monkeypatch, value: str | None):
+        monkeypatch.setattr(
+            RenderQueueItemFFMPEG,
+            "_probe_video_stream_entry",
+            staticmethod(lambda path, entry: value),
+        )
+
+    def test_a_doubled_listing_yields_a_height(self, monkeypatch):
+        # What the probe returns after keeping the first line.
+        self._stub_probe(monkeypatch, "2160")
+
+        assert RenderQueueItemArchive._source_video_height(Path("/a.mp4")) == 2160
+
+    def test_a_non_numeric_value_is_none(self, monkeypatch):
+        self._stub_probe(monkeypatch, "2160\n2160")
+
+        assert RenderQueueItemArchive._source_video_height(Path("/a.mp4")) is None
+
+    def test_a_missing_value_is_none(self, monkeypatch):
+        self._stub_probe(monkeypatch, None)
+
+        assert RenderQueueItemArchive._source_video_height(Path("/a.mp4")) is None
+
+    def test_a_4k_gopro_triggers_the_downscale(self, monkeypatch, game):
+        self._stub_probe(monkeypatch, "2160")
+        item = baker.make("core.RenderQueueItemArchive", game=game)
+
+        args = item._preset_args([Path("/GX010837.MP4")])
+
+        assert args["scale"] == ["-2", "1080"]
+        assert args["video"][args["video"].index("-crf") + 1] == "34"

@@ -135,6 +135,13 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
     def _probe_video_stream_entry(file_path: Path, entry: str) -> str | None:
         """Return one `stream=<entry>` value of the first video stream.
 
+        Only the first line is kept, and that matters: a GoPro MP4 exposes two
+        groups of streams, so `-select_streams v:0` matches twice and ffprobe
+        prints the value once per match. Reading the whole output gave
+        the height twice over, which `int()` refused, so it came back as an unknown
+        height, which silently skipped the downscale — leaving 4K archives at
+        40 GB an hour.
+
         None when ffprobe can't read the file or reports nothing.
         """
         try:
@@ -158,7 +165,11 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
         except (subprocess.CalledProcessError, OSError):
             return None
 
-        return result.stdout.strip() or None
+        for line in result.stdout.splitlines():
+            value = line.strip()
+            if value:
+                return value
+        return None
 
     @classmethod
     def _source_has_av1_video(cls, file_path: Path) -> bool:

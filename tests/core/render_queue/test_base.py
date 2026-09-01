@@ -28,7 +28,9 @@ class FakePopenResult:
 class TestSingleRunningConstraint:
     def test_only_one_running_item_allowed(self, game):
         baker.make("core.RenderQueueItemProxy", game=game, status=Status.RUNNING)
-        item2 = baker.make("core.RenderQueueItemProxy", game=game, status=Status.CREATED)
+        item2 = baker.make(
+            "core.RenderQueueItemProxy", game=game, status=Status.CREATED
+        )
 
         item2.status = Status.RUNNING
         with pytest.raises(IntegrityError), transaction.atomic():
@@ -102,7 +104,9 @@ class TestReset:
         assert killed
 
     def test_noop_when_no_pid(self, game, monkeypatch):
-        monkeypatch.setattr("os.kill", lambda *_a: pytest.fail("os.kill should not run"))
+        monkeypatch.setattr(
+            "os.kill", lambda *_a: pytest.fail("os.kill should not run")
+        )
         item = baker.make(
             "core.RenderQueueItemProxy", game=game, status=Status.RUNNING, pid=None
         )

@@ -11,19 +11,26 @@ from core.models.tournament import Team
 
 class TestMediaPath:
     def test_media_path_joins_drive_and_tournament_dir(self, tournament):
-        assert tournament.media_path == Path(tournament.drive_dir) / tournament.tournament_dir
+        assert (
+            tournament.media_path
+            == Path(tournament.drive_dir) / tournament.tournament_dir
+        )
 
 
 class TestTournamentMediaUrl:
     def test_non_archive_tournament_uses_local_url(self, tournament):
-        assert tournament.tournament_media_url.startswith("http://127.0.0.1:8081/tournois/")
+        assert tournament.tournament_media_url.startswith(
+            "http://127.0.0.1:8081/tournois/"
+        )
         assert tournament.tournament_media_url.endswith(tournament.tournament_dir)
 
     def test_archived_tournament_uses_archive_url(self, tournament, settings):
         tournament.drive_dir = str(settings.TOURNAMENTS_ARCHIVE_DIR)
         tournament.save(update_fields=["drive_dir"])
 
-        assert tournament.tournament_media_url.startswith("http://192.168.1.2:8001/tournois/")
+        assert tournament.tournament_media_url.startswith(
+            "http://192.168.1.2:8001/tournois/"
+        )
 
 
 class TestIdentifyTeam:

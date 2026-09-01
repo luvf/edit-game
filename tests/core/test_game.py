@@ -172,8 +172,7 @@ class TestEnqueueArchiveRender:
 
         assert first.pk != second.pk
         assert (
-            RenderQueueItemArchive.objects.filter(game=game, preset="high").count()
-            == 2
+            RenderQueueItemArchive.objects.filter(game=game, preset="high").count() == 2
         )
 
     def test_conflicts_when_archive_file_already_exists_on_disk(self, game, tmp_path):

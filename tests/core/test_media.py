@@ -155,8 +155,7 @@ class TestMakeMetadata:
         context = vm.make_metadata()
 
         assert (
-            context["vid_name"]
-            == f"Alpha vs Beta | {tournament.name.upper()} [JUGGER]"
+            context["vid_name"] == f"Alpha vs Beta | {tournament.name.upper()} [JUGGER]"
         )
         assert context["description"] == "desc text"
         assert context["pub_date"] == "2024-01-02T15:30"
