@@ -133,3 +133,48 @@ class TestGameControls:
 
         assert not app.exception
         assert app.metric[0].value != before or app.metric[1].value is not None
+
+
+class TestGamePicker:
+    def test_test_partition_is_excluded_by_default(self, app):
+        app.run()
+
+        assert app.sidebar.multiselect[0].value == ["train", "val"]
+
+    def test_the_partition_filter_explains_itself(self, app):
+        app.run()
+
+        assert "test" in (app.sidebar.multiselect[0].help or "")
+
+    def test_tournaments_carry_their_game_count(self, app):
+        app.run()
+        options = app.sidebar.selectbox[1].options
+
+        assert options[0].startswith("tous (")
+        assert all(option.endswith(")") for option in options)
+
+    def test_a_caption_says_how_many_games_are_shown(self, app):
+        app.run()
+
+        assert any("game(s) sur" in caption.value for caption in app.sidebar.caption)
+
+    def test_showing_every_partition_lists_the_whole_catalog(self, app):
+        app.run()
+        shown = len(app.sidebar.selectbox[2].options)
+        app.sidebar.multiselect[0].set_value(["train", "val", "test"]).run()
+
+        assert len(app.sidebar.selectbox[2].options) > shown
+
+    def test_filtering_by_tournament_narrows_the_list(self, app):
+        app.run()
+        before = len(app.sidebar.selectbox[2].options)
+        app.sidebar.selectbox[1].set_value(app.sidebar.selectbox[1].options[1]).run()
+
+        assert len(app.sidebar.selectbox[2].options) < before
+
+    def test_a_button_clears_the_caches(self, app):
+        app.run()
+
+        assert any(
+            button.label == "Recharger les données" for button in app.sidebar.button
+        )

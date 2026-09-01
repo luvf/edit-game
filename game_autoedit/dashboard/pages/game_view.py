@@ -101,26 +101,40 @@ def _decode_controls() -> DecodeSpec:
 
 def _game_picker(partitions: dict[int, str]) -> int | None:
     """Draw the game selector and return the chosen game id."""
-    games = loading.catalog().games
-    if not games:
+    catalog = loading.catalog()
+    total = len(catalog.games)
+    if not catalog.games:
         st.sidebar.warning("Aucun game exploitable dans le catalogue.")
         return None
-    tournaments = sorted({game.tournament for game in games})
-    chosen = st.sidebar.selectbox(
-        "Tournoi", ["tous", *tournaments], key="tournament_filter"
-    )
-    if chosen != "tous":
-        games = [game for game in games if game.tournament == chosen]
 
     parts = st.sidebar.multiselect(
-        "Partition", ["train", "val", "test"], default=["val"]
+        "Partition",
+        ["train", "val", "test"],
+        default=["train", "val"],
+        help="Le jeu de test est exclu par défaut : le regarder pour choisir "
+        "un réglage le transforme en second jeu de validation, et les chiffres "
+        "finaux ne veulent alors plus rien dire.",
     )
-    if parts:
-        games = [game for game in games if partitions.get(game.game_id) in parts]
+    games = [
+        game
+        for game in catalog.games
+        if not parts or partitions.get(game.game_id) in parts
+    ]
+
+    counts: dict[str, int] = {}
+    for game in games:
+        counts[game.tournament] = counts.get(game.tournament, 0) + 1
+    options = [f"tous ({len(games)})", *[f"{n} ({counts[n]})" for n in sorted(counts)]]
+    chosen = st.sidebar.selectbox("Tournoi", options, key="tournament_filter")
+    if not chosen.startswith("tous ("):
+        wanted = chosen.rsplit(" (", 1)[0]
+        games = [game for game in games if game.tournament == wanted]
+
     if not games:
         st.sidebar.warning("Aucun game avec ces filtres.")
         return None
 
+    st.sidebar.caption(f"{len(games)} game(s) sur {total} — {len(counts)} tournoi(s)")
     labelled = {
         f"{game.game_id} — {game.name[:40]} ({partitions.get(game.game_id, '?')})": game.game_id
         for game in games

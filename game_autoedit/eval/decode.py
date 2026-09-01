@@ -9,7 +9,7 @@ retraining.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -19,9 +19,89 @@ from game_autoedit.datasets.targets import CHANNEL_INDEX
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+SmoothKernel = Literal["gaussian", "box"]
+
 
 # Fallback for a channel with no configured trigger.
 DEFAULT_THRESHOLD = 0.5
+
+
+def smooth(
+    curve: np.ndarray, sigma: float, kernel: SmoothKernel = "gaussian"
+) -> np.ndarray:
+    """Smooth a probability curve before its shape is read.
+
+    The raw ``inside`` curve flickers: on a validation game it crosses the
+    half-way mark thousands of times for a dozen real boundaries, so its edges
+    are unusable as they stand.
+
+    The default kernel is Gaussian rather than a moving average, and the reason
+    matters here: a rectangular window can *create* local maxima that the
+    original curve never had — its Fourier transform changes sign — and the
+    next thing this pipeline does is pick peaks. The Gaussian is the only
+    kernel that provably never introduces a new extremum as the smoothing
+    widens, so every peak found afterwards corresponds to one that was really
+    there. A boxcar is kept available to compare against.
+
+    Args:
+        curve: the per-step probabilities.
+        sigma: smoothing width in steps; a boxcar reads it as its half-width.
+        kernel: ``gaussian`` or ``box``.
+
+    Returns:
+        The smoothed curve, same length as the input.
+    """
+    if sigma <= 0 or curve.size == 0:
+        return curve.astype(np.float64, copy=True)
+
+    values = curve.astype(np.float64)
+    if kernel == "box":
+        width = max(int(round(2 * sigma)) | 1, 1)
+        padding = width // 2
+        padded = np.pad(values, padding, mode="edge")
+        averaged = np.convolve(padded, np.ones(width) / width, mode="same")
+        return averaged[padding : padding + len(values)]
+
+    from scipy.ndimage import gaussian_filter1d
+
+    smoothed: np.ndarray = gaussian_filter1d(values, sigma=sigma, mode="nearest")
+    return smoothed
+
+
+def edge_evidence(inside: np.ndarray, span: int, *, rising: bool) -> np.ndarray:
+    """Return how strongly `inside` steps up or down around each instant.
+
+    For every step, the mean of the `span` steps after it is compared with the
+    mean of the `span` steps before. A point ending is exactly "we were inside
+    and now we are not", so this reads the boundary off the channel that knows
+    it best — and comparing two averages is far steadier than differentiating,
+    which would only amplify the flicker.
+
+    Args:
+        inside: the ``inside`` probabilities, already smoothed.
+        span: how many steps to average on each side.
+        rising: True to detect a step up (a point starting), False for a step
+            down (a point ending).
+
+    Returns:
+        Evidence in [0, 1], one value per step.
+    """
+    if inside.size == 0:
+        return inside.astype(np.float32, copy=True)
+
+    span = max(span, 1)
+    padded = np.pad(inside.astype(np.float64), span, mode="edge")
+    cumulative = np.concatenate([[0.0], np.cumsum(padded)])
+    # Means of the `span` steps ending at, and starting from, each instant.
+    before = (cumulative[span : span + len(inside)] - cumulative[: len(inside)]) / span
+    after = (
+        cumulative[2 * span : 2 * span + len(inside)]
+        - cumulative[span : span + len(inside)]
+    ) / span
+
+    difference = (after - before) if rising else (before - after)
+    evidence: np.ndarray = np.clip(difference, 0.0, 1.0).astype(np.float32)
+    return evidence
 
 
 @dataclass(frozen=True)
@@ -43,6 +123,15 @@ class DecodeSpec:
         max_duration: longest segment kept; beyond this an ``out`` was missed.
         inside_veto: a candidate segment whose mean ``inside`` probability
             falls below this is dropped.
+        inside_smoothing: smoothing width in seconds applied to ``inside``
+            before its edges are read.
+        smooth_kernel: ``gaussian``, which cannot invent a peak, or ``box``.
+        inside_weight: how much of a boundary's score comes from the ``inside``
+            edge rather than from the channel's own peak. 0 keeps the previous
+            behaviour, where the strongest channel was only ever a veto; 1
+            ignores the boundary channels entirely.
+        evidence_span: seconds averaged either side of an instant when reading
+            an ``inside`` edge.
     """
 
     threshold: dict[str, float] = field(
@@ -52,6 +141,10 @@ class DecodeSpec:
     min_duration: float = 4.0
     max_duration: float = 240.0
     inside_veto: float = 0.25
+    inside_smoothing: float = 1.0
+    smooth_kernel: SmoothKernel = "gaussian"
+    inside_weight: float = 0.0
+    evidence_span: float = 3.0
 
 
 @dataclass(frozen=True)
@@ -143,6 +236,41 @@ def _pair_peaks(peaks: Sequence[Peak], dropped: list[str]) -> list[tuple[Peak, P
     return pairs
 
 
+def boundary_scores(
+    probabilities: np.ndarray, times: np.ndarray, spec: DecodeSpec
+) -> dict[str, np.ndarray]:
+    """Return the score each channel is peak-picked on.
+
+    With `inside_weight` at zero this is just the raw channel. Above it, each
+    boundary's score blends its own evidence with the step the ``inside``
+    curve takes there — which is the point of having a channel that is right
+    95 % of the time while the boundary channels are not.
+    """
+    weight = float(np.clip(spec.inside_weight, 0.0, 1.0))
+    raw = {
+        channel: probabilities[:, CHANNEL_INDEX[channel]].astype(np.float32)
+        for channel in ("in", "out")
+    }
+    if weight == 0.0:
+        return raw
+
+    step = float(times[1] - times[0]) if len(times) > 1 else 1.0
+    inside = smooth(
+        probabilities[:, CHANNEL_INDEX["inside"]],
+        spec.inside_smoothing / step,
+        spec.smooth_kernel,
+    )
+    span = max(int(round(spec.evidence_span / step)), 1)
+    evidence = {
+        "in": edge_evidence(inside, span, rising=True),
+        "out": edge_evidence(inside, span, rising=False),
+    }
+    return {
+        channel: (1.0 - weight) * raw[channel] + weight * evidence[channel]
+        for channel in raw
+    }
+
+
 def decode(
     probabilities: np.ndarray,
     times: np.ndarray,
@@ -160,20 +288,21 @@ def decode(
         reason, so a reviewer can see what the model nearly proposed.
     """
     dropped: list[str] = []
+    inside = probabilities[:, CHANNEL_INDEX["inside"]]
+    scores = boundary_scores(probabilities, times, spec)
+
     peaks: list[Peak] = []
     for channel in ("in", "out"):
-        column = probabilities[:, CHANNEL_INDEX[channel]]
         peaks.extend(
             Peak(time, score, channel)
             for time, score in find_peaks(
-                column,
+                scores[channel],
                 times,
                 threshold=spec.threshold.get(channel, DEFAULT_THRESHOLD),
                 min_distance=spec.min_peak_distance,
             )
         )
 
-    inside = probabilities[:, CHANNEL_INDEX["inside"]]
     segments: list[Segment] = []
     for start_peak, end_peak in _pair_peaks(peaks, dropped):
         duration = end_peak.time - start_peak.time
