@@ -8,6 +8,8 @@ from game_autoedit.data.labels import Segment
 from game_autoedit.eval.decode import Decoded, DecodeSpec, Peak
 from game_autoedit.eval.report import build_comment
 
+LOOSE = {"in": 0.3, "out": 0.3}
+
 
 def comment_for(segments, peaks=(), dropped=()):
     decoded = Decoded(
@@ -19,7 +21,7 @@ def comment_for(segments, peaks=(), dropped=()):
         decoded,
         duration=1200.0,
         fps=59.94,
-        decode_spec=DecodeSpec(),
+        decode_spec=DecodeSpec(threshold=LOOSE),
         model_info={"run": "test"},
     )
 
@@ -80,7 +82,7 @@ class TestBuildComment:
     def test_carries_the_decode_settings(self):
         comment = comment_for([(0, 100)])
 
-        assert comment["decode"]["threshold"] == {"in": 0.3, "out": 0.3}
+        assert comment["decode"]["threshold"] == LOOSE
 
     def test_carries_the_rejections(self):
         comment = comment_for([(0, 100)], dropped=["out sans in à 5.0s"])

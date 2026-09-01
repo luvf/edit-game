@@ -192,8 +192,8 @@ def _add_dataset_args(parser: argparse.ArgumentParser) -> None:
 def _add_decode_args(parser: argparse.ArgumentParser) -> None:
     """Add the decoding thresholds."""
     group = parser.add_argument_group("décodage")
-    group.add_argument("--threshold-in", type=float, default=0.3)
-    group.add_argument("--threshold-out", type=float, default=0.3)
+    group.add_argument("--threshold-in", type=float, default=0.90)
+    group.add_argument("--threshold-out", type=float, default=0.70)
     group.add_argument("--min-peak-distance", type=float, default=3.0)
     group.add_argument("--min-duration", type=float, default=4.0)
     group.add_argument("--max-duration", type=float, default=240.0)

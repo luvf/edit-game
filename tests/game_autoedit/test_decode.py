@@ -10,6 +10,10 @@ from game_autoedit.eval.decode import DecodeSpec, decode, find_peaks
 
 HOP = 0.1
 
+# The logic tests pin their own triggers; the shipped defaults are tuned on real
+# data and are pinned by a test of their own.
+LOOSE = {"in": 0.3, "out": 0.3}
+
 
 def grid(duration):
     steps = int(duration / HOP)
@@ -67,14 +71,16 @@ class TestFindPeaks:
         assert find_peaks(curve, times, threshold=0.5, min_distance=3.0) == []
 
     def test_empty_curve_gives_no_peak(self):
-        assert find_peaks(np.zeros(0), np.zeros(0), threshold=0.3, min_distance=3.0) == []
+        assert (
+            find_peaks(np.zeros(0), np.zeros(0), threshold=0.3, min_distance=3.0) == []
+        )
 
 
 class TestDecode:
     def test_recovers_clean_segments(self):
         probabilities, times = curves_for([(20, 60), (100, 150)])
 
-        decoded = decode(probabilities, times, DecodeSpec())
+        decoded = decode(probabilities, times, DecodeSpec(threshold=LOOSE))
 
         assert len(decoded.segments) == 2
         assert decoded.segments[0].start == pytest.approx(20.0, abs=0.3)
@@ -84,7 +90,7 @@ class TestDecode:
         probabilities, times = grid(100.0)
         add_peak(probabilities[:, CHANNEL_INDEX["out"]], times, 50.0)
 
-        decoded = decode(probabilities, times, DecodeSpec())
+        decoded = decode(probabilities, times, DecodeSpec(threshold=LOOSE))
 
         assert decoded.segments == []
         assert any("out sans in" in reason for reason in decoded.dropped)
@@ -93,7 +99,7 @@ class TestDecode:
         probabilities, times = grid(100.0)
         add_peak(probabilities[:, CHANNEL_INDEX["in"]], times, 50.0)
 
-        decoded = decode(probabilities, times, DecodeSpec())
+        decoded = decode(probabilities, times, DecodeSpec(threshold=LOOSE))
 
         assert decoded.segments == []
         assert any("non refermé" in reason for reason in decoded.dropped)
@@ -105,7 +111,7 @@ class TestDecode:
         add_peak(probabilities[:, CHANNEL_INDEX["out"]], times, 100.0)
         probabilities[(times >= 60) & (times < 100), CHANNEL_INDEX["inside"]] = 0.9
 
-        decoded = decode(probabilities, times, DecodeSpec())
+        decoded = decode(probabilities, times, DecodeSpec(threshold=LOOSE))
 
         assert len(decoded.segments) == 1
         assert decoded.segments[0].start == pytest.approx(60.0, abs=0.3)
@@ -114,7 +120,9 @@ class TestDecode:
     def test_short_segment_is_dropped(self):
         probabilities, times = curves_for([(20, 22)])
 
-        decoded = decode(probabilities, times, DecodeSpec(min_duration=5.0))
+        decoded = decode(
+            probabilities, times, DecodeSpec(threshold=LOOSE, min_duration=5.0)
+        )
 
         assert decoded.segments == []
         assert any("trop court" in reason for reason in decoded.dropped)
@@ -122,7 +130,9 @@ class TestDecode:
     def test_long_segment_is_dropped(self):
         probabilities, times = curves_for([(10, 190)])
 
-        decoded = decode(probabilities, times, DecodeSpec(max_duration=60.0))
+        decoded = decode(
+            probabilities, times, DecodeSpec(threshold=LOOSE, max_duration=60.0)
+        )
 
         assert decoded.segments == []
         assert any("trop long" in reason for reason in decoded.dropped)
@@ -130,7 +140,9 @@ class TestDecode:
     def test_inside_veto_rejects_a_dead_segment(self):
         probabilities, times = curves_for([(20, 60)], inside=0.05)
 
-        decoded = decode(probabilities, times, DecodeSpec(inside_veto=0.25))
+        decoded = decode(
+            probabilities, times, DecodeSpec(threshold=LOOSE, inside_veto=0.25)
+        )
 
         assert decoded.segments == []
         assert any("probabilité" in reason for reason in decoded.dropped)
@@ -148,8 +160,20 @@ class TestDecode:
     def test_peaks_are_reported_in_time_order(self):
         probabilities, times = curves_for([(20, 60), (100, 150)])
 
-        decoded = decode(probabilities, times, DecodeSpec())
+        decoded = decode(probabilities, times, DecodeSpec(threshold=LOOSE))
 
         assert [peak.time for peak in decoded.peaks] == sorted(
             peak.time for peak in decoded.peaks
         )
+
+
+class TestDefaultThresholds:
+    def test_in_is_stricter_than_out(self):
+        spec = DecodeSpec()
+
+        assert spec.threshold["in"] > spec.threshold["out"]
+
+    def test_defaults_match_the_measured_optimum(self):
+        spec = DecodeSpec()
+
+        assert spec.threshold == {"in": 0.90, "out": 0.70}

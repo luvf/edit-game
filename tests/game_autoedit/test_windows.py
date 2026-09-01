@@ -88,7 +88,9 @@ class TestSampleStarts:
             duration=60.0,
             window=window,
             sampling=SamplingSpec(
-                strategy="boundary", positive_ratio=1.0, jitter=30.0,
+                strategy="boundary",
+                positive_ratio=1.0,
+                jitter=30.0,
                 windows_per_game=50,
             ),
             rng=random.Random(1),
@@ -111,7 +113,9 @@ class TestSampleStarts:
         )
 
         anchored = sum(
-            1 for start in starts if abs(start + 15 - 100) < 1 or abs(start + 15 - 140) < 1
+            1
+            for start in starts
+            if abs(start + 15 - 100) < 1 or abs(start + 15 - 140) < 1
         )
         assert anchored == 10
 

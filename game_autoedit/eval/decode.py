@@ -20,14 +20,22 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
+# Fallback for a channel with no configured trigger.
+DEFAULT_THRESHOLD = 0.5
+
+
 @dataclass(frozen=True)
 class DecodeSpec:
     """The thresholds and rules that turn curves into segments.
 
     Attributes:
         threshold: per-channel trigger level; a peak below it is not a
-            candidate. Separate values because missing an ``in`` and inventing
-            an ``out`` do not cost the same.
+            candidate. Separate values because the two channels are not
+            equally confident: the `in` head puts almost all its true
+            boundaries above 0.9, so a low trigger buys nothing but false
+            positives, while the `out` head is far less sure and loses real
+            boundaries above 0.7. The defaults are the joint optimum measured
+            on the validation games; retune them with a sweep after a run.
         min_peak_distance: seconds between two peaks of the same channel.
         min_duration: shortest segment kept, in seconds.
         max_duration: longest segment kept; beyond this an ``out`` was missed.
@@ -35,7 +43,9 @@ class DecodeSpec:
             falls below this is dropped.
     """
 
-    threshold: dict[str, float] = field(default_factory=lambda: {"in": 0.3, "out": 0.3})
+    threshold: dict[str, float] = field(
+        default_factory=lambda: {"in": 0.90, "out": 0.70}
+    )
     min_peak_distance: float = 3.0
     min_duration: float = 4.0
     max_duration: float = 240.0
@@ -156,7 +166,7 @@ def decode(
             for time, score in find_peaks(
                 column,
                 times,
-                threshold=spec.threshold.get(channel, 0.3),
+                threshold=spec.threshold.get(channel, DEFAULT_THRESHOLD),
                 min_distance=spec.min_peak_distance,
             )
         )

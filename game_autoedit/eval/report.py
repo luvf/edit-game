@@ -11,6 +11,8 @@ import itertools
 import statistics
 from typing import TYPE_CHECKING, Any
 
+from game_autoedit.eval.decode import DEFAULT_THRESHOLD
+
 if TYPE_CHECKING:
     from game_autoedit.data.labels import Segment
     from game_autoedit.eval.decode import Decoded, DecodeSpec
@@ -90,11 +92,11 @@ def _uncertain(decoded: Decoded, spec: DecodeSpec) -> list[dict[str, Any]]:
             "kind": f"{peak.channel}_incertain",
             "detail": (
                 f"score {peak.score:.2f} pour un seuil de "
-                f"{spec.threshold.get(peak.channel, 0.3):.2f}"
+                f"{spec.threshold.get(peak.channel, DEFAULT_THRESHOLD):.2f}"
             ),
         }
         for peak in decoded.peaks
-        if peak.score < spec.threshold.get(peak.channel, 0.3) + MARGIN
+        if peak.score < spec.threshold.get(peak.channel, DEFAULT_THRESHOLD) + MARGIN
     ]
 
 
