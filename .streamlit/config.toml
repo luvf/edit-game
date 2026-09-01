@@ -1,0 +1,25 @@
+# Configuration du tableau de bord game_autoedit.
+
+[server]
+# Streamlit recharge les modules locaux dès qu'un fichier change. Django ne
+# sait pas recharger un modèle : ré-importer `core/models/game.py` seul crée
+# une nouvelle classe Game dont les relations inverses n'ont jamais été
+# construites, d'où « Cannot find 'cuts' on Game object » en pleine page. On
+# retire donc l'application Django de la surveillance ; game_autoedit reste
+# surveillé, c'est là qu'on itère.
+folderWatchBlacklist = [
+    "core",
+    "api",
+    "edit_game",
+    "jugger_video_manipulation",
+    "medias",
+    "json_files",
+    "node_modules",
+    "frontend",
+]
+
+[runner]
+# Ne pas invalider les modules importés entre deux exécutions du script : le
+# registre d'applications Django est global et ne survit pas à une
+# ré-importation partielle.
+fastReruns = false

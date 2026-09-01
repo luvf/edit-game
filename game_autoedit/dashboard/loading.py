@@ -30,10 +30,31 @@ def paths() -> Paths:
 
 @st.cache_resource
 def _django() -> bool:
-    """Configure Django once per session."""
+    """Configure Django once per session, and check the registry is whole.
+
+    Django cannot re-import a model: a partial reload leaves a fresh `Game`
+    class whose reverse relations were never built, and the next query fails
+    deep inside the ORM with a message that says nothing about the cause. The
+    check below turns that into something actionable.
+
+    Raises:
+        RuntimeError: when the model registry is half-built.
+    """
     from game_autoedit.bootstrap import setup_django
 
     setup_django()
+
+    from core.models.game import Game
+
+    related = {field.name for field in Game._meta.get_fields()}  # noqa: SLF001
+    if "cuts" not in related:
+        message = (
+            "Le registre de modèles Django est incomplet : Game n'a pas sa "
+            "relation 'cuts'. Un module de core/models a été ré-importé sans "
+            "les autres. Redémarrer le serveur, et vérifier que "
+            ".streamlit/config.toml exclut bien 'core' de folderWatchBlacklist."
+        )
+        raise RuntimeError(message)
     return True
 
 

@@ -178,3 +178,27 @@ class TestGamePicker:
         assert any(
             button.label == "Recharger les données" for button in app.sidebar.button
         )
+
+
+class TestStreamlitConfig:
+    """Django cannot re-import a model, so Streamlit must not watch its app."""
+
+    @pytest.fixture()
+    def config(self):
+        import tomllib
+
+        path = Path(__file__).resolve().parents[2] / ".streamlit" / "config.toml"
+        assert path.exists(), "il faut un .streamlit/config.toml"
+        return tomllib.loads(path.read_text())
+
+    def test_django_app_is_not_watched(self, config):
+        blacklist = config["server"]["folderWatchBlacklist"]
+
+        assert {"core", "api", "edit_game"} <= set(blacklist)
+
+    def test_the_pipeline_itself_stays_watched(self, config):
+        # Hot reload is worth keeping where the iteration happens.
+        assert "game_autoedit" not in config["server"]["folderWatchBlacklist"]
+
+    def test_modules_are_not_invalidated_between_runs(self, config):
+        assert config["runner"]["fastReruns"] is False
