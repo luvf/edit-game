@@ -109,6 +109,59 @@ def match_boundaries(
     )
 
 
+def score_intervals(
+    predicted: Sequence[float],
+    expected: Sequence[float],
+    envelope: np.ndarray,
+    *,
+    channel: str,
+    strength: float = 0.15,
+    span: float = 16.0,
+    max_beats: int = 8,
+) -> IntervalScore:
+    """Score boundaries by the drum interval they land in.
+
+    Both instants are measured on the same locally estimated grid, so an error
+    in the grid's phase cancels out: what is compared is how many beats apart
+    the two are, which is the question the editor actually cares about.
+
+    Args:
+        predicted: predicted instants, in seconds.
+        expected: true instants, in seconds.
+        envelope: the game's onset strength.
+        channel: which channel is being scored, for reporting.
+        strength: minimum periodicity before a grid is trusted.
+        span: seconds of envelope used per estimate.
+        max_beats: beyond this many beats a prediction is not the match for
+            this boundary at all.
+
+    Returns:
+        The per-boundary beat offsets and how many found no prediction.
+    """
+    from game_autoedit.data.beats import estimate_grid
+
+    deltas: list[int] = []
+    unmatched = 0
+    proposals = np.asarray(predicted, dtype=np.float64)
+
+    for truth in expected:
+        grid = estimate_grid(envelope, centre=truth, span=span)
+        if grid is None or grid.strength < strength:
+            continue
+        if proposals.size == 0:
+            unmatched += 1
+            continue
+
+        nearest = float(proposals[int(np.argmin(np.abs(proposals - truth)))])
+        delta = round((nearest - truth) / grid.period)
+        if abs(delta) > max_beats:
+            unmatched += 1
+            continue
+        deltas.append(int(delta))
+
+    return IntervalScore(channel=channel, deltas=deltas, unmatched=unmatched)
+
+
 def _mask(segments: Sequence[Segment], times: np.ndarray) -> np.ndarray:
     """Return a boolean mask of the steps covered by `segments`."""
     mask = np.zeros(len(times), dtype=bool)
@@ -225,6 +278,60 @@ def _overlap_count(segment: Segment, others: Sequence[Segment], ratio: float) ->
         if other.end > other.start and span / (other.end - other.start) >= ratio:
             total += 1
     return total
+
+
+@dataclass(frozen=True)
+class IntervalScore:
+    """How often a boundary lands in the right drum interval.
+
+    Seconds are the wrong unit for this problem. The game is beaten out every
+    1.50 s, the editor places a cut in the middle of an interval, and the
+    decoder puts it back there — so what actually matters is whether the model
+    picked the right interval, not where inside it the boundary fell. Being
+    0.4 s early and 0.4 s late are the same answer if both stay in the same
+    beat; being 0.8 s out matters enormously if it crosses into the next one.
+    """
+
+    channel: str
+    deltas: list[int]
+    unmatched: int
+
+    @property
+    def total(self) -> int:
+        """Return how many true boundaries were considered."""
+        return len(self.deltas) + self.unmatched
+
+    @property
+    def exact(self) -> int:
+        """Return how many landed in the right interval."""
+        return sum(1 for delta in self.deltas if delta == 0)
+
+    @property
+    def accuracy(self) -> float:
+        """Return the share of true boundaries placed in the right interval."""
+        return self.exact / self.total if self.total else 0.0
+
+    @property
+    def within_one(self) -> float:
+        """Return the share placed in the right interval or an adjacent one."""
+        near = sum(1 for delta in self.deltas if abs(delta) <= 1)
+        return near / self.total if self.total else 0.0
+
+    def histogram(self) -> dict[int, int]:
+        """Return how many boundaries fell each number of beats away."""
+        counts: dict[int, int] = {}
+        for delta in self.deltas:
+            key = max(min(delta, 3), -3)
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    def line(self) -> str:
+        """Return a one-line summary."""
+        return (
+            f"{self.channel:4s} bon intervalle {self.accuracy:.3f}  "
+            f"à un intervalle près {self.within_one:.3f}  "
+            f"({self.exact}/{self.total}, {self.unmatched} sans prédiction)"
+        )
 
 
 @dataclass

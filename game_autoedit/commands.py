@@ -422,6 +422,33 @@ def _snapped(
     return segments
 
 
+def _add_intervals(
+    totals: dict[str, tuple[list[int], int]],
+    segments: list[Segment],
+    prepared: Any,
+    paths: Paths,
+) -> None:
+    """Fold one game's beat-interval score into the running totals.
+
+    Silently does nothing when the game has no cached onset envelope: the
+    interval score is a bonus reading, not a reason to fail an evaluation.
+    """
+    from game_autoedit.data.beats import load_envelope
+    from game_autoedit.eval.metrics import score_intervals
+
+    envelope = load_envelope(paths.beats, prepared.game.game_id)
+    if envelope is None:
+        return
+
+    for channel, predicted, expected in (
+        ("in", [segment.start for segment in segments], prepared.labels.ins),
+        ("out", [segment.end for segment in segments], prepared.labels.outs),
+    ):
+        score = score_intervals(predicted, expected, envelope, channel=channel)
+        deltas, unmatched = totals[channel]
+        totals[channel] = (deltas + score.deltas, unmatched + score.unmatched)
+
+
 def _report_skipped(skipped: list[tuple[int, str]], label: str) -> None:
     """Print why some games could not be used."""
     if not skipped:
@@ -672,6 +699,7 @@ def evaluate(args: argparse.Namespace, paths: Paths) -> int:
     from game_autoedit.eval.decode import decode
     from game_autoedit.eval.metrics import (
         Aggregate,
+        IntervalScore,
         match_boundaries,
         score_segments,
     )
@@ -690,6 +718,7 @@ def evaluate(args: argparse.Namespace, paths: Paths) -> int:
 
     decode_spec = _decode_spec_from_args(args)
     aggregate = Aggregate.empty(("in", "out"))
+    intervals: dict[str, tuple[list[int], int]] = {"in": ([], 0), "out": ([], 0)}
     print(f"Évaluation de {len(games)} game(s) sur {device}\n")
 
     for prepared in games:
@@ -708,6 +737,8 @@ def evaluate(args: argparse.Namespace, paths: Paths) -> int:
             )
             aggregate.add_boundaries(score)
 
+        _add_intervals(intervals, segments, prepared, paths)
+
         segment_score = score_segments(
             segments,
             prepared.labels.segments,
@@ -722,6 +753,13 @@ def evaluate(args: argparse.Namespace, paths: Paths) -> int:
     for channel in ("in", "out"):
         print("  " + aggregate.boundary_score(channel).line())
     print(f"  IoU temporel   : {aggregate.iou:.3f}")
+
+    if any(deltas for deltas, _ in intervals.values()):
+        print("\n  Bon intervalle de tambour (la question qui compte) :")
+        for channel in ("in", "out"):
+            deltas, unmatched = intervals[channel]
+            print("    " + IntervalScore(channel, deltas, unmatched).line())
+
     games_count = max(aggregate.games, 1)
     print("  Coût de revue, par game :")
     for label, total in (

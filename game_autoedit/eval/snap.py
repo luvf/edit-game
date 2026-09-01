@@ -64,7 +64,7 @@ def snap_time(
 def snap_segments(
     segments: list[Segment], envelope: np.ndarray, spec: DecodeSpec
 ) -> tuple[list[Segment], SnapReport]:
-    """Place every boundary of a cut on the drum grid.
+    """Place the boundaries named by `spec.snap_channels` on the drum grid.
 
     Args:
         segments: the decoded segments.
@@ -79,14 +79,22 @@ def snap_segments(
     snapped: list[Segment] = []
 
     for segment in segments:
-        start, start_shift = snap_time(segment.start, envelope, spec)
-        end, end_shift = snap_time(segment.end, envelope, spec)
+        start, start_shift = (
+            snap_time(segment.start, envelope, spec)
+            if "in" in spec.snap_channels
+            else (segment.start, None)
+        )
+        end, end_shift = (
+            snap_time(segment.end, envelope, spec)
+            if "out" in spec.snap_channels
+            else (segment.end, None)
+        )
         for shift in (start_shift, end_shift):
             if shift is None:
                 skipped += 1
-            else:
-                moved += 1
-                shifts.append(shift)
+                continue
+            moved += 1
+            shifts.append(shift)
         # A snap must never invert or empty a segment.
         if end <= start:
             snapped.append(segment)

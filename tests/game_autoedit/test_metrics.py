@@ -162,3 +162,64 @@ class TestMergedAndSplit:
         )
 
         assert score.kept_predicted == pytest.approx(90.0, abs=0.2)
+
+
+class TestIntervalScore:
+    """The editor works in beats, so the score should count beats."""
+
+    @pytest.fixture()
+    def envelope(self):
+        import numpy as np
+
+        from game_autoedit.data.beats import ENVELOPE_RATE
+
+        seconds = 120
+        values = np.random.default_rng(0).normal(0.2, 0.05, seconds * ENVELOPE_RATE)
+        for beat in np.arange(0.4, seconds, 1.5):
+            values[int(beat * ENVELOPE_RATE)] += 4.0
+        return values.astype("float32")
+
+    def test_a_boundary_in_the_same_interval_scores(self, envelope):
+        from game_autoedit.eval.metrics import score_intervals
+
+        score = score_intervals([60.3], [60.0], envelope, channel="in")
+
+        assert score.accuracy == 1.0
+
+    def test_a_boundary_one_beat_away_does_not(self, envelope):
+        from game_autoedit.eval.metrics import score_intervals
+
+        score = score_intervals([61.5], [60.0], envelope, channel="in")
+
+        assert score.accuracy == 0.0
+        assert score.within_one == 1.0
+
+    def test_sub_beat_error_either_side_counts_the_same(self, envelope):
+        from game_autoedit.eval.metrics import score_intervals
+
+        early = score_intervals([59.7], [60.0], envelope, channel="in")
+        late = score_intervals([60.3], [60.0], envelope, channel="in")
+
+        assert early.accuracy == late.accuracy
+
+    def test_a_boundary_far_away_counts_as_unmatched(self, envelope):
+        from game_autoedit.eval.metrics import score_intervals
+
+        score = score_intervals([90.0], [60.0], envelope, channel="in")
+
+        assert score.unmatched == 1
+        assert score.accuracy == 0.0
+
+    def test_no_prediction_at_all_counts_as_unmatched(self, envelope):
+        from game_autoedit.eval.metrics import score_intervals
+
+        score = score_intervals([], [60.0], envelope, channel="in")
+
+        assert score.unmatched == 1
+
+    def test_the_histogram_reports_the_offsets(self, envelope):
+        from game_autoedit.eval.metrics import score_intervals
+
+        score = score_intervals([60.1, 61.6], [60.0, 60.1], envelope, channel="in")
+
+        assert sum(score.histogram().values()) == len(score.deltas)

@@ -119,6 +119,12 @@ class DecodeSpec:
             The defaults are the joint optimum measured on the validation
             games; retune them with a sweep after a run.
         min_peak_distance: seconds between two peaks of the same channel.
+        snap_channels: which boundaries are placed on the drum grid. Only the
+            starts, by default: the editor aims a start at the middle of a
+            beat interval, but places an end wherever the action stopped. The
+            labels say the same thing — starts sit at 0.177 circular
+            concentration against the grid, ends at 0.025, which is what pure
+            chance looks like.
         snap_fraction: where between two drum beats a boundary is placed.
             0.5 puts it halfway, because a clip that opens on a drum hit
             sounds like a mistake.
@@ -159,6 +165,7 @@ class DecodeSpec:
     min_duration: float = 4.0
     max_duration: float = 240.0
     inside_veto: float = 0.25
+    snap_channels: tuple[str, ...] = ("in",)
     snap_fraction: float = 0.5
     snap_strength: float = 0.15
     snap_span: float = 16.0
