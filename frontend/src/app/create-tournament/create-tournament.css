@@ -1,0 +1,15 @@
+.create-panel .mat-mdc-form-field {
+  width: 100%;
+  --mat-form-field-container-height: 64px;
+  --mat-form-field-container-vertical-padding: 18px;
+}
+
+.create-panel .mat-mdc-text-field-wrapper {
+  min-height: 64px;
+}
+
+.create-panel .mat-mdc-form-field-infix {
+  min-height: 64px;
+  padding-top: 20px;
+  padding-bottom: 12px;
+}

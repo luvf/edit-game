@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from io import StringIO
 from pathlib import Path
 from typing import Any, cast
@@ -111,6 +111,23 @@ class Tournament(models.Model):
         self.drive_dir = str(archive_dir)
 
         self.save(update_fields=["drive_dir"])
+
+    def refresh_video_files(self) -> Counter[str]:
+        """Re-check every video file of this tournament, and repair what can be.
+
+        Changing `drive_dir` moves `media_path`, but a VideoFile stores an
+        absolute path taken at render time: after an archive the rows still
+        point at the old drive. Each row is relocated to the directory the
+        tournament now resolves to, and its fps refreshed along the way.
+
+        Returns how many rows landed in each VideoFile.FileCheck outcome.
+        """
+        video_file_model = apps.get_model("core", "VideoFile")
+        outcomes: Counter[str] = Counter()
+        for video_file in video_file_model.objects.for_tournament(self):
+            outcome, _ = video_file.check_file()
+            outcomes[outcome] += 1
+        return outcomes
 
 
 class Team(models.Model):

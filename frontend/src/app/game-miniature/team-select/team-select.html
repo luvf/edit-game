@@ -1,0 +1,23 @@
+<div class="team-field">
+  <mat-form-field appearance="outline">
+    <mat-label>{{ label }}</mat-label>
+    <input
+      matInput
+      type="text"
+      [formControl]="searchControl"
+      [matAutocomplete]="teamAutocomplete"
+      [disabled]="disabled"
+      (blur)="onBlur()"
+    />
+    <mat-autocomplete
+      #teamAutocomplete="matAutocomplete"
+      (optionSelected)="onSelect($event.option.value)"
+    >
+      @for (team of filteredTeams; track team._links?.self?.href ?? team.name) {
+        <mat-option [value]="team._links?.self?.href ?? ''">
+          {{ team.name }}
+        </mat-option>
+      }
+    </mat-autocomplete>
+  </mat-form-field>
+</div>

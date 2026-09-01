@@ -1,5 +1,6 @@
 import {
   Component,
+  computed,
   ElementRef,
   inject,
   Input,
@@ -19,7 +20,15 @@ import {MatInputModule} from '@angular/material/input';
 import {MatSelectModule} from '@angular/material/select';
 import {CutsService, GamesService,} from '../../core/services/misc-hateoas-models.service';
 import {TournamentService} from '../../core/services/tournament.service';
-import {Cut, Game, Tournament, Video} from '../../core/models/models';
+import {
+  Cut,
+  Game,
+  Tournament,
+  Video,
+  VideoFile,
+  VideoFiles,
+  VideoQuality,
+} from '../../core/models/models';
 import {CutDetailComponent} from '../cut-detail/cut-detail';
 import {VideoPlayer} from '../video-player/video-player';
 import {GameEditCutsStateService} from './game-edit-cuts-state';
@@ -28,6 +37,22 @@ type CutTemplate = {
   code: string;
   label: string;
 };
+
+/**
+ * Fichier a exposer pour l'archive d'un match.
+ *
+ * Les archives recentes sont stockees en qualite `archive`, les plus
+ * anciennes sous le preset qui les a produites (`high`). Une seule entree
+ * suffit : c'est le meme master.
+ */
+function pickArchiveFile(files: VideoFiles): VideoFile | null {
+  const entries = Object.entries(files) as [
+    VideoQuality,
+    VideoFile | undefined,
+  ][];
+  const preferred = entries.find(([quality]) => quality === 'archive');
+  return (preferred ?? entries[0])?.[1] ?? null;
+}
 
 @Component({
   selector: 'app-game-edit-cuts',
@@ -54,6 +79,33 @@ export class GameEditCutsComponent implements OnChanges, OnInit {
   cuts = signal<Cut[]>([]);
   cutsVideos = signal<Record<string, Video>>({});
   proxyGameVideo = signal<Video | null>(null);
+  /** Archive du match, seulement si elle est liee et qu'un fichier existe. */
+  archiveGameVideo = signal<Video | null>(null);
+  /**
+   * Source du lecteur de rush : les fichiers du proxy et ceux de l'archive
+   * reunis, pour que l'archive soit un choix de plus dans le menu qualite.
+   */
+  rushVideo = computed<Video | null>(() => {
+    const proxy = this.proxyGameVideo();
+    const archive = this.archiveGameVideo();
+    // L'archive est toujours republiee sous la cle `archive` : une archive
+    // ancienne est stockee en `high` et ecraserait sinon la qualite du proxy
+    // qui porte ce nom.
+    const archiveFile = archive ? pickArchiveFile(archive.files) : null;
+    const archiveFiles: VideoFiles | null = archiveFile
+      ? { archive: archiveFile }
+      : null;
+    if (!proxy) {
+      return archive && archiveFiles
+        ? { ...archive, files: archiveFiles }
+        : archive;
+    }
+    if (!archiveFiles) return proxy;
+    return {
+      ...proxy,
+      files: { ...proxy.files, ...archiveFiles },
+    };
+  });
   cutTemplates = signal<CutTemplate[]>([]);
   newCutName = signal('');
   selectedCutType = signal<string | null>(null);
@@ -195,16 +247,39 @@ export class GameEditCutsComponent implements OnChanges, OnInit {
   }
 
   private loadGameVideo(): void {
-    if (this.game) {
-      this.gameService.proxy_video(this.game).subscribe({
-        next: (video: Video) => {
-          this.proxyGameVideo.set(video);
-        },
-        error: (error) => {
-          console.error('Error loading game video:', error);
-        },
-      });
-    }
+    const game = this.game;
+    this.proxyGameVideo.set(null);
+    this.archiveGameVideo.set(null);
+    if (!game) return;
+
+    this.gameService.proxy_video(game).subscribe({
+      next: (video: Video) => {
+        this.proxyGameVideo.set(video);
+      },
+      error: (error) => {
+        console.error('Error loading game video:', error);
+      },
+    });
+    this.loadArchiveVideo(game);
+  }
+
+  /**
+   * Charge l'archive du match si elle est exposee par l'API.
+   *
+   * Un Video d'archive peut exister sans fichier rendu (la relation est creee
+   * des la mise en file du rendu) : sans fichier, il n'y a rien a lire, donc
+   * la source archive reste indisponible.
+   */
+  private loadArchiveVideo(game: Game): void {
+    if (!game._links?.archive_video) return;
+    this.gameService.archive_video(game).subscribe({
+      next: (video: Video) => {
+        if (!Object.keys(video?.files ?? {}).length) return;
+        this.archiveGameVideo.set(video);
+      },
+      error: (e) =>
+        console.error("Erreur lors du chargement de l'archive du match", e),
+    });
   }
 
   private loadCuts(): void {

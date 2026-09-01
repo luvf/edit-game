@@ -77,6 +77,16 @@
   right: -12px;
 }
 
+.render-queue-table th.render-queue__filter {
+  padding: 4px 6px 8px;
+}
+
+.render-queue__filter .mat-mdc-form-field {
+  width: 100%;
+  min-width: 8em;
+  font-size: 12px;
+}
+
 .render-queue__status {
   font-weight: 600;
 }

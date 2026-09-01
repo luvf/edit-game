@@ -46,6 +46,7 @@ from core.models.media import TmpImage, VideoMetadata, YTVideo
 from core.models.render_queue.base import (
     RenderQueueItemBase as RenderQueueItem,
 )
+from core.models.render_queue.ffmpeg import RenderQueueItemArchive
 from core.models.tournament import Team, Tournament
 from core.models.video import Video
 from core.tasks import run_async_task
@@ -501,15 +502,58 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         YTVideo.youtube_update(tournament)
         return Response({"status": "ok"})
 
+    @action(detail=True, methods=[HTTPMethod.POST], url_path="archive_all_games")
+    def archive_all_games(self, request: Request, pk: str | None = None) -> Response:
+        """Queue an archive render for every game of this tournament.
+
+        A game that already has an archive (or a pending archive job) is left
+        alone rather than failing the whole batch: the caller gets the list of
+        what was queued and what was skipped.
+        """
+        _ = pk
+        tournament: Tournament = self.get_object()
+        preset = request.data.get("preset") or RenderQueueItemArchive.DEFAULT_PRESET
+        force = bool(request.data.get("force", False))
+
+        queued: list[int] = []
+        skipped: list[int] = []
+        for game in Game.objects.filter(tournament=tournament).order_by("pk"):
+            try:
+                item = game.enqueue_archive_render(preset=preset, force=force)
+            except ArchiveAlreadyExistsError:
+                skipped.append(game.pk)
+            else:
+                queued.append(item.pk)
+
+        return Response(
+            {
+                "status": "ok",
+                "preset": preset,
+                "queued": queued,
+                "skipped": skipped,
+            }
+        )
+
     @action(detail=True, methods=[HTTPMethod.POST], url_path="archive")
     def archive(self, request: Request, pk: str | None = None) -> Response:
-        """Move the tournament source directory to the archive drive."""
+        """Move the tournament source directory to the archive drive.
+
+        Archiving changes the drive the tournament resolves to, which leaves
+        every VideoFile pointing at the previous one: the rows are re-pointed
+        right after, so the files stay reachable.
+        """
         _ = pk, request
         tournament: Tournament = self.get_object()
         tournament.archive()
         tournament.drive_dir = str(settings.TOURNAMENTS_ARCHIVE_DIR)
         tournament.save(update_fields=["drive_dir"])
-        return Response({"status": "ok", "source_dir": str(tournament.media_path)})
+        return Response(
+            {
+                "status": "ok",
+                "source_dir": str(tournament.media_path),
+                "video_files": dict(tournament.refresh_video_files()),
+            }
+        )
 
 
 class GameViewSet(viewsets.ModelViewSet[Game]):
@@ -583,7 +627,7 @@ class GameViewSet(viewsets.ModelViewSet[Game]):
         _ = pk
         game = self.get_object()
 
-        preset = request.data.get("preset", "high")
+        preset = request.data.get("preset") or RenderQueueItemArchive.DEFAULT_PRESET
         force = bool(request.data.get("force", False))
 
         try:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import json
 import shutil
 import subprocess
@@ -23,6 +24,46 @@ from jugger_video_manipulation.ffmpeg_utils import (
     get_fps,
     write_chapters_metadata,
 )
+
+
+@functools.cache
+def _cuda_device_initialises(ffmpeg_path: str) -> bool:
+    """Run a no-op ffmpeg whose only job is to create a CUDA device.
+
+    Decodes nothing (`-frames:v 0`), so it costs a process spawn and answers
+    the one question that matters: does CUDA come up on this machine, now.
+
+    Cached per process: `_is_cuda_available` is consulted several times per
+    queued job, and a driver that starts or stops working takes a reboot --
+    which restarts the worker, and re-probes.
+    """
+    try:
+        result = subprocess.run(
+            [
+                ffmpeg_path,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-init_hw_device",
+                "cuda:0",
+                "-f",
+                "lavfi",
+                "-i",
+                "nullsrc",
+                "-frames:v",
+                "0",
+                "-f",
+                "null",
+                "-",
+            ],
+            check=False,
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+    return result.returncode == 0
 
 
 class RenderQueueItemFFMPEG(RenderQueueItemBase):
@@ -91,8 +132,11 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
         db_table = "game_edit_render_queue_ffmpeg"
 
     @staticmethod
-    def _source_has_av1_video(file_path: Path) -> bool:
-        """Return True when the source file contains an AV1 video stream."""
+    def _probe_video_stream_entry(file_path: Path, entry: str) -> str | None:
+        """Return one `stream=<entry>` value of the first video stream.
+
+        None when ffprobe can't read the file or reports nothing.
+        """
         try:
             result = subprocess.run(
                 [
@@ -102,7 +146,7 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
                     "-select_streams",
                     "v:0",
                     "-show_entries",
-                    "stream=codec_name",
+                    f"stream={entry}",
                     "-of",
                     "default=noprint_wrappers=1:nokey=1",
                     str(file_path),
@@ -112,9 +156,26 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
                 text=True,
             )
         except (subprocess.CalledProcessError, OSError):
-            return False
+            return None
 
-        return result.stdout.strip().lower() == "av1"
+        return result.stdout.strip() or None
+
+    @classmethod
+    def _source_has_av1_video(cls, file_path: Path) -> bool:
+        """Return True when the source file contains an AV1 video stream."""
+        codec_name = cls._probe_video_stream_entry(file_path, "codec_name")
+        return codec_name is not None and codec_name.lower() == "av1"
+
+    @classmethod
+    def _source_video_height(cls, file_path: Path) -> int | None:
+        """Return the height of the first video stream, None when unreadable."""
+        height = cls._probe_video_stream_entry(file_path, "height")
+        if height is None:
+            return None
+        try:
+            return int(height)
+        except ValueError:
+            return None
 
     def _can_use_cuda_for_decode(self, source_files: list[Path]) -> bool:
         """Return True when CUDA can safely be used for decoding all sources."""
@@ -131,21 +192,20 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
 
     @staticmethod
     def _is_cuda_available() -> bool:
-        """Check if CUDA is available."""
+        """Tell whether CUDA can actually be initialised right now.
+
+        `ffmpeg -hwaccels` only lists what the binary was *built* with, so it
+        keeps reporting cuda long after the driver stopped working — after an
+        NVIDIA upgrade without a reboot, for instance, where the kernel module
+        and the userspace libraries disagree. Trusting it makes the render
+        fail outright with CUDA_ERROR_SYSTEM_DRIVER_MISMATCH; actually
+        creating a device is the only answer that matches what ffmpeg will do
+        during the render, and it lets the job fall back to CPU decoding.
+        """
         ffmpeg_path = shutil.which("ffmpeg")
         if not ffmpeg_path:
             return False
-        try:
-            result = subprocess.run(
-                [ffmpeg_path, "-hide_banner", "-hwaccels"],
-                check=False,
-                capture_output=True,
-            )
-            if result.returncode != 0:
-                return False
-            return "cuda" in result.stdout.lower().decode("utf-8")
-        except (subprocess.CalledProcessError, OSError):
-            return False
+        return _cuda_device_initialises(ffmpeg_path)
 
     @property
     def command_parameters(self) -> str:
@@ -296,8 +356,15 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
 
         return errors
 
-    def _preset_args(self) -> dict[str, list[str]]:
-        """Return ffmpeg args for the selected preset."""
+    def _preset_args(
+        self, source_files: list[Path] | None = None
+    ) -> dict[str, list[str]]:
+        """Return ffmpeg args for the selected preset.
+
+        `source_files` lets a subclass adapt the args to what it is about to
+        encode; it is unused here.
+        """
+        _ = source_files
         default_preset_cpu = next(iter(self.PRESET_ARGS_CPU.keys()))
         cpu_preset_args = self.PRESET_ARGS_CPU.get(
             self.preset,
@@ -465,10 +532,10 @@ class RenderQueueItemGameRender(RenderQueueItemFFMPEG):
         out_file = output_file or self.final_output_path
         out_file.parent.mkdir(parents=True, exist_ok=True)
 
-        preset_args = self._preset_args()
-
         source_files = self.get_source_files()
         nb_files = len(source_files)
+
+        preset_args = self._preset_args(source_files)
 
         filter_complex = FilterComplexBuilder(nb_files)
         filter_complex.filter_concat(filter_complex.inputs_v, filter_complex.inputs_a)
@@ -528,17 +595,76 @@ class RenderQueueItemArchive(RenderQueueItemGameRender):
 
     PRESET_ARGS_CPU: ClassVar[dict[str, dict[str, list[str]]]] = {
         "archive": {
-            "video": ["-c:v", "libsvtav1", "-crf", "34", "-preset", "6"],
+            "video": ["-c:v", "libsvtav1", "-crf", "28", "-preset", "6"],
             "audio": ["-c:a", "aac", "-b:a", "192k"],
         },
     }
 
-    def _preset_args(self) -> dict[str, list[str]]:
-        """Return CPU-only ffmpeg args for archive presets."""
-        return self.PRESET_ARGS_CPU.get(
+    #: Archives are normalised to 1080p. A taller source is downscaled and
+    #: encoded at :attr:`DOWNSCALE_CRF`; measured on GoPro 4K60 rushes, that
+    #: lands at ~18% of the source size for VMAF ~91 against the 1080p
+    #: reference. Keeping 4K instead costs 2 to 4 times as much for detail
+    #: the cut renders never use.
+    #:
+    #: A source at or below this height is left alone and keeps the preset's
+    #: own CRF: scaling it up would inflate the archive to no benefit.
+    MAX_SOURCE_HEIGHT = 1080
+    DOWNSCALE_CRF = "34"
+
+    def _preset_args(
+        self, source_files: list[Path] | None = None
+    ) -> dict[str, list[str]]:
+        """Return CPU-only ffmpeg args for archive presets.
+
+        Sources taller than :attr:`MAX_SOURCE_HEIGHT` are downscaled to it and
+        re-encoded at :attr:`DOWNSCALE_CRF`.
+        """
+        preset_args = self.PRESET_ARGS_CPU.get(
             self.preset,
             self.PRESET_ARGS_CPU[self.DEFAULT_PRESET],
         )
+
+        if not self._sources_need_downscale(source_files):
+            return preset_args
+
+        return {
+            **preset_args,
+            # Height-driven so a non-16:9 source is capped the same way.
+            "scale": ["-2", str(self.MAX_SOURCE_HEIGHT)],
+            "video": self._with_crf(preset_args["video"], self.DOWNSCALE_CRF),
+        }
+
+    @classmethod
+    def _sources_need_downscale(cls, source_files: list[Path] | None) -> bool:
+        """Tell whether the sources are taller than the archive target.
+
+        The tallest source decides: the inputs are concatenated into a single
+        output, so the archive is encoded at that resolution anyway. An
+        unreadable source is treated as not needing a downscale, which keeps
+        the preset's own args rather than guessing.
+        """
+        if not source_files:
+            return False
+
+        heights = [
+            height
+            for height in (
+                cls._source_video_height(source_file) for source_file in source_files
+            )
+            if height is not None
+        ]
+
+        return bool(heights) and max(heights) > cls.MAX_SOURCE_HEIGHT
+
+    @staticmethod
+    def _with_crf(video_args: list[str], crf: str) -> list[str]:
+        """Return `video_args` with its `-crf` value replaced by `crf`."""
+        if "-crf" not in video_args:
+            return video_args
+
+        args = list(video_args)
+        args[args.index("-crf") + 1] = crf
+        return args
 
     class Meta:
         """Model metadata."""

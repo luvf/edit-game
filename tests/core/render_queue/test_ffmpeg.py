@@ -8,26 +8,90 @@ Subprocess/ffmpeg/ffprobe calls are always mocked here: `_execute()` and
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 from model_bakery import baker
 
 from core.models.cut import Cut
 from core.models.game import Game
+from core.models.render_queue import ffmpeg as ffmpeg_module
 from core.models.render_queue.ffmpeg import (
     RenderQueueItemArchive,
     RenderQueueItemFFMPEG,
     RenderQueueItemProxy,
 )
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
 VALID_METADATA = {
     "format": {"format_name": "mov,mp4,m4a,3gp,3g2,mj2", "duration": "10.5"},
     "streams": [{"codec_type": "video"}, {"codec_type": "audio"}],
 }
+
+
+class TestIsCudaAvailable:
+    """CUDA availability must be probed, not read off the build flags."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_probe_cache(self):
+        ffmpeg_module._cuda_device_initialises.cache_clear()
+        yield
+        ffmpeg_module._cuda_device_initialises.cache_clear()
+
+    @pytest.fixture()
+    def probe(self, monkeypatch):
+        """Capture the probe argv and control its exit code."""
+        calls: list[list[str]] = []
+
+        class _Result:
+            returncode = 0
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            result = _Result()
+            result.returncode = fake_run.returncode
+            return result
+
+        fake_run.returncode = 0
+        monkeypatch.setattr(ffmpeg_module.shutil, "which", lambda _: "/usr/bin/ffmpeg")
+        monkeypatch.setattr(ffmpeg_module.subprocess, "run", fake_run)
+        return fake_run, calls
+
+    def test_probe_creates_a_cuda_device(self, probe):
+        """A build-flag listing would pass a bare boolean test; this won't."""
+        _, calls = probe
+
+        assert RenderQueueItemFFMPEG._is_cuda_available() is True
+        assert "-init_hw_device" in calls[0]
+        assert "cuda:0" in calls[0]
+
+    def test_unusable_driver_reports_unavailable(self, probe):
+        """A driver/library mismatch exits non-zero; we must fall back to CPU."""
+        fake_run, _ = probe
+        fake_run.returncode = 187
+
+        assert RenderQueueItemFFMPEG._is_cuda_available() is False
+
+    def test_missing_ffmpeg_reports_unavailable(self, monkeypatch):
+        monkeypatch.setattr(ffmpeg_module.shutil, "which", lambda _: None)
+
+        assert RenderQueueItemFFMPEG._is_cuda_available() is False
+
+    def test_probe_failure_reports_unavailable(self, monkeypatch):
+        def _boom(*_a, **_k):
+            raise OSError("ffmpeg blew up")
+
+        monkeypatch.setattr(ffmpeg_module.shutil, "which", lambda _: "/usr/bin/ffmpeg")
+        monkeypatch.setattr(ffmpeg_module.subprocess, "run", _boom)
+
+        assert RenderQueueItemFFMPEG._is_cuda_available() is False
+
+    def test_result_is_cached(self, probe):
+        fake_run, calls = probe
+
+        RenderQueueItemFFMPEG._is_cuda_available()
+        RenderQueueItemFFMPEG._is_cuda_available()
+
+        assert len(calls) == 1
 
 
 class TestPresetArgs:
@@ -59,6 +123,93 @@ class TestPresetArgs:
         )
         item = baker.make("core.RenderQueueItemArchive", game=game)
         assert item._preset_args() == RenderQueueItemArchive.PRESET_ARGS_CPU["archive"]
+
+
+class TestArchiveDownscale:
+    """Archives are normalised to 1080p; taller sources are downscaled."""
+
+    @staticmethod
+    def _crf(preset_args) -> str:
+        video_args = preset_args["video"]
+        return video_args[video_args.index("-crf") + 1]
+
+    @pytest.fixture()
+    def item(self, game):
+        return baker.make("core.RenderQueueItemArchive", game=game)
+
+    @pytest.fixture()
+    def heights(self, monkeypatch):
+        """Stub ffprobe: map a source path to the height it reports."""
+        by_path: dict[str, int | None] = {}
+        monkeypatch.setattr(
+            RenderQueueItemArchive,
+            "_source_video_height",
+            classmethod(lambda cls, path: by_path.get(str(path))),
+        )
+        return by_path
+
+    @pytest.mark.parametrize("height", [2160, 1440, 1081], ids=str)
+    def test_taller_source_is_downscaled_to_1080p(self, item, heights, height):
+        heights["/rush.mp4"] = height
+        args = item._preset_args([Path("/rush.mp4")])
+
+        assert args["scale"] == ["-2", "1080"]
+        assert self._crf(args) == "34"
+
+    @pytest.mark.parametrize("height", [1080, 720], ids=str)
+    def test_source_at_or_below_1080p_is_left_alone(self, item, heights, height):
+        heights["/rush.mp4"] = height
+        args = item._preset_args([Path("/rush.mp4")])
+
+        assert "scale" not in args
+        assert self._crf(args) == "28"
+
+    def test_tallest_source_decides(self, item, heights):
+        heights.update({"/a.mp4": 1080, "/b.mp4": 2160})
+        args = item._preset_args([Path("/a.mp4"), Path("/b.mp4")])
+
+        assert args["scale"] == ["-2", "1080"]
+        assert self._crf(args) == "34"
+
+    def test_unreadable_source_keeps_preset_args(self, item, heights):
+        heights["/broken.mp4"] = None
+        args = item._preset_args([Path("/broken.mp4")])
+
+        assert "scale" not in args
+        assert self._crf(args) == "28"
+
+    def test_no_source_keeps_preset_args(self, item):
+        args = item._preset_args([])
+
+        assert "scale" not in args
+        assert self._crf(args) == "28"
+
+    def test_class_level_preset_is_not_mutated(self, item, heights):
+        heights["/rush.mp4"] = 2160
+        args = item._preset_args([Path("/rush.mp4")])
+        base = RenderQueueItemArchive.PRESET_ARGS_CPU["archive"]
+
+        assert args["audio"] == base["audio"]
+        assert "scale" not in base
+        assert self._crf(base) == "28"
+
+    def test_downscale_reaches_the_ffmpeg_command(self, item, heights, monkeypatch):
+        """The scale key must actually land in the filter_complex."""
+        heights["/rush.mp4"] = 2160
+        monkeypatch.setattr(
+            RenderQueueItemArchive,
+            "get_source_files",
+            lambda self: [Path("/rush.mp4")],
+        )
+        monkeypatch.setattr(
+            RenderQueueItemArchive, "_is_cuda_available", staticmethod(lambda: False)
+        )
+
+        cmd = item.build_command(output_file=Path("/tmp/out.mp4"))
+        filter_complex = cmd[cmd.index("-filter_complex") + 1]
+
+        assert "scale=-2:1080" in filter_complex
+        assert cmd[cmd.index("-crf") + 1] == "34"
 
 
 class TestValidationErrors:

@@ -294,6 +294,9 @@ class TournamentSerializer(
         view_name="tournament-youtube-update"
     )
     archive = serializers.HyperlinkedIdentityField(view_name="tournament-archive")
+    archive_all_games = serializers.HyperlinkedIdentityField(
+        view_name="tournament-archive-all-games"
+    )
     is_archived = serializers.SerializerMethodField()
     video_metadatas = serializers.HyperlinkedIdentityField(
         view_name="tournament-videos"
@@ -338,6 +341,7 @@ class TournamentSerializer(
             "sync_videos",
             "youtube_update",
             "archive",
+            "archive_all_games",
             "tournament_dir",
             "drive_dir",
         ]
@@ -390,6 +394,7 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
         "team1": "TeamSerializer",
         "team2": "TeamSerializer",
         "video_proxy": "VideoSerializer",
+        "archive_video": "VideoSerializer",
     }
 
     class Meta:
@@ -410,6 +415,7 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
             "generate_proxy",
             "create_archive",
             "video_proxy",
+            "archive_video",
         ]
 
 

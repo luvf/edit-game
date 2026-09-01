@@ -15,8 +15,6 @@ import {MatFormField, MatLabel} from '@angular/material/input';
 import {MatOption, MatSelect} from '@angular/material/select';
 import {HttpClient} from '@angular/common/http';
 
-type Quality = 'high' | 'medium' | 'low';
-
 /**
  * Utilise seulement quand l'API ne renvoie pas de fps : fichier jamais sonde,
  * absent du disque, ou illisible. Les rushs sont en 60000/1001.
@@ -103,7 +101,7 @@ export class VideoPlayer implements OnInit {
     }
   }
 
-  setQuality(q: Quality) {
+  setQuality(q: VideoQuality) {
     if (!this.sourceVideo) return;
     const nextUrl = this.sourceVideo.files[q] ?? null;
     if (!nextUrl) return;
@@ -164,16 +162,33 @@ export class VideoPlayer implements OnInit {
   private initQualities(): void {
     if (!this.sourceVideo?.files) return;
     const sourceVideoFiles: VideoFiles = this.sourceVideo.files;
-    this.availableQualities.set(
-      Object.keys(sourceVideoFiles) as VideoQuality[],
-    );
-    const order: VideoQuality[] = ['low', 'medium', 'high'];
-    const ordered_included = order.filter((quality) =>
-      this.availableQualities().includes(quality),
-    );
-    if (!ordered_included.length) return;
-    const quality = ordered_included[0];
-    this.applySource(quality, sourceVideoFiles[quality]);
+    const available = Object.keys(sourceVideoFiles) as VideoQuality[];
+    this.availableQualities.set(available);
+    // L'archive est la source la plus lourde : on ne la choisit que si le
+    // proxy n'expose aucune de ses qualites. Une qualite inconnue de cet
+    // ordre (les variantes av1) reste jouable en dernier recours.
+    const order: VideoQuality[] = ['low', 'medium', 'high', 'archive'];
+    const quality =
+      order.find((item) => available.includes(item)) ?? available[0];
+    const file = quality ? sourceVideoFiles[quality] : undefined;
+    if (!quality || !file) return;
+
+    const video = this.videoElement?.nativeElement;
+    const currentTime = video?.currentTime ?? 0;
+    const wasPlaying = !!video && !video.paused && !video.ended;
+    const previousUrl = this.currentVideoUrl();
+
+    this.applySource(quality, file);
+
+    // Le fichier ne change pas (nouvelle liste de qualites sur la meme
+    // source) : rien a recharger, donc pas de seek en attente a armer.
+    if (this.currentVideoUrl() === previousUrl) return;
+
+    if (currentTime > 0) {
+      this.isApplyingQuality = true;
+      this.pendingSeekTime = currentTime;
+      this.pendingPlayAfterLoad = wasPlaying;
+    }
   }
 
   /** Selectionne un fichier et adopte sa frame rate reelle. */

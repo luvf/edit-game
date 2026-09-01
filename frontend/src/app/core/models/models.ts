@@ -51,6 +51,7 @@ export interface TournamentLinks extends HalLinks {
   rendered?: Link;
   source_files?: Link;
   archive?: Link;
+  archive_all_games?: Link;
   video_metadatas?: Link;
 
   videos?: Link;
@@ -129,6 +130,7 @@ export interface GameLinks extends HalLinks {
   generate_proxy?: Link;
   create_archive?: Link;
   video_proxy?: Link;
+  archive_video?: Link;
 }
 
 export interface Game extends BaseHalModel {
@@ -162,9 +164,10 @@ export interface Cut extends BaseHalModel {
   _embedded?: HalEmbedded;
 }
 
-export type VideoQuality = 'low' | 'medium' | 'high';
+export type VideoQuality = 'low' | 'medium' | 'high' | 'archive';
 
-export type VideoFiles = Record<VideoQuality, VideoFile>;
+/** Fichiers reellement rendus, indexes par qualite : toutes sont optionnelles. */
+export type VideoFiles = Partial<Record<VideoQuality, VideoFile>>;
 
 export interface VideoFile extends BaseHalModel {
   url: string;

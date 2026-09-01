@@ -160,6 +160,11 @@ class TestEnqueueArchiveRender:
             game.enqueue_archive_render(preset="high")
         assert exc_info.value.archive_video_id == game.archive_video_id
 
+    def test_defaults_to_the_archive_preset(self, game):
+        item = game.enqueue_archive_render()
+
+        assert item.preset == RenderQueueItemArchive.DEFAULT_PRESET
+
     def test_force_creates_a_second_item_despite_conflict(self, game):
         first = game.enqueue_archive_render(preset="high")
 

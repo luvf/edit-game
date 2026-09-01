@@ -1,0 +1,67 @@
+.form-row {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 12px;
+}
+
+.publication-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
+  gap: 12px;
+  align-items: start;
+}
+
+.yt-video-field,
+.publication-date__input {
+  width: 100%;
+}
+
+.yt-video-label-link {
+  color: inherit;
+  max-width: min(52vw, 420px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: bottom;
+}
+
+.publication-date {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.publication-date__now {
+  height: 56px;
+}
+
+.yt-video-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.yt-video-option span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yt-video-option span:last-child {
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .publication-row,
+  .publication-date {
+    grid-template-columns: 1fr;
+  }
+
+  .publication-date__now {
+    height: 40px;
+  }
+}

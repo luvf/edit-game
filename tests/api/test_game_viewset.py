@@ -47,6 +47,26 @@ class TestListAndRetrieve:
         assert set(response.data.keys()) <= {"name", "_links", "_embedded"}
         assert response.data["name"] == game.name
 
+    def test_archive_video_relation_is_absent_without_archive(self, api_client, game):
+        response = api_client.get(reverse("game-detail", args=[game.pk]))
+        assert response.status_code == 200
+        assert "archive_video" not in response.data["_links"]
+        assert "archive_video" not in response.data.get("_embedded", {})
+
+    def test_archive_video_relation_is_exposed_when_set(self, api_client, game):
+        game.archive_video = baker.make("core.Video", name="archive")
+        game.save(update_fields=["archive_video"])
+
+        response = api_client.get(reverse("game-detail", args=[game.pk]))
+
+        assert response.status_code == 200
+        assert response.data["_links"]["archive_video"]["href"].endswith(
+            f"/videos/{game.archive_video.pk}/"
+        )
+        assert response.data["_embedded"]["archive_video"]["pk"] == (
+            game.archive_video.pk
+        )
+
 
 class TestCuts:
     def test_returns_cuts_for_game(self, api_client, game):
@@ -83,6 +103,18 @@ class TestCreateCut:
 
 
 class TestCreateArchive:
+    def test_defaults_to_the_archive_preset(self, api_client, game):
+        """No preset must mean the archive default, not a cut preset.
+
+        The preset also names the VideoFile quality the result is filed
+        under, so a wrong default writes the archive where nothing looks
+        for it.
+        """
+        response = api_client.post(reverse("game-create-archive", args=[game.pk]))
+
+        assert response.status_code == 201
+        assert response.data["preset"] == RenderQueueItemArchive.DEFAULT_PRESET
+
     def test_creates_archive_render_item(self, api_client, game):
         response = api_client.post(
             reverse("game-create-archive", args=[game.pk]), {"preset": "high"}

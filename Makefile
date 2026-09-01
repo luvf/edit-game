@@ -45,8 +45,18 @@ type-check:
 # Deployment
 ########################################################################################################################
 
+# direnv charge .envrc (DJANGO_SECRET_KEY, CHANNEL_ID, ...). Les runners d'IDE
+# (config Makefile PyCharm, etc.) ne passent pas par le shell, donc pas par le
+# hook direnv : on l'appelle explicitement quand il est disponible.
+DIRENV := $(shell command -v direnv 2>/dev/null)
+ifdef DIRENV
+RUN := direnv exec . uv run
+else
+RUN := uv run
+endif
+
 start-server:
-	uv run python manage.py runserver
+	$(RUN) python manage.py runserver
 
 
 nginx-start:

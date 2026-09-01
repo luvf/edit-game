@@ -154,10 +154,17 @@ class Game(models.Model):
         )
 
     def enqueue_archive_render(
-        self, *, preset: str = "high", force: bool = False
+        self, *, preset: str | None = None, force: bool = False
     ) -> RenderQueueItemArchive:
-        """Create a render queue item to generate the game archive."""
+        """Create a render queue item to generate the game archive.
+
+        `preset` names an archive preset; it also becomes the VideoFile
+        quality the result is filed under, so it must be one the archive
+        knows. None means the archive default.
+        """
         from core.models.render_queue.ffmpeg import RenderQueueItemArchive
+
+        preset = preset or RenderQueueItemArchive.DEFAULT_PRESET
 
         if not force and self.archive_video:
             try:

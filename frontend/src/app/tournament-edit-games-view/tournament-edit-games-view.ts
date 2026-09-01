@@ -4,7 +4,10 @@ import {ActivatedRoute, Router} from '@angular/router';
 
 import {MatTableDataSource, MatTableModule} from '@angular/material/table';
 import {MatSort, MatSortModule} from '@angular/material/sort';
-import {TournamentService} from '../core/services/tournament.service';
+import {
+  ArchiveAllGamesResult,
+  TournamentService,
+} from '../core/services/tournament.service';
 import {Game, Team, Tournament, Video, VideoMetadata,} from '../core/models/models';
 import {of} from 'rxjs';
 import {MatButtonModule} from '@angular/material/button';
@@ -37,7 +40,9 @@ export class TournamentEditGamesView
 {
   tournament = signal<Tournament | null>(null);
   games = signal<Game[]>([]);
-  videos = signal<Record<string, Video>>({});
+  videos = signal<Record<string, Video | undefined>>({});
+  /** Archives indexees par match, absentes tant qu'aucune archive n'est liee. */
+  archives = signal<Record<string, Video | undefined>>({});
   team1_names = signal<Record<string, string>>({});
   team2_names = signal<Record<string, string>>({});
   cuts_count = signal<Record<number, number>>({});
@@ -45,11 +50,12 @@ export class TournamentEditGamesView
   selectedSourceFiles = signal<string[]>([]);
   dataSource = new MatTableDataSource<Game>([]);
   proxyQuality = signal<'low' | 'medium' | 'high'>('medium');
+  /** Resultat du dernier archivage global, pour le retour visuel. */
+  archiveAllGamesResult = signal<ArchiveAllGamesResult | null>(null);
   newGameName = '';
   selectedSourceFile = '';
   sourceFilePreviewUrl = '';
   @ViewChild(MatSort) sort!: MatSort;
-  protected readonly Object = Object;
   protected readonly renderPresets = renderPresets;
   private route = inject(ActivatedRoute);
   private router = inject(Router);
@@ -97,9 +103,9 @@ export class TournamentEditGamesView
           return `${team1} vs ${team2}`.toLowerCase();
         }
         case 'proxy':
-          return Object.keys(this.videos()[item.pk].files ?? {}).length > 0
-            ? 1
-            : 0;
+          return this.hasProxy(item) ? 1 : 0;
+        case 'archive':
+          return this.hasArchive(item) ? 1 : 0;
 
         case 'file_name': {
           const sourceName = (item as unknown as { source_name?: string })
@@ -116,6 +122,21 @@ export class TournamentEditGamesView
           );
       }
     };
+  }
+
+  /** Un proxy est utilisable des qu'au moins un fichier a ete rendu. */
+  hasProxy(game: Game): boolean {
+    return Object.keys(this.videos()[game.pk]?.files ?? {}).length > 0;
+  }
+
+  /**
+   * Dit si le match a un fichier d'archive.
+   *
+   * Le Video d'archive est cree des la mise en file du rendu : tant qu'il n'a
+   * aucun fichier, l'archive n'existe pas encore sur le disque.
+   */
+  hasArchive(game: Game): boolean {
+    return Object.keys(this.archives()[game.pk]?.files ?? {}).length > 0;
   }
 
   /**
@@ -221,6 +242,28 @@ export class TournamentEditGamesView
     });
   }
 
+  /**
+   * Met en file un rendu d'archive pour tous les matchs du tournoi.
+   *
+   * Un seul appel cote API : les matchs qui ont deja une archive ou un rendu
+   * en attente sont ignores et remontent dans `skipped`.
+   */
+  onArchiveAllGames(): void {
+    const tournament = this.tournament();
+    if (!tournament) return;
+    const count = this.games().length;
+    if (!confirm(`Lancer l'archivage des ${count} match(s) du tournoi ?`)) {
+      return;
+    }
+    this.archiveAllGamesResult.set(null);
+    this.tournamentService.archiveAllGames(tournament, {}).subscribe({
+      next: (result) => this.archiveAllGamesResult.set(result),
+      error: (e) => {
+        console.error("Erreur lors de l'archivage des matchs", e);
+      },
+    });
+  }
+
   openGameEdit(game: Game): void {
     const url = game?._links?.self?.href;
     if (!url) return;
@@ -242,6 +285,7 @@ export class TournamentEditGamesView
         games.forEach((v) => this.loadTeamsNames(v));
         games.forEach((v) => this.loadCutsCount(v));
         games.forEach((v) => this.loadProxy(v));
+        games.forEach((v) => this.loadArchive(v));
 
         // Load team names and status for each video, and the miniature
         //videos.forEach(v => this.Action(v));
@@ -331,6 +375,22 @@ export class TournamentEditGamesView
       },
       error: (e) => {
         console.error(`Erreur video pour video ${game.pk}`, e);
+      },
+    });
+  }
+
+  /** Charge l'archive d'un match, si l'API en expose une. */
+  private loadArchive(game: Game): void {
+    if (!game._links?.archive_video) return;
+    this.GameService.archive_video(game).subscribe({
+      next: (video) => {
+        const next = { ...this.archives() };
+        next[game.pk] = video;
+        this.archives.set(next);
+        this.dataSource.data = [...this.dataSource.data];
+      },
+      error: (e) => {
+        console.error(`Erreur archive pour le match ${game.pk}`, e);
       },
     });
   }

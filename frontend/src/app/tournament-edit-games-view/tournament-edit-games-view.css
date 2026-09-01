@@ -131,3 +131,8 @@
     grid-template-columns: 1fr;
   }
 }
+
+.archive-all-summary {
+  font-size: 12px;
+  opacity: 0.75;
+}

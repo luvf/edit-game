@@ -1,0 +1,97 @@
+<ng-container [formGroup]="form">
+  <mat-form-field appearance="outline" class="form-row">
+    <mat-label>Nom de la vidéo</mat-label>
+    <input formControlName="video_name" matInput />
+
+    <mat-hint align="start">Longueur</mat-hint>
+    <mat-hint align="end"
+      >{{ (form.get("video_name")?.value || "").length }}/120</mat-hint
+    >
+  </mat-form-field>
+
+  <!-- Description -->
+  <mat-form-field appearance="outline" class="form-row">
+    <mat-label>Description</mat-label>
+    <textarea
+      formControlName="description"
+      id="description"
+      matInput
+      maxlength="5000"
+      placeholder="Résumé, timecodes, liens…"
+      rows="5"
+    ></textarea>
+    <mat-hint align="start"
+      >Vous pouvez inclure des timecodes et des liens utiles.</mat-hint
+    >
+    <mat-hint align="end"
+      >{{ (form.get("description")?.value || "").length }}/5000</mat-hint
+    >
+  </mat-form-field>
+
+  <div class="publication-row">
+    <mat-form-field appearance="outline" class="yt-video-field">
+      <mat-label>
+        @if (selectedYtVideoUrl(); as youtubeUrl) {
+          <a
+            class="yt-video-label-link"
+            [href]="youtubeUrl"
+            target="_blank"
+            rel="noopener"
+            (click)="$event.stopPropagation()"
+          >
+            Vidéo YouTube liée
+          </a>
+        } @else {
+          Vidéo YouTube liée
+        }
+      </mat-label>
+      <mat-select
+        [disabled]="ytVideos.length === 0"
+        [value]="selectedYtVideoHref"
+        (selectionChange)="onYtVideoSelected($event.value)"
+      >
+        @for (video of ytVideos; track video.pk) {
+          <mat-option [value]="ytVideoHref(video)">
+            <span class="yt-video-option">
+              <span>{{ video.title }}</span>
+              <span>{{
+                video.publication_date | date: "dd/MM/yyyy HH:mm"
+              }}</span>
+            </span>
+          </mat-option>
+        }
+      </mat-select>
+      <mat-hint>{{ ytVideos.length }} dernières vidéos YouTube</mat-hint>
+    </mat-form-field>
+
+    <div class="publication-date">
+      <mat-form-field appearance="outline" class="publication-date__input">
+        <mat-label>Date de publication</mat-label>
+        <input
+          formControlName="publication_date"
+          id="publication_date"
+          matInput
+          placeholder="YYYY-MM-DDThh:mm"
+          type="datetime-local"
+        />
+        <button
+          aria-label="Date et heure locales"
+          mat-icon-button
+          matSuffix
+          tabindex="-1"
+        >
+          <mat-icon>event</mat-icon>
+        </button>
+        <mat-hint>Heure locale.</mat-hint>
+      </mat-form-field>
+      <button
+        type="button"
+        mat-stroked-button
+        class="publication-date__now"
+        (click)="setPublicationToNow()"
+      >
+        Now
+      </button>
+    </div>
+  </div>
+</ng-container>

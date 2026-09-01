@@ -9,12 +9,17 @@ import {
 import { CommonModule } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatSelectModule } from '@angular/material/select';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSort, MatSortModule } from '@angular/material/sort';
 import { RenderQueueItem } from '../core/models/models';
 import { RenderQueueService } from '../core/services/misc-hateoas-models.service';
 import { forkJoin } from 'rxjs';
+
+/** Colonnes catégorielles filtrables. */
+type FilterableColumn = 'game' | 'cut' | 'metadata' | 'status';
 
 @Component({
   selector: 'app-render-queue',
@@ -23,6 +28,8 @@ import { forkJoin } from 'rxjs';
     CommonModule,
     MatButtonModule,
     MatCheckboxModule,
+    MatFormFieldModule,
+    MatSelectModule,
     MatTableModule,
     MatTooltipModule,
     MatSortModule,
@@ -45,13 +52,34 @@ export class RenderQueueComponent implements OnInit, AfterViewInit {
     'finished',
     'actions',
   ];
+  filterColumns = this.displayedColumns.map((column) => `${column}-filter`);
+  filterableColumns: FilterableColumn[] = ['game', 'cut', 'metadata', 'status'];
+  nonFilterableColumns = this.displayedColumns.filter(
+    (column) => !(this.filterableColumns as string[]).includes(column),
+  );
   loading = signal(false);
   error = signal<string | null>(null);
   selection = signal<Set<number>>(new Set());
+  filters = signal<Record<FilterableColumn, string[]>>({
+    game: [],
+    cut: [],
+    metadata: [],
+    status: [],
+  });
   @ViewChild(MatSort) sort!: MatSort;
   private renderQueueService = inject(RenderQueueService);
 
   ngOnInit(): void {
+    this.dataSource.filterPredicate = (item, filter) => {
+      const active = JSON.parse(filter) as Record<FilterableColumn, string[]>;
+      return this.filterableColumns.every((column) => {
+        const selected = active[column];
+        return (
+          !selected?.length || selected.includes(this.cellValue(item, column))
+        );
+      });
+    };
+    this.applyFilters();
     this.refresh();
   }
 
@@ -60,13 +88,10 @@ export class RenderQueueComponent implements OnInit, AfterViewInit {
     this.dataSource.sortingDataAccessor = (item, property) => {
       switch (property) {
         case 'game':
-          return (item.game_name ?? item.game ?? '').toString().toLowerCase();
         case 'cut':
-          return (item.cut_name ?? item.cut ?? '').toString().toLowerCase();
         case 'metadata':
-          return (item.metadata ?? '').toString().toLowerCase();
         case 'status':
-          return (item.status ?? '').toString().toLowerCase();
+          return this.cellValue(item, property).toLowerCase();
         case 'started':
           return item.started_at ? new Date(item.started_at).getTime() : 0;
         case 'finished':
@@ -86,6 +111,7 @@ export class RenderQueueComponent implements OnInit, AfterViewInit {
       next: (items) => {
         this.items.set(items);
         this.dataSource.data = items;
+        this.pruneFilters();
       },
       error: (e) => {
         this.error.set(e?.message ? String(e.message) : 'Erreur de chargement');
@@ -96,6 +122,100 @@ export class RenderQueueComponent implements OnInit, AfterViewInit {
 
   isSelected(item: RenderQueueItem): boolean {
     return this.selection().has(item.pk);
+  }
+
+  /** Valeur affichée (et filtrée) d'une colonne catégorielle. */
+  cellValue(item: RenderQueueItem, column: FilterableColumn): string {
+    switch (column) {
+      case 'game':
+        return (item.game_name ?? item.game ?? '-').toString();
+      case 'cut':
+        return (item.cut_name ?? item.cut ?? '-').toString();
+      case 'metadata':
+        return (item.metadata ?? '').toString();
+      case 'status':
+        return (item.status ?? '').toString();
+    }
+  }
+
+  /** Valeurs distinctes disponibles pour une colonne, triées. */
+  filterOptions(column: FilterableColumn): string[] {
+    const values = new Set(
+      this.items().map((item) => this.cellValue(item, column)),
+    );
+    return [...values].sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true }),
+    );
+  }
+
+  /** Nombre de lignes après filtrage. */
+  filteredCount(): number {
+    return this.dataSource.filteredData.length;
+  }
+
+  onFilterChange(column: FilterableColumn, values: string[]): void {
+    this.filters.set({ ...this.filters(), [column]: values });
+    this.applyFilters();
+  }
+
+  hasActiveFilters(): boolean {
+    return this.filterableColumns.some(
+      (column) => this.filters()[column].length > 0,
+    );
+  }
+
+  clearFilters(): void {
+    this.filters.set({ game: [], cut: [], metadata: [], status: [] });
+    this.applyFilters();
+  }
+
+  /** Pousse les filtres courants dans la MatTableDataSource. */
+  private applyFilters(): void {
+    this.dataSource.filter = JSON.stringify(this.filters());
+  }
+
+  /** Retire les valeurs filtrées qui n'existent plus après un refresh. */
+  private pruneFilters(): void {
+    const next = { ...this.filters() };
+    for (const column of this.filterableColumns) {
+      const available = new Set(this.filterOptions(column));
+      next[column] = next[column].filter((value) => available.has(value));
+    }
+    this.filters.set(next);
+    this.applyFilters();
+  }
+
+  /** Lignes actuellement rendues (tri/filtre/pagination appliqués). */
+  pageItems(): RenderQueueItem[] {
+    return this.dataSource.connect().value;
+  }
+
+  isPageFullySelected(): boolean {
+    const page = this.pageItems();
+    if (!page.length) return false;
+    const selected = this.selection();
+    return page.every((item) => selected.has(item.pk));
+  }
+
+  isPagePartiallySelected(): boolean {
+    const page = this.pageItems();
+    if (!page.length) return false;
+    const selected = this.selection();
+    return (
+      page.some((item) => selected.has(item.pk)) && !this.isPageFullySelected()
+    );
+  }
+
+  togglePageSelection(checked: boolean): void {
+    const next = new Set(this.selection());
+    for (const item of this.pageItems()) {
+      if (checked) {
+        next.add(item.pk);
+      } else {
+        next.delete(item.pk);
+      }
+    }
+    this.selection.set(next);
   }
 
   statusClass(item: RenderQueueItem): string {

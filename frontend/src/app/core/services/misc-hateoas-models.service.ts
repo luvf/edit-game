@@ -127,6 +127,11 @@ export class GamesService extends HateoasService<Game> {
     return this.follow_resource<Video>(resource, 'video_proxy', reload);
   }
 
+  /** Vidéo d'archive du match. La relation n'existe que si une archive est liée. */
+  archive_video(resource: Game, reload: boolean = false): Observable<Video> {
+    return this.follow_resource<Video>(resource, 'archive_video', reload);
+  }
+
   generateProxy(resource: Game, body: unknown = {}) {
     return this.invoke_resource<Game>(resource, 'generate_proxy', body);
   }

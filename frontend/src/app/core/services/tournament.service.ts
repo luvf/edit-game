@@ -4,6 +4,14 @@ import { Game, Tournament, VideoMetadata } from '../models/models';
 import { Observable } from 'rxjs';
 import { HateoasService, PaginatedResult } from '../hateoas.service';
 
+/** Reponse de l'action `archive_all_games` : pk des matchs traites ou non. */
+export interface ArchiveAllGamesResult {
+  status: string;
+  preset: string;
+  queued: number[];
+  skipped: number[];
+}
+
 /**
  * Service providing HATEOAS-powered operations for Tournament resources.
  *
@@ -96,6 +104,15 @@ export class TournamentService extends HateoasService<Tournament> {
 
   archive(resource: Tournament, body: unknown = {}) {
     return this.invoke_resource(resource, 'archive', body);
+  }
+
+  /** Met en file un rendu d'archive pour chaque match du tournoi. */
+  archiveAllGames(resource: Tournament, body: unknown = {}) {
+    return this.invoke_resource<ArchiveAllGamesResult>(
+      resource,
+      'archive_all_games',
+      body,
+    );
   }
 
   listPage(

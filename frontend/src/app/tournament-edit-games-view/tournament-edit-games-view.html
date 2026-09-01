@@ -21,6 +21,15 @@
     <button mat-stroked-button color="primary" (click)="onQueueAllProxy()">
       Add all to queue
     </button>
+    <button mat-stroked-button color="primary" (click)="onArchiveAllGames()">
+      Archive all games
+    </button>
+    @if (archiveAllGamesResult(); as result) {
+      <span class="archive-all-summary">
+        {{ result.queued.length }} en file · {{ result.skipped.length }}
+        ignoré(s)
+      </span>
+    }
   </div>
 
   <div class="table-responsive">
@@ -61,10 +70,22 @@
       <ng-container matColumnDef="proxy">
         <th *matHeaderCellDef mat-header-cell mat-sort-header>Proxy</th>
         <td *matCellDef="let game" mat-cell>
-          @if (Object.keys(videos()[game.pk]?.files ?? {}).length > 0) {
+          @if (hasProxy(game)) {
             <span class="proxy-ok" title="Proxy présent">✅</span>
           } @else {
             <span class="proxy-ko" title="Proxy absent">❌</span>
+          }
+        </td>
+      </ng-container>
+
+      <!-- Colonne archive (binaire) -->
+      <ng-container matColumnDef="archive">
+        <th *matHeaderCellDef mat-header-cell mat-sort-header>Archive</th>
+        <td *matCellDef="let game" mat-cell>
+          @if (hasArchive(game)) {
+            <span class="proxy-ok" title="Archive présente">✅</span>
+          } @else {
+            <span class="proxy-ko" title="Archive absente">❌</span>
           }
         </td>
       </ng-container>
@@ -78,13 +99,14 @@
           'teams',
           'cuts',
           'proxy',
+          'archive',
         ]"
       ></tr>
       <tr
         mat-row
         *matRowDef="
           let row;
-          columns: ['name', 'file_name', 'teams', 'cuts', 'proxy']
+          columns: ['name', 'file_name', 'teams', 'cuts', 'proxy', 'archive']
         "
         class="clickable-row"
         (click)="openGameEdit(row)"
