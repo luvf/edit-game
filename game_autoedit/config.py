@@ -13,9 +13,15 @@ from pathlib import Path
 # The archives are concatenated GoPro rushes: real NTSC rate, never 60.
 DEFAULT_FPS = 60000 / 1001
 
-# Mono 16 kHz is what every pretrained audio encoder expects, and it is plenty
-# for whistles and crowd noise. It also keeps the cache at ~32 kB/s.
+# 16 kHz is what every pretrained audio encoder expects.
 SAMPLE_RATE = 16000
+
+# The cache keeps both channels. 18 of the 23 archived tournaments carry a real
+# stereo image — the side channel holds 9 to 33 % of the mid channel's energy —
+# and downmixing to mono destroys the only cue that could tell a sound coming
+# from the field in front from one coming from the match behind the camera.
+# The remaining five are dual mono, where the side channel is silence.
+CHANNELS = 2
 
 # The quality of the VideoFile the pipeline reads audio from. Archives are the
 # only rendition rendered with a consistent audio profile.

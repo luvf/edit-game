@@ -12,15 +12,12 @@ window and on a two-hour game in one pass, with no windowing and no blending.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
+import torch
 import torch.nn.functional as F  # noqa: N812
 from torch import nn
 
 from game_autoedit.datasets.targets import CHANNELS
-
-if TYPE_CHECKING:
-    import torch
 
 
 @dataclass(frozen=True)
@@ -34,12 +31,19 @@ class HeadSpec:
         dropout: applied inside each block and on the input projection.
         input_dropout: drops whole embedding dimensions, which stops the head
             from leaning on a handful of encoder features.
+        side_dropout: probability of zeroing the second half of the input for
+            a whole window during training. With mid/side embeddings that half
+            is the spatial channel, and five of the archived tournaments are
+            dual mono where it is silence anyway. Without this the head would
+            learn to depend on a cue that is simply absent on those, and do
+            worse there than it does today.
     """
 
     channels: int = 128
     dilations: tuple[int, ...] = (1, 2, 4, 8, 16, 32, 64, 128)
     dropout: float = 0.2
     input_dropout: float = 0.1
+    side_dropout: float = 0.25
 
     def receptive_field(self, kernel: int = 3) -> int:
         """Return the receptive field, in embedding steps."""
@@ -103,6 +107,7 @@ class EmbeddingTagger(nn.Module):
         self.input_dim = input_dim
 
         self.input_dropout = nn.Dropout(self.spec.input_dropout)
+        self.half_dim = input_dim // 2
         self.project = nn.Conv1d(input_dim, self.spec.channels, kernel_size=1)
         self.project_norm = ChannelNorm(self.spec.channels)
         self.blocks = nn.Sequential(
@@ -113,6 +118,19 @@ class EmbeddingTagger(nn.Module):
         )
         self.head = nn.Conv1d(self.spec.channels, len(CHANNELS), kernel_size=1)
 
+    def _drop_side(self, embeddings: torch.Tensor) -> torch.Tensor:
+        """Zero the spatial half of some windows, during training only."""
+        if not self.training or self.spec.side_dropout <= 0:
+            return embeddings
+
+        keep = (
+            torch.rand(embeddings.shape[0], 1, 1, device=embeddings.device)
+            >= self.spec.side_dropout
+        )
+        mask = torch.ones_like(embeddings)
+        mask[:, :, self.half_dim :] = keep.to(embeddings.dtype)
+        return embeddings * mask
+
     def forward(self, embeddings: torch.Tensor) -> torch.Tensor:
         """Predict channel logits for a batch of embedding sequences.
 
@@ -122,7 +140,7 @@ class EmbeddingTagger(nn.Module):
         Returns:
             ``(batch, steps, len(CHANNELS))`` logits, one per input step.
         """
-        features = self.input_dropout(embeddings).transpose(1, 2)
+        features = self.input_dropout(self._drop_side(embeddings)).transpose(1, 2)
         features = F.gelu(self.project_norm(self.project(features)))
         features = self.blocks(features)
         logits: torch.Tensor = self.head(features).transpose(1, 2)

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import soundfile as sf
 
-from game_autoedit.config import SAMPLE_RATE
+from game_autoedit.config import CHANNELS, SAMPLE_RATE
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -39,6 +39,7 @@ class CachedAudio:
     path: Path
     sample_rate: int
     frames: int
+    channels: int = 1
 
     @property
     def duration(self) -> float:
@@ -72,9 +73,13 @@ def probe_duration(path: Path) -> float | None:
 
 
 def extract_audio(
-    source: Path, destination: Path, *, sample_rate: int = SAMPLE_RATE
+    source: Path,
+    destination: Path,
+    *,
+    sample_rate: int = SAMPLE_RATE,
+    channels: int = CHANNELS,
 ) -> None:
-    """Decode a media file to mono PCM16 WAV at `sample_rate`.
+    """Decode a media file to PCM16 WAV at `sample_rate`.
 
     Writes to a temporary neighbour first, so an interrupted run never leaves a
     truncated file that a later run would take for valid.
@@ -92,7 +97,7 @@ def extract_audio(
             str(source),
             "-vn",
             "-ac",
-            "1",
+            str(channels),
             "-ar",
             str(sample_rate),
             "-c:a",
@@ -123,6 +128,7 @@ def audio_info(path: Path) -> CachedAudio | None:
         path=path,
         sample_rate=int(info.samplerate),
         frames=int(info.frames),
+        channels=int(info.channels),
     )
 
 
@@ -131,6 +137,7 @@ def build_audio_cache(
     *,
     cache_dir: Path,
     sample_rate: int = SAMPLE_RATE,
+    channels: int = CHANNELS,
     force: bool = False,
 ) -> Iterator[tuple[LabeledGame, CachedAudio | None, str | None]]:
     """Extract the audio of every game, yielding progress as it goes.
@@ -143,12 +150,21 @@ def build_audio_cache(
     for game in games:
         destination = cache_dir / f"game_{game.game_id}.wav"
         existing = None if force else audio_info(destination)
-        if existing is not None and existing.sample_rate == sample_rate:
+        if (
+            existing is not None
+            and existing.sample_rate == sample_rate
+            and existing.channels == channels
+        ):
             yield game, existing, None
             continue
 
         try:
-            extract_audio(game.audio_source, destination, sample_rate=sample_rate)
+            extract_audio(
+                game.audio_source,
+                destination,
+                sample_rate=sample_rate,
+                channels=channels,
+            )
         except AudioExtractionError as error:
             yield game, None, str(error)
             continue
@@ -161,24 +177,67 @@ def build_audio_cache(
 
 
 def read_window(
-    path: Path, start: float, duration: float, *, sample_rate: int = SAMPLE_RATE
+    path: Path,
+    start: float,
+    duration: float,
+    *,
+    sample_rate: int = SAMPLE_RATE,
+    mono: bool = True,
 ) -> np.ndarray:
     """Read `duration` seconds starting at `start`, as float32 in [-1, 1].
 
     Reads past the end are zero-padded, so a window near the last second of a
     game still comes back at the expected length.
+
+    Args:
+        path: the cached WAV.
+        start: where to start, in seconds.
+        duration: how long to read, in seconds.
+        sample_rate: the cache's sample rate.
+        mono: downmix to one channel. False returns ``(samples, channels)``,
+            which is what the spatial features need.
+
+    Returns:
+        ``(samples,)`` when mono, ``(samples, channels)`` otherwise.
     """
     want = int(round(duration * sample_rate))
     offset = int(round(start * sample_rate))
+
     with sf.SoundFile(str(path)) as handle:
+        channels = handle.channels
         if offset >= handle.frames:
-            return np.zeros(want, dtype=np.float32)
-        handle.seek(max(offset, 0))
-        chunk = handle.read(want, dtype="float32", always_2d=False)
+            chunk = np.zeros((0, channels), dtype=np.float32)
+        else:
+            handle.seek(max(offset, 0))
+            chunk = handle.read(want, dtype="float32", always_2d=True)
 
     if offset < 0:
-        chunk = np.concatenate([np.zeros(-offset, dtype=np.float32), chunk])
+        chunk = np.concatenate([np.zeros((-offset, channels), dtype=np.float32), chunk])
     if len(chunk) < want:
-        chunk = np.concatenate([chunk, np.zeros(want - len(chunk), dtype=np.float32)])
+        chunk = np.concatenate(
+            [chunk, np.zeros((want - len(chunk), channels), dtype=np.float32)]
+        )
+
     window: np.ndarray = chunk[:want].astype(np.float32, copy=False)
-    return window
+    return window.mean(axis=1) if mono else window
+
+
+def mid_side(stereo: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Split a stereo signal into its mid and side components.
+
+    Mid is what a mono downmix would have kept; side is everything the two
+    microphones disagree on, which is where the direction of a sound lives. On
+    a dual-mono recording the side channel is silence, and the model has to
+    cope with that — five of the archived tournaments are like this.
+
+    Args:
+        stereo: ``(samples, channels)``.
+
+    Returns:
+        The mid and side signals, each ``(samples,)``.
+    """
+    if stereo.ndim == 1:
+        return stereo, np.zeros_like(stereo)
+    left = stereo[:, 0]
+    right = stereo[:, 1] if stereo.shape[1] > 1 else stereo[:, 0]
+    return (left + right) / 2.0, (left - right) / 2.0

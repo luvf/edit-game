@@ -103,6 +103,11 @@ def _register_data_commands(subparsers: argparse._SubParsersAction) -> None:  # 
     _add_selection_args(embed)
     embed.add_argument("--encoder", default="ast", help="encodeur gelé (défaut: ast)")
     embed.add_argument("--batch-size", type=int, default=16)
+    embed.add_argument(
+        "--mono",
+        action="store_true",
+        help="encoder un seul canal au lieu de mid + side (cache séparé)",
+    )
     embed.add_argument("--force", action="store_true")
     embed.add_argument("--device")
 

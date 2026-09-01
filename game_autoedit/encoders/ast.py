@@ -16,6 +16,7 @@ import numpy as np
 import torch
 
 from game_autoedit.config import SAMPLE_RATE
+from game_autoedit.data.audio import mid_side
 
 if TYPE_CHECKING:
     from game_autoedit.encoders.base import EncoderSpec
@@ -58,8 +59,8 @@ class AstEncoder:
 
     @property
     def dim(self) -> int:
-        """Return the embedding width."""
-        return self._dim
+        """Return the embedding width, doubled when mid and side are stacked."""
+        return self._dim * 2 if self.spec.stereo else self._dim
 
     def _chunks(self, waveform: np.ndarray) -> list[np.ndarray]:
         """Split a waveform into the fixed-length chunks AST expects."""
@@ -69,9 +70,32 @@ class AstEncoder:
         padded[: len(waveform)] = waveform
         return [padded[index * size : (index + 1) * size] for index in range(count)]
 
-    @torch.no_grad()
     def encode(self, waveform: np.ndarray) -> np.ndarray:
-        """Return one embedding per 0.1 s for a whole waveform.
+        """Return one embedding per 0.1 s for a whole recording.
+
+        With `stereo`, the mid and side channels are encoded separately and
+        their embeddings concatenated. Side is near-silent on a dual-mono
+        recording, so its half of the vector then carries nothing — which the
+        head has to tolerate rather than depend on.
+
+        Args:
+            waveform: ``(samples,)`` or ``(samples, channels)``.
+
+        Returns:
+            ``(steps, dim)`` float16 embeddings.
+        """
+        if not self.spec.stereo:
+            mono = waveform.mean(axis=1) if waveform.ndim > 1 else waveform
+            return self._encode_channel(mono)
+
+        mid, side = mid_side(waveform)
+        return np.concatenate(
+            [self._encode_channel(mid), self._encode_channel(side)], axis=1
+        )
+
+    @torch.no_grad()
+    def _encode_channel(self, waveform: np.ndarray) -> np.ndarray:
+        """Encode one channel.
 
         Chunks are contiguous rather than overlapping: AST is a transformer over
         the full chunk, so every token already attends to all 10.24 s and the

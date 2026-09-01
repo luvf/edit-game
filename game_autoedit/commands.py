@@ -231,7 +231,9 @@ def build_embeddings(args: argparse.Namespace, paths: Paths) -> int:
         return 1
 
     device = resolve_device(args.device)
-    spec = EncoderSpec(name=args.encoder, batch_size=args.batch_size)
+    spec = EncoderSpec(
+        name=args.encoder, batch_size=args.batch_size, stereo=not args.mono
+    )
     print(f"Chargement de l'encodeur {spec.name} sur {device}…")
     encoder = build_encoder(spec, device)
 
@@ -241,7 +243,9 @@ def build_embeddings(args: argparse.Namespace, paths: Paths) -> int:
     )
     print(
         f"{len(prepared)} game(s) -> {root}\n"
-        f"grille {store.rate:.3f} Hz, {store.dim} dimensions\n"
+        f"grille {store.rate:.3f} Hz, {store.dim} dimensions"
+        + (" (mid + side)" if spec.stereo else " (mono)")
+        + "\n"
     )
 
     done, encoded_seconds = 0, 0.0
@@ -249,7 +253,9 @@ def build_embeddings(args: argparse.Namespace, paths: Paths) -> int:
         if store.has(item.game.game_id) and not args.force:
             done += 1
             continue
-        waveform, _ = sf.read(str(item.audio_path), dtype="float32", always_2d=False)
+        waveform, _ = sf.read(
+            str(item.audio_path), dtype="float32", always_2d=spec.stereo
+        )
         embeddings = encoder.encode(waveform)
         store.write(item.game.game_id, embeddings)
         done += 1

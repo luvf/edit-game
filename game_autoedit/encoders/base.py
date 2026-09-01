@@ -24,16 +24,25 @@ class EncoderSpec:
         name: registry key of the encoder.
         batch_size: chunks per forward pass when encoding a game.
         half: run in float16, which every supported encoder tolerates.
+        stereo: encode the mid and side channels separately and concatenate
+            their embeddings, doubling the width. Side carries where a sound
+            came from, which is what separates the match in front of the
+            camera from the one behind it.
     """
 
     name: str = "ast"
     batch_size: int = 16
     half: bool = True
+    stereo: bool = True
 
     @property
     def cache_key(self) -> str:
-        """Return the subdirectory name this encoder's cache lives under."""
-        return self.name
+        """Return the subdirectory name this encoder's cache lives under.
+
+        Mono and mid/side caches live side by side so a run on one can be
+        compared against a run on the other.
+        """
+        return f"{self.name}_ms" if self.stereo else self.name
 
 
 class FrozenEncoder(Protocol):
@@ -50,7 +59,12 @@ class FrozenEncoder(Protocol):
         ...
 
     def encode(self, waveform: np.ndarray) -> np.ndarray:
-        """Return ``(steps, dim)`` float16 embeddings for a whole waveform."""
+        """Return ``(steps, dim)`` float16 embeddings for a whole waveform.
+
+        Args:
+            waveform: ``(samples,)`` mono, or ``(samples, channels)`` when the
+                encoder was built with `stereo`.
+        """
         ...
 
 
