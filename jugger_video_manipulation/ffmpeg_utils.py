@@ -96,6 +96,31 @@ class FilterComplexBuilder:
             input_a=[f"[sa{i}_{index}]" for i in range(nb_points)],
         )
 
+    def filter_overlay(self, overlays: list[tuple[int, float, float]]) -> None:
+        """Composite still overlays over the video, each on its own window.
+
+        Args:
+            overlays: for each overlay, the ffmpeg input index of its image and
+                the seconds of the finished render it is shown between.
+
+        The images are single-frame inputs. `overlay` repeats the last frame of
+        an exhausted input by default, so one PNG covers its whole window
+        without being looped, and `enable` decides when it is painted at all.
+        """
+        if not overlays:
+            return
+
+        current = self.out_v
+        for input_index, start, end in overlays:
+            index = self.index
+            node = f"[ov{index}]"
+            self.filter_complex.append(
+                f"{current}[{input_index}:v]"
+                f"overlay=0:0:enable='between(t,{start:.3f},{end:.3f})'{node}"
+            )
+            current = node
+        self.out_v = current
+
     def filter_scale(self, w: str | None = None, h: str | None = None) -> None:
         """Scale the video input.
 
@@ -117,6 +142,14 @@ class FilterComplexBuilder:
         return ";".join(self.filter_complex)
 
 
+@dataclass(frozen=True)
+class CudaUse:
+    """Which ends of the pipeline may use the GPU."""
+
+    decode: bool = False
+    encode: bool = False
+
+
 def ffmpeg_command_builder(
     *,
     filter_complex: FilterComplexBuilder,
@@ -124,8 +157,8 @@ def ffmpeg_command_builder(
     output_file: Path | None,
     preset_args: dict[str, list[str]],
     chapter_metadata_path: Path | None = None,
-    decode_cuda_available: bool = False,
-    encode_cuda_available: bool = False,
+    overlay_files: list[Path] | None = None,
+    cuda: CudaUse | None = None,
 ) -> list[str]:
     """Build the ffmpeg command.
 
@@ -135,22 +168,26 @@ def ffmpeg_command_builder(
         output_file : output file path
         preset_args : dictionary of preset arguments
         chapter_metadata_path : path to metadata file
-        decode_cuda_available : whether CUDA can be used for input decoding
-        encode_cuda_available : whether CUDA/NVENC can be used for output encoding
+        overlay_files : still images to composite, added after the metadata
+            input so their indices never shift `-map_metadata`
+        cuda : which ends of the pipeline may use the GPU
     """
+    cuda = cuda or CudaUse()
     if output_file is None:
         raise ValueError("output_file must not be None")
 
     _validate_encode_cuda_usage(
         preset_args=preset_args,
-        encode_cuda_available=encode_cuda_available,
+        encode_cuda_available=cuda.encode,
     )
 
     cmd = ["ffmpeg"]
-    cmd += _add_input_files(input_files, decode_cuda_available=decode_cuda_available)
+    cmd += _add_input_files(input_files, decode_cuda_available=cuda.decode)
     filter_complex.create_inputs(len(input_files))
     if chapter_metadata_path:
         cmd += ["-i", str(chapter_metadata_path.absolute())]
+    for overlay in overlay_files or []:
+        cmd += ["-i", str(overlay.absolute())]
     cmd += ["-filter_complex", filter_complex.get_filter_complex()]
     cmd += ["-map", filter_complex.out_v, "-map", filter_complex.out_a]
 

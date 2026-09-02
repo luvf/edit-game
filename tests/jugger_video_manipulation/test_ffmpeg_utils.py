@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from jugger_video_manipulation.ffmpeg_utils import (
+    CudaUse,
     FilterComplexBuilder,
     _add_input_files,
     _validate_encode_cuda_usage,
@@ -178,7 +179,7 @@ class TestFfmpegCommandBuilder:
                 input_files=[tmp_path / "a.mp4"],
                 output_file=tmp_path / "out.mp4",
                 preset_args={"video": ["-c:v", "h264_nvenc"], "audio": []},
-                encode_cuda_available=False,
+                cuda=CudaUse(encode=False),
             )
 
 
@@ -240,3 +241,97 @@ class TestWriteChaptersMetadata:
         assert "END=3000" in content
         assert "title=point 0" in content
         assert "title=point 1" in content
+
+
+class TestFilterOverlay:
+    """Still overlays, each painted only over its own window."""
+
+    @pytest.fixture()
+    def builder(self):
+        b = FilterComplexBuilder(1)
+        b.out_v, b.out_a = "[cv0]", "[ca0]"
+        return b
+
+    def test_no_overlays_changes_nothing(self, builder):
+        before = builder.out_v
+
+        builder.filter_overlay([])
+
+        assert builder.out_v == before
+        assert builder.filter_complex == []
+
+    def test_one_overlay_is_bounded_by_its_window(self, builder):
+        builder.filter_overlay([(3, 1.5, 4.25)])
+
+        assert "enable='between(t,1.500,4.250)'" in builder.filter_complex[0]
+        assert "[3:v]" in builder.filter_complex[0]
+
+    def test_overlays_chain_onto_one_another(self, builder):
+        builder.filter_overlay([(3, 0.0, 1.0), (4, 1.0, 2.0)])
+
+        first, second = builder.filter_complex
+        # The second reads the node the first wrote.
+        node = first.rsplit("[", 1)[1].rstrip("]")
+        assert f"[{node}]" in second
+
+    def test_the_last_node_becomes_the_output(self, builder):
+        builder.filter_overlay([(3, 0.0, 1.0), (4, 1.0, 2.0)])
+
+        # Whatever the last filter wrote is what the rest of the graph reads.
+        assert builder.filter_complex[-1].endswith(builder.out_v)
+
+    def test_the_audio_output_is_untouched(self, builder):
+        builder.filter_overlay([(3, 0.0, 1.0)])
+
+        assert builder.out_a == "[ca0]"
+
+
+class TestOverlayInputs:
+    """Overlay images are inputs too, and must not shift the metadata index."""
+
+    def test_overlay_files_are_added_as_inputs(self):
+        cmd = ffmpeg_command_builder(
+            filter_complex=_builder_with_outputs(),
+            input_files=[Path("/a.mp4")],
+            output_file=Path("/out.mp4"),
+            preset_args={"video": ["-c:v", "libx264"], "audio": ["-c:a", "aac"]},
+            overlay_files=[Path("/ov0.png"), Path("/ov1.png")],
+        )
+
+        assert "/ov0.png" in cmd
+        assert "/ov1.png" in cmd
+
+    def test_they_come_after_the_metadata_input(self, tmp_path):
+        metadata = tmp_path / "meta.txt"
+        metadata.write_text("")
+        cmd = ffmpeg_command_builder(
+            filter_complex=_builder_with_outputs(),
+            input_files=[Path("/a.mp4")],
+            output_file=Path("/out.mp4"),
+            preset_args={"video": ["-c:v", "libx264"], "audio": ["-c:a", "aac"]},
+            chapter_metadata_path=metadata,
+            overlay_files=[Path("/ov0.png")],
+        )
+
+        assert cmd.index(str(metadata.absolute())) < cmd.index("/ov0.png")
+
+    def test_map_metadata_still_points_at_the_metadata(self, tmp_path):
+        metadata = tmp_path / "meta.txt"
+        metadata.write_text("")
+        cmd = ffmpeg_command_builder(
+            filter_complex=_builder_with_outputs(),
+            input_files=[Path("/a.mp4")],
+            output_file=Path("/out.mp4"),
+            preset_args={"video": ["-c:v", "libx264"], "audio": ["-c:a", "aac"]},
+            chapter_metadata_path=metadata,
+            overlay_files=[Path("/ov0.png"), Path("/ov1.png")],
+        )
+
+        # One video input, so the metadata is input 1 whatever follows it.
+        assert cmd[cmd.index("-map_metadata") + 1] == "1"
+
+
+def _builder_with_outputs() -> FilterComplexBuilder:
+    builder = FilterComplexBuilder(1)
+    builder.out_v, builder.out_a = "[cv0]", "[ca0]"
+    return builder

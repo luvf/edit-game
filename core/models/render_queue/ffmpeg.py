@@ -19,6 +19,7 @@ from core.models.video import VideoFile
 from edit_game import settings
 from jugger_video_manipulation.cut_json_parser import CutJsonParser
 from jugger_video_manipulation.ffmpeg_utils import (
+    CudaUse,
     FilterComplexBuilder,
     ffmpeg_command_builder,
     get_fps,
@@ -505,8 +506,10 @@ class RenderQueueItemCut(RenderQueueItemFFMPEG):
             output_file=out_file,
             chapter_metadata_path=chapter_metadata_tmp_path,
             preset_args=preset_args,
-            decode_cuda_available=self._can_use_cuda_for_decode(source_files),
-            encode_cuda_available=self._can_use_cuda_for_encode(),
+            cuda=CudaUse(
+                decode=self._can_use_cuda_for_decode(source_files),
+                encode=self._can_use_cuda_for_encode(),
+            ),
         )
         self.command = " ".join(cmd)
         return cmd
@@ -583,8 +586,10 @@ class RenderQueueItemGameRender(RenderQueueItemFFMPEG):
             input_files=source_files,
             output_file=out_file,
             preset_args=preset_args,
-            decode_cuda_available=self._can_use_cuda_for_decode(source_files),
-            encode_cuda_available=self._can_use_cuda_for_encode(),
+            cuda=CudaUse(
+                decode=self._can_use_cuda_for_decode(source_files),
+                encode=self._can_use_cuda_for_encode(),
+            ),
         )
 
         self.command = " ".join(cmd)
