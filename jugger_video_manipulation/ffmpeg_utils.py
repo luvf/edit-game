@@ -97,33 +97,60 @@ class FilterComplexBuilder:
         )
 
     def filter_intro(
-        self, card_index: int, silence_index: int, duration: float
+        self,
+        card_index: int,
+        silence_index: int,
+        duration: float,
+        fps: float,
+        size: tuple[int, int],
     ) -> None:
         """Put a still card in front of the match, rather than over it.
 
         Overlaying the card on the opening seconds would hide the start of the
-        first point, so it is concatenated ahead of the video instead. The card
-        brings no sound of its own, hence the silent input: `concat` needs both
-        streams on both sides or it drops the audio entirely.
+        first point, so it is concatenated ahead of the video instead.
+
+        Three things `concat` insists on, each of which fails only once the
+        encoder starts, with a message about link parameters:
+
+        - both sides must agree on size *and* pixel aspect. A proxy carries a
+          SAR of 1280:1281 while a drawn card is square-pixelled, so both
+          branches are scaled to `size` and forced to square pixels rather
+          than trusting either to already match;
+        - a still image is one frame, so it is looped and given a frame rate
+          before being trimmed, or the card lasts a single frame however long
+          the trim says;
+        - both sides need both streams, hence the silent audio input, or the
+          audio is dropped from the whole render.
 
         Args:
             card_index: ffmpeg input index of the card image.
             silence_index: input index of a silent audio source.
             duration: how long the card stays up, in seconds.
+            fps: the render's frame rate.
+            size: the render's frame size, which is also the size the overlays
+                were drawn at.
 
         Everything the card pushes back moves by `duration`; the caller offsets
         its overlay windows by the same amount.
         """
         index = self.index
+        width, height = size
         card_v, card_a = f"[card_v{index}]", f"[card_a{index}]"
+        video_v = f"[vid_v{index}]"
+
         self.filter_complex.append(
-            f"[{card_index}:v]scale=1920:1080,setsar=1,trim=duration={duration:.3f},"
-            f"setpts=PTS-STARTPTS{card_v}"
+            f"[{card_index}:v]scale={width}:{height},setsar=1,"
+            f"loop=loop=-1:size=1,fps={fps:.6f},"
+            f"trim=duration={duration:.3f},setpts=PTS-STARTPTS{card_v}"
         )
         self.filter_complex.append(
             f"[{silence_index}:a]atrim=duration={duration:.3f},"
             f"asetpts=PTS-STARTPTS{card_a}"
         )
+        self.filter_complex.append(
+            f"{self.out_v}scale={width}:{height},setsar=1{video_v}"
+        )
+        self.out_v = video_v
         self.filter_concat(input_v=[card_v, self.out_v], input_a=[card_a, self.out_a])
 
     def filter_overlay(self, overlays: list[tuple[int, float, float]]) -> None:

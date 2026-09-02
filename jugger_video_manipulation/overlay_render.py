@@ -430,10 +430,17 @@ def draw_title_card(
     style = style or Style()
     text = text or CardText()
     width, height = size
+    # The card is laid out for a 1080-tall frame and scaled from there, so a
+    # proxy render gets the same composition rather than the same pixel
+    # offsets — which would put the logos off the bottom of the picture.
+    k = height / 1080
 
     if background is not None:
+        blur = max(int(26 * k), 1)
         card = (
-            background.convert("RGB").resize(size).filter(ImageFilter.GaussianBlur(26))
+            background.convert("RGB")
+            .resize(size)
+            .filter(ImageFilter.GaussianBlur(blur))
         )
         card = Image.alpha_composite(
             card.convert("RGBA"), Image.new("RGBA", size, (8, 10, 14, 168))
@@ -444,14 +451,14 @@ def draw_title_card(
     layer = Image.new("RGBA", size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
 
-    tournament_font = style.font(style.text_font, 32)
-    meta_font = style.font(style.text_font, 24)
-    versus_font = style.font(style.display_font, 52)
+    tournament_font = style.font(style.text_font, max(int(32 * k), 8))
+    meta_font = style.font(style.text_font, max(int(24 * k), 7))
+    versus_font = style.font(style.display_font, max(int(52 * k), 10))
 
     if text.tournament:
         label = text.tournament.upper()
         draw.text(
-            ((width - _text_width(draw, label, tournament_font)) / 2, 176),
+            ((width - _text_width(draw, label, tournament_font)) / 2, 176 * k),
             label,
             font=tournament_font,
             fill=(255, 255, 255, 205),
@@ -459,36 +466,37 @@ def draw_title_card(
     if text.stage:
         label = text.stage.upper()
         draw.text(
-            ((width - _text_width(draw, label, meta_font)) / 2, 224),
+            ((width - _text_width(draw, label, meta_font)) / 2, 224 * k),
             label,
             font=meta_font,
             fill=SET_LOST,
         )
 
     for direction, team in ((-1, team1), (1, team2)):
-        centre = width // 2 + direction * 390
-        logo = load_logo(team.logo, 250)
+        centre = width // 2 + int(direction * 390 * k)
+        logo = load_logo(team.logo, max(int(250 * k), 16))
         if logo is not None:
-            layer.paste(logo, (centre - logo.width // 2, 350), logo)
+            layer.paste(logo, (centre - logo.width // 2, int(350 * k)), logo)
 
         label = team.name.upper()
-        point_size = 84
+        point_size = max(int(84 * k), CARD_NAME_MIN)
+        limit = CARD_NAME_WIDTH * k
         while (
-            point_size > CARD_NAME_MIN
+            point_size > CARD_NAME_MIN * k
             and _text_width(draw, label, style.font(style.display_font, point_size))
-            > CARD_NAME_WIDTH
+            > limit
         ):
-            point_size -= 4
-        name_font = style.font(style.display_font, point_size)
+            point_size -= max(int(4 * k), 1)
+        name_font = style.font(style.display_font, max(point_size, 8))
         draw.text(
-            (centre - _text_width(draw, label, name_font) / 2, 650),
+            (centre - _text_width(draw, label, name_font) / 2, 650 * k),
             label,
             font=name_font,
             fill=INK,
         )
 
     draw.text(
-        ((width - _text_width(draw, "VS", versus_font)) / 2, 452),
+        ((width - _text_width(draw, "VS", versus_font)) / 2, 452 * k),
         "VS",
         font=versus_font,
         fill=(255, 255, 255, 160),
@@ -496,9 +504,13 @@ def draw_title_card(
 
     if text.condition:
         label = text.condition.upper()
-        draw.line([width / 2 - 150, 790, width / 2 + 150, 790], fill=RULE, width=2)
+        draw.line(
+            [width / 2 - 150 * k, 790 * k, width / 2 + 150 * k, 790 * k],
+            fill=RULE,
+            width=max(int(2 * k), 1),
+        )
         draw.text(
-            ((width - _text_width(draw, label, meta_font)) / 2, 812),
+            ((width - _text_width(draw, label, meta_font)) / 2, 812 * k),
             label,
             font=meta_font,
             fill=(255, 255, 255, 190),

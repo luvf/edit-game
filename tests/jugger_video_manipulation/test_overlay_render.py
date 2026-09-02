@@ -239,3 +239,52 @@ class TestLogos:
         # Both end up without logos on disk, so the bar is the same: what is
         # tested here is that a missing file never widens or crashes anything.
         assert painted(with_logos) == painted(without)
+
+
+class TestCardScalesWithTheFrame:
+    """The card is laid out for 1080p and scaled, not pinned to pixel offsets."""
+
+    @staticmethod
+    def _ink_rows(card, size):
+        """Return which rows carry drawn text, as fractions of the height."""
+        grey = card.convert("L")
+        rows = []
+        for y in range(size[1]):
+            band = grey.crop((0, y, size[0], y + 1))
+            if band.getextrema()[1] > 200:
+                rows.append(y / size[1])
+        return rows
+
+    def test_the_composition_survives_a_proxy_sized_frame(self):
+        big = draw_title_card(
+            Team("Mécan'hydre"),
+            Team("Pink Pain"),
+            CardText("Darmstadt", "Poule A", "2 sets"),
+            size=(1920, 1080),
+        )
+        small = draw_title_card(
+            Team("Mécan'hydre"),
+            Team("Pink Pain"),
+            CardText("Darmstadt", "Poule A", "2 sets"),
+            size=(854, 480),
+        )
+
+        big_rows = self._ink_rows(big, (1920, 1080))
+        small_rows = self._ink_rows(small, (854, 480))
+
+        assert big_rows
+        assert small_rows
+        # Same composition: the text occupies the same band of the picture.
+        assert small_rows[0] == pytest.approx(big_rows[0], abs=0.03)
+        assert small_rows[-1] == pytest.approx(big_rows[-1], abs=0.03)
+
+    def test_nothing_falls_off_the_bottom(self):
+        card = draw_title_card(
+            Team("Mécan'hydre"),
+            Team("Pink Pain"),
+            CardText("Darmstadt", "Poule A", "2 sets"),
+            size=(854, 480),
+        )
+
+        rows = self._ink_rows(card, (854, 480))
+        assert max(rows) < 0.98
