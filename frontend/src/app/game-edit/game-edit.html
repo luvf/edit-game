@@ -15,14 +15,25 @@
       </div>
       <div class="teams-row">
         <app-team-select
-          label="Team 1"
+          label="Team 1 — à gauche"
           [teams]="teams()"
           [ngModel]="team1Draft()"
           (ngModelChange)="team1Draft.set($event)"
         ></app-team-select>
 
+        <button
+          mat-stroked-button
+          type="button"
+          class="swap-teams"
+          title="Inverser les équipes : l'équipe 1 est celle qui commence à gauche, et c'est elle qui décide à qui revient un point marqué à gauche. Enregistre aussitôt."
+          aria-label="Inverser les équipes"
+          (click)="onSwapTeams()"
+        >
+          ⇄
+        </button>
+
         <app-team-select
-          label="Team 2"
+          label="Team 2 — à droite"
           [teams]="teams()"
           [ngModel]="team2Draft()"
           (ngModelChange)="team2Draft.set($event)"

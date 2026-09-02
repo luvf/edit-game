@@ -103,6 +103,21 @@ export class GameEditComponent implements OnInit, OnDestroy {
     });
   }
 
+  /**
+   * Echange les deux equipes et enregistre dans la foulee.
+   *
+   * L'ordre n'est pas cosmetique : l'equipe 1 est celle qui commence a
+   * gauche, donc c'est elle qui recoit un point marque `left`. Se tromper
+   * d'ordre inverse tout le tableau de score du montage, et on ne s'en
+   * apercoit qu'en regardant la video entiere.
+   */
+  onSwapTeams(): void {
+    const team1 = this.team1Draft();
+    this.team1Draft.set(this.team2Draft());
+    this.team2Draft.set(team1);
+    this.onSaveNameTeam();
+  }
+
   onGenerateProxy(): void {
     const current = this.game();
     if (!current) return;

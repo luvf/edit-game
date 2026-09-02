@@ -277,6 +277,10 @@ def build_states(
 def _merge(states: Sequence[BoardState]) -> list[BoardState]:
     """Join consecutive states that say exactly the same thing.
 
+    This is why the render has fewer states than the editor's list, which
+    keeps one per point to show a score beside each row: the same rule, two
+    shapes, because they are asked different questions.
+
     A point that changes nothing on the board — dead time kept in, or a point
     with no `point` value — should not split the overlay into two identical
     images the renderer would then composite twice.

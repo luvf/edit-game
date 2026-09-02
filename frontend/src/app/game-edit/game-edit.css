@@ -108,3 +108,11 @@
 .teams-row app-team-select {
   min-width: 220px;
 }
+
+.swap-teams {
+  align-self: center;
+  min-width: 3rem;
+  padding-inline: 0.75rem;
+  font-size: 1.25rem;
+  line-height: 1;
+}
