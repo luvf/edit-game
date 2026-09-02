@@ -11,6 +11,63 @@ Point = TypedDict(
     {"in": int, "out": int, "point": Literal["left", "right", "nopoint"] | None},
 )
 
+Side = Literal["left", "right"]
+
+
+class WinningCondition(TypedDict):
+    """How the match is won."""
+
+    type: Literal["sets", "points", "time"]
+    sets_to_win: NotRequired[int]
+    points_per_set: NotRequired[int]
+
+
+class MatchEvent(TypedDict):
+    """Something that changes how the score is read, without being drawn.
+
+    A side switch swaps which team the `left` and `right` of a point refer to;
+    a set end banks the current score and starts the next set. Neither draws
+    anything, which is why they live here and not in `overlays` — encoding a
+    switch as a Warning would mean matching on text meant for the screen.
+    """
+
+    type: Literal["side_switch", "set_end"]
+    tc: int
+
+
+class Match(TypedDict):
+    """The state a scoreboard is computed from.
+
+    No score is stored: it follows from the points, the starting sides and the
+    events, so the file cannot contradict itself.
+    """
+
+    winning_condition: NotRequired[WinningCondition]
+    start_sides: NotRequired[dict[str, str]]
+    events: NotRequired[list[MatchEvent]]
+
+
+class ScoreboardDisplay(TypedDict):
+    """How the bar is drawn."""
+
+    position: NotRequired[Literal["top", "bottom"]]
+    logos: NotRequired[bool]
+    history: NotRequired[bool]
+
+
+class TitleCardDisplay(TypedDict):
+    """How the opening card is drawn."""
+
+    background: NotRequired[Literal["blur", "flat"]]
+    length: NotRequired[int]
+
+
+class Display(TypedDict):
+    """Editing choices, as opposed to what happened in the match."""
+
+    scoreboard: NotRequired[ScoreboardDisplay]
+    title_card: NotRequired[TitleCardDisplay]
+
 
 class TeamIntroductionOverlay(TypedDict):
     """Overlay structure for team introduction."""
@@ -34,6 +91,14 @@ class WarningOverlay(TypedDict):
 Overlay = TeamIntroductionOverlay | WarningOverlay
 
 
+def _as_int(value: Any) -> int | None:
+    """Return `value` as an int, or None when it is not one."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 class CutJsonParser:
     """Parse cut JSON payloads."""
 
@@ -54,7 +119,8 @@ class CutJsonParser:
         if not self.cut_json_path.exists():
             return {"points": [], "overlays": []}
         with self.cut_json_path.open() as f:
-            return json.load(f)
+            data: dict[str, Any] = json.load(f)
+        return data
 
     def parse_points(self, raw: dict[str, Any]) -> list[Point]:
         """Parse point ranges from raw JSON data.
@@ -125,6 +191,104 @@ class CutJsonParser:
                 parsed.append(overlay)
         return parsed
 
+    def parse_match(self, raw: dict[str, Any]) -> Match:
+        """Parse the match block, which the scoreboard is computed from.
+
+        A file without one renders exactly as it did before, with no
+        scoreboard, so the block is optional at every level.
+
+        Args:
+            raw: raw JSON data
+        Returns:
+            the parsed match state, empty when the block is absent
+        """
+        block = raw.get("match")
+        if not isinstance(block, dict):
+            return {}
+
+        match: Match = {}
+
+        condition = block.get("winning_condition")
+        if isinstance(condition, dict) and condition.get("type") in (
+            "sets",
+            "points",
+            "time",
+        ):
+            parsed_condition: WinningCondition = {"type": condition["type"]}
+            for key in ("sets_to_win", "points_per_set"):
+                value = _as_int(condition.get(key))
+                if value is not None:
+                    parsed_condition[key] = value
+            match["winning_condition"] = parsed_condition
+
+        sides = block.get("start_sides")
+        if isinstance(sides, dict) and {"left", "right"} <= set(sides):
+            match["start_sides"] = {
+                "left": str(sides["left"]),
+                "right": str(sides["right"]),
+            }
+
+        events: list[MatchEvent] = []
+        for item in block.get("events") or []:
+            if not isinstance(item, dict):
+                continue
+            kind = item.get("type")
+            tc = _as_int(item.get("tc"))
+            if kind in ("side_switch", "set_end") and tc is not None:
+                events.append({"type": kind, "tc": tc})
+        events.sort(key=lambda event: event["tc"])
+        if events:
+            match["events"] = events
+
+        return match
+
+    @staticmethod
+    def _parse_scoreboard(block: Any) -> ScoreboardDisplay:
+        """Parse the scoreboard options of a display block."""
+        if not isinstance(block, dict):
+            return {}
+        parsed: ScoreboardDisplay = {}
+        if block.get("position") in ("top", "bottom"):
+            parsed["position"] = block["position"]
+        for key in ("logos", "history"):
+            if isinstance(block.get(key), bool):
+                parsed[key] = block[key]
+        return parsed
+
+    @staticmethod
+    def _parse_title_card(block: Any) -> TitleCardDisplay:
+        """Parse the title-card options of a display block."""
+        if not isinstance(block, dict):
+            return {}
+        parsed: TitleCardDisplay = {}
+        if block.get("background") in ("blur", "flat"):
+            parsed["background"] = block["background"]
+        length = _as_int(block.get("length"))
+        if length is not None:
+            parsed["length"] = length
+        return parsed
+
+    def parse_display(self, raw: dict[str, Any]) -> Display:
+        """Parse the display block: editing choices, not match facts.
+
+        Args:
+            raw: raw JSON data
+        Returns:
+            the parsed display options, empty when the block is absent
+        """
+        block = raw.get("display")
+        if not isinstance(block, dict):
+            return {}
+
+        display: Display = {}
+        bar = self._parse_scoreboard(block.get("scoreboard"))
+        if bar:
+            display["scoreboard"] = bar
+        card = self._parse_title_card(block.get("title_card"))
+        if card:
+            display["title_card"] = card
+        return display
+
     def parse(self) -> tuple[list[Point], list[Overlay]]:
         """Parse points and overlays from the configured JSON file.
 
@@ -133,3 +297,17 @@ class CutJsonParser:
         """
         raw = self.load()
         return self.parse_points(raw), self.parse_overlays(raw)
+
+    def parse_all(self) -> tuple[list[Point], list[Overlay], Match, Display]:
+        """Parse every block in one read.
+
+        Returns:
+            points, overlays, match state and display options
+        """
+        raw = self.load()
+        return (
+            self.parse_points(raw),
+            self.parse_overlays(raw),
+            self.parse_match(raw),
+            self.parse_display(raw),
+        )

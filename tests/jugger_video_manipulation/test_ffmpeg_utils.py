@@ -198,9 +198,7 @@ class TestGetFps:
 
 class TestGetChapters:
     def test_parses_chapters(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
-        stdout = json.dumps(
-            {"chapters": [{"start_time": "0.0", "end_time": "1.5"}]}
-        )
+        stdout = json.dumps({"chapters": [{"start_time": "0.0", "end_time": "1.5"}]})
         monkeypatch.setattr(
             subprocess,
             "run",
