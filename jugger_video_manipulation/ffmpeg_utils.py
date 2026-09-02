@@ -96,6 +96,36 @@ class FilterComplexBuilder:
             input_a=[f"[sa{i}_{index}]" for i in range(nb_points)],
         )
 
+    def filter_intro(
+        self, card_index: int, silence_index: int, duration: float
+    ) -> None:
+        """Put a still card in front of the match, rather than over it.
+
+        Overlaying the card on the opening seconds would hide the start of the
+        first point, so it is concatenated ahead of the video instead. The card
+        brings no sound of its own, hence the silent input: `concat` needs both
+        streams on both sides or it drops the audio entirely.
+
+        Args:
+            card_index: ffmpeg input index of the card image.
+            silence_index: input index of a silent audio source.
+            duration: how long the card stays up, in seconds.
+
+        Everything the card pushes back moves by `duration`; the caller offsets
+        its overlay windows by the same amount.
+        """
+        index = self.index
+        card_v, card_a = f"[card_v{index}]", f"[card_a{index}]"
+        self.filter_complex.append(
+            f"[{card_index}:v]scale=1920:1080,setsar=1,trim=duration={duration:.3f},"
+            f"setpts=PTS-STARTPTS{card_v}"
+        )
+        self.filter_complex.append(
+            f"[{silence_index}:a]atrim=duration={duration:.3f},"
+            f"asetpts=PTS-STARTPTS{card_a}"
+        )
+        self.filter_concat(input_v=[card_v, self.out_v], input_a=[card_a, self.out_a])
+
     def filter_overlay(self, overlays: list[tuple[int, float, float]]) -> None:
         """Composite still overlays over the video, each on its own window.
 
