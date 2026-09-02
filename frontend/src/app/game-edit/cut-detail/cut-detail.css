@@ -39,10 +39,6 @@
   gap: 16px;
 }
 
-.cut-tabs {
-  display: none;
-}
-
 :host ::ng-deep .cut-tabs .mat-mdc-tab-header {
   border-bottom: none;
   margin-bottom: 12px;
@@ -117,7 +113,20 @@
   gap: 6px;
   align-items: center;
   flex-wrap: nowrap;
-  justify-content: center;
+  justify-content: flex-start;
+  padding: 4px 6px;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.form-row:hover {
+  background: #f9fafb;
+}
+
+/* Survol venu d'ici ou du segment correspondant dans la timeline. */
+.form-row.is-hovered {
+  background: #eef2ff;
+  box-shadow: inset 3px 0 0 #2563eb;
 }
 
 .form-row label {
@@ -215,19 +224,197 @@
   background: #d32f2f;
 }
 
-.row-actions {
-  display: flex;
-  gap: 6px;
+/* --- Glisser-deposer ---------------------------------------------------- */
+
+.drag-handle {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  margin-bottom: 3px;
+  display: inline-flex;
   align-items: center;
-  transform: translateY(12px);
+  justify-content: center;
+  width: 20px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #c3c7ce;
+  cursor: grab;
 }
 
-.row-actions button {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
+.form-row:hover .drag-handle {
+  color: #6b7280;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+/* Deux colonnes de points, en fond, plutot que six noeuds par ligne. */
+.drag-grip {
+  width: 7px;
+  height: 15px;
+  background-image: radial-gradient(currentColor 1.1px, transparent 1.2px);
+  background-size: 4px 5px;
+}
+
+.drag-placeholder {
+  height: 42px;
+  border: 1px dashed #9ca3af;
+  border-radius: 10px;
+  background: #f3f4f6;
+}
+
+.form-row.cdk-drag-preview {
+  box-shadow: 0 8px 20px rgba(17, 24, 39, 0.22);
+  background: #fff;
+}
+
+.form-row.cdk-drag-preview .drag-handle {
+  color: #6b7280;
+  cursor: grabbing;
+}
+
+.form-list.cdk-drop-list-dragging .form-row:not(.cdk-drag-placeholder) {
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-row.cdk-drag-animating {
+  transition: transform 220ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+/* Meme traitement que la duree in-out : c'est la meme nature d'information. */
+.gap-to-next {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  margin-bottom: 6px;
+  padding-left: 8px;
+  min-width: 82px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+/* Un ecart negatif veut dire que le point suivant commence avant la fin de
+   celui-ci : c'est la meme faute que signale l'input `out`. */
+.gap-to-next.invalid {
+  color: #c62828;
+  opacity: 1;
+  font-weight: 600;
+}
+
+.gap-none {
+  opacity: 0.4;
+}
+
+.row-delete {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  /* Colle a droite quelle que soit la largeur de la ligne. */
+  margin-left: auto;
+  margin-bottom: 3px;
+  width: 26px;
+  height: 26px;
   padding: 0;
+  border: 1px solid transparent;
   border-radius: 8px;
+  background: transparent;
+  color: #b6bac1;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.form-row:hover .row-delete {
+  color: #6b7280;
+}
+
+.row-delete:hover {
+  color: #ffffff;
+  background: #dc2626;
+  border-color: #dc2626;
+}
+
+/* --- Selecteur de point, trois positions -------------------------------- */
+
+.point-switch {
+  position: relative;
+  flex: 0 0 auto;
+  align-self: flex-end;
+  margin-bottom: 5px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 78px;
+  height: 26px;
+  padding: 2px;
+  border: 1px solid #d0d0d0;
+  border-radius: 999px;
+  background: #f3f4f6;
+}
+
+.point-switch-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / 3);
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.2);
+  transition:
+    transform 140ms ease,
+    background-color 140ms ease;
+}
+
+/* Memes couleurs que les segments de la timeline. */
+.point-switch[data-position="0"] .point-switch-thumb {
+  background: #dbeafe;
+}
+
+.point-switch[data-position="1"] .point-switch-thumb {
+  transform: translateX(100%);
+}
+
+.point-switch[data-position="2"] .point-switch-thumb {
+  transform: translateX(200%);
+  background: #fde68a;
+}
+
+.form-row label.point-switch-option {
+  position: relative;
+  z-index: 1;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  gap: 0;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.5;
+  cursor: pointer;
+}
+
+.point-switch-option.is-active {
+  opacity: 1;
+  font-weight: 600;
+}
+
+.point-switch-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.point-switch-option:focus-within {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
 }
 
 .form-row input[type="number"] {
@@ -244,14 +431,4 @@
 
 .cut-empty {
   opacity: 0.65;
-}
-
-@container side-panel (max-width: 1000px) {
-  .cut-detail {
-    display: none;
-  }
-
-  .cut-tabs {
-    display: block;
-  }
 }

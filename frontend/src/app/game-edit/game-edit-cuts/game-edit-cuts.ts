@@ -1,25 +1,31 @@
 import {
+  AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
   computed,
   ElementRef,
   inject,
   Input,
   OnChanges,
+  OnDestroy,
   OnInit,
   signal,
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
-import {CommonModule} from '@angular/common';
-import {FormsModule} from '@angular/forms';
-import {MatTabsModule} from '@angular/material/tabs';
-import {MatButtonModule} from '@angular/material/button';
-import {MatCardModule} from '@angular/material/card';
-import {MatFormFieldModule} from '@angular/material/form-field';
-import {MatInputModule} from '@angular/material/input';
-import {MatSelectModule} from '@angular/material/select';
-import {CutsService, GamesService,} from '../../core/services/misc-hateoas-models.service';
-import {TournamentService} from '../../core/services/tournament.service';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { MatTabsModule } from '@angular/material/tabs';
+import { MatButtonModule } from '@angular/material/button';
+import { MatCardModule } from '@angular/material/card';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
+import {
+  CutsService,
+  GamesService,
+} from '../../core/services/misc-hateoas-models.service';
+import { TournamentService } from '../../core/services/tournament.service';
 import {
   Cut,
   Game,
@@ -29,14 +35,21 @@ import {
   VideoFiles,
   VideoQuality,
 } from '../../core/models/models';
-import {CutDetailComponent} from '../cut-detail/cut-detail';
-import {VideoPlayer} from '../video-player/video-player';
-import {GameEditCutsStateService} from './game-edit-cuts-state';
+import { CutDetailComponent } from '../cut-detail/cut-detail';
+import { CutTimelineComponent } from '../cut-timeline/cut-timeline';
+import { VideoPlayer } from '../video-player/video-player';
+import { GameEditCutsStateService } from './game-edit-cuts-state';
 
 type CutTemplate = {
   code: string;
   label: string;
 };
+
+/**
+ * Largeur du panneau lateral en dessous de laquelle les points et les overlays
+ * d'un cut passent en onglets plutot que cote a cote.
+ */
+const COMPACT_PANEL_WIDTH = 1000;
 
 /**
  * Fichier a exposer pour l'archive d'un match.
@@ -69,12 +82,16 @@ function pickArchiveFile(files: VideoFiles): VideoFile | null {
     MatInputModule,
     MatSelectModule,
     CutDetailComponent,
+    CutTimelineComponent,
     VideoPlayer,
   ],
   templateUrl: './game-edit-cuts.html',
   styleUrl: './game-edit-cuts.css',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class GameEditCutsComponent implements OnChanges, OnInit {
+export class GameEditCutsComponent
+  implements AfterViewInit, OnChanges, OnDestroy, OnInit
+{
   @Input() game?: Game | null = null;
   cuts = signal<Cut[]>([]);
   cutsVideos = signal<Record<string, Video>>({});
@@ -114,17 +131,26 @@ export class GameEditCutsComponent implements OnChanges, OnInit {
   selectedRendered = signal<string | null>(null);
   selectedCutTabIndex = signal(0);
 
+  /** Vrai quand le panneau lateral est trop etroit pour la vue en deux colonnes. */
+  readonly compact = signal(false);
+
   @ViewChild('proxyVideo') proxyVideo?: ElementRef<HTMLVideoElement>;
   @ViewChild('rushPlayer') rushPlayer?: VideoPlayer;
+  @ViewChild('sidePanel', { read: ElementRef })
+  sidePanel?: ElementRef<HTMLElement>;
   protected readonly length = length;
   private state = inject(GameEditCutsStateService);
   rushFrame = this.state.rushFrame;
   renderedFrame = this.state.renderedFrame;
   rushFps = this.state.rushFps;
+  rushDurationFrames = this.state.rushDurationFrames;
+  activeCutPoints = this.state.activeCutPoints;
+  hoveredPointIndex = this.state.hoveredPointIndex;
   activeCut = this.state.activeCut;
   private gameService = inject(GamesService);
   private cutService = inject(CutsService);
   private tournamentService = inject(TournamentService);
+  private panelResize?: ResizeObserver;
 
   ngOnInit(): void {
     // Les cuts, rendered et la vidéo du match sont chargés par ngOnChanges,
@@ -138,6 +164,22 @@ export class GameEditCutsComponent implements OnChanges, OnInit {
       this.loadRenderedFiles();
       this.loadGameVideo();
     }
+  }
+
+  ngAfterViewInit(): void {
+    const panel = this.sidePanel?.nativeElement;
+    if (!panel || typeof ResizeObserver === 'undefined') return;
+
+    this.panelResize = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width === undefined) return;
+      this.compact.set(width <= COMPACT_PANEL_WIDTH);
+    });
+    this.panelResize.observe(panel);
+  }
+
+  ngOnDestroy(): void {
+    this.panelResize?.disconnect();
   }
 
   onGenerateCut(): void {
@@ -243,6 +285,10 @@ export class GameEditCutsComponent implements OnChanges, OnInit {
 
   onSelectedCutTabChange(index: number): void {
     this.selectedCutTabIndex.set(index);
+    // Le detail du nouvel onglet republiera ses points ; en attendant, mieux
+    // vaut une timeline vide que les sections de l'onglet qu'on vient de quitter.
+    this.activeCutPoints.set([]);
+    this.hoveredPointIndex.set(null);
     this.activeCut.set(this.cuts()[index] ?? null);
   }
 

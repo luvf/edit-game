@@ -1,365 +1,21 @@
-@if (parseError) {
-  <div class="cut-error">JSON invalide: {{ parseError }}</div>
-} @else if (payload(); as payloadData) {
-  <div class="cut-detail">
-    <section class="column">
-      @if (payloadData.points.length) {
-        <div class="form-list">
-          @for (pt of payloadData.points; track $index) {
-            <div class="form-row">
-              <label>
-                <span class="label-row" (dblclick)="onSeekToFrame(pt.in)">
-                  in
-                  <span class="timecode" (dblclick)="onSeekToFrame(pt.in)">{{
-                      formatTimecode(pt.in)
-                    }}</span>
-                </span>
-                <div class="input-row">
-                  <input
-                    type="number"
-                    [(ngModel)]="pt.in"
-                    [class.invalid]="isInInvalid($index)"
-                    (dblclick)="onSeekToFrame(pt.in)"
-                  />
-                  <button
-                    type="button"
-                    class="frame-button"
-                    (click)="setFromCurrentFrame(pt, 'in')"
-                  >
-                    <span class="frame-dot"></span>
-                  </button>
-                </div>
-              </label>
-              <span
-                class="duration-between"
-                [class.invalid]="isRangeInvalid(pt)"
-              >{{ formatDurationFrames(pt.in, pt.out) }}</span
-              >
-
-              <label>
-                <span class="label-row" (dblclick)="onSeekToFrame(pt.out)">
-                  out
-                  <span class="timecode" (dblclick)="onSeekToFrame(pt.out)">{{
-                      formatTimecode(pt.out)
-                    }}</span>
-                </span>
-                <div class="input-row">
-                  <input
-                    type="number"
-                    [(ngModel)]="pt.out"
-                    [class.invalid]="isOutInvalid($index)"
-                    (dblclick)="onSeekToFrame(pt.out)"
-                  />
-                  <button
-                    type="button"
-                    class="frame-button"
-                    (click)="setFromCurrentFrame(pt, 'out')"
-                  >
-                    <span class="frame-dot"></span>
-                  </button>
-                </div>
-              </label>
-              <label>
-                point
-                <select [(ngModel)]="pt.point">
-                  <option value="left">left</option>
-                  <option value="right">right</option>
-                  <option value="nopoint">nopoint</option>
-                </select>
-              </label>
-              <div class="row-actions">
-                <button
-                  mat-stroked-button
-                  type="button"
-                  (click)="addPointAfter($index)"
-                >
-                  +
-                </button>
-                <button
-                  mat-stroked-button
-                  type="button"
-                  (click)="removePoint($index)"
-                >
-                  -
-                </button>
-              </div>
-            </div>
-          }
-        </div>
-      } @else {
-        <div class="cut-empty">Aucun point.</div>
-      }
-      <div class="list-footer">
-        <button mat-stroked-button type="button" (click)="addPoint()">
-          Add point
-        </button>
-      </div>
-    </section>
-
-    <section class="column">
-      <div class="list-header">
-        <button
-          mat-stroked-button
-          type="button"
-          (click)="addOverlay('TeamIntroduction')"
-        >
-          Add TeamIntro
-        </button>
-        <button
-          mat-stroked-button
-          type="button"
-          (click)="addOverlay('Warning')"
-        >
-          Add Warning
-        </button>
-      </div>
-      @if (payloadData.overlays.length) {
-        <div class="form-list">
-          @for (ov of payloadData.overlays; track $index) {
-            <div class="form-row">
-              <label>
-                type
-                <select [(ngModel)]="ov.type">
-                  <option value="TeamIntroduction">TeamIntroduction</option>
-                  <option value="Warning">Warning</option>
-                </select>
-              </label>
-              @if (ov.type === "TeamIntroduction") {
-                <label>
-                  team1
-                  <input type="text" [(ngModel)]="ov.team1"/>
-                </label>
-                <label>
-                  team2
-                  <input type="text" [(ngModel)]="ov.team2"/>
-                </label>
-                <label>
-                  condition
-                  <input type="text" [(ngModel)]="ov.condition"/>
-                </label>
-              } @else {
-                <label>
-                  warning_type
-                  <input type="text" [(ngModel)]="ov.warning_type"/>
-                </label>
-                <label>
-                  text
-                  <input type="text" [(ngModel)]="ov.text"/>
-                </label>
-                <label>
-                  tc
-                  <input type="number" [(ngModel)]="ov.tc"/>
-                </label>
-                <label>
-                  length
-                  <input type="number" [(ngModel)]="ov.length"/>
-                </label>
-              }
-              <div class="row-actions">
-                <button
-                  mat-stroked-button
-                  type="button"
-                  (click)="addOverlayAfter($index)"
-                >
-                  +
-                </button>
-                <button
-                  mat-stroked-button
-                  type="button"
-                  (click)="removeOverlay($index)"
-                >
-                  -
-                </button>
-              </div>
-            </div>
-          }
-        </div>
-      } @else {
-        <div class="cut-empty">Aucun overlay.</div>
-      }
-    </section>
-  </div>
-
-  <mat-tab-group class="cut-tabs">
-    <mat-tab label="Points">
-      <section class="column">
-        @if (payloadData.points.length) {
-          <div class="form-list">
-            @for (pt of payloadData.points; track $index) {
-              <div class="form-row">
-                <label>
-                  <span class="label-row" (dblclick)="onSeekToFrame(pt.in)">
-                    in
-                    <span class="timecode" (dblclick)="onSeekToFrame(pt.in)">{{
-                        formatTimecode(pt.in)
-                      }}</span>
-                  </span>
-                  <div class="input-row">
-                    <input
-                      type="number"
-                      [(ngModel)]="pt.in"
-                      [class.invalid]="isInInvalid($index)"
-                      (dblclick)="onSeekToFrame(pt.in)"
-                    />
-                    <button
-                      type="button"
-                      class="frame-button"
-                      (click)="setFromCurrentFrame(pt, 'in')"
-                    >
-                      <span class="frame-dot"></span>
-                    </button>
-                  </div>
-                </label>
-                <span
-                  class="duration-between"
-                  [class.invalid]="isRangeInvalid(pt)"
-                >{{ formatDurationFrames(pt.in, pt.out) }}</span
-                >
-                <label>
-                  <span class="label-row" (dblclick)="onSeekToFrame(pt.out)">
-                    out
-                    <span class="timecode" (dblclick)="onSeekToFrame(pt.out)">{{
-                        formatTimecode(pt.out)
-                      }}</span>
-                  </span>
-                  <div class="input-row">
-                    <input
-                      type="number"
-                      [(ngModel)]="pt.out"
-                      [class.invalid]="isOutInvalid($index)"
-                      (dblclick)="onSeekToFrame(pt.out)"
-                    />
-                    <button
-                      type="button"
-                      class="frame-button"
-                      (click)="setFromCurrentFrame(pt, 'out')"
-                    >
-                      <span class="frame-dot"></span>
-                    </button>
-                  </div>
-                </label>
-                <label>
-                  point
-                  <select [(ngModel)]="pt.point">
-                    <option value="left">left</option>
-                    <option value="right">right</option>
-                    <option value="nopoint">nopoint</option>
-                  </select>
-                </label>
-                <div class="row-actions">
-                  <button
-                    mat-stroked-button
-                    type="button"
-                    (click)="addPointAfter($index)"
-                  >
-                    +
-                  </button>
-                  <button
-                    mat-stroked-button
-                    type="button"
-                    (click)="removePoint($index)"
-                  >
-                    -
-                  </button>
-                </div>
-              </div>
-            }
-          </div>
-        } @else {
-          <div class="cut-empty">Aucun point.</div>
-        }
-        <div class="list-footer">
-          <button mat-stroked-button type="button" (click)="addPoint()">
-            Add point
-          </button>
-        </div>
-      </section>
-    </mat-tab>
-    <mat-tab label="Overlays">
-      <section class="column">
-        <div class="list-header">
-          <button
-            mat-stroked-button
-            type="button"
-            (click)="addOverlay('TeamIntroduction')"
-          >
-            Add TeamIntro
-          </button>
-          <button
-            mat-stroked-button
-            type="button"
-            (click)="addOverlay('Warning')"
-          >
-            Add Warning
-          </button>
-        </div>
-        @if (payloadData.overlays.length) {
-          <div class="form-list">
-            @for (ov of payloadData.overlays; track $index) {
-              <div class="form-row">
-                <label>
-                  type
-                  <select [(ngModel)]="ov.type">
-                    <option value="TeamIntroduction">TeamIntroduction</option>
-                    <option value="Warning">Warning</option>
-                  </select>
-                </label>
-                @if (ov.type === "TeamIntroduction") {
-                  <label>
-                    team1
-                    <input type="text" [(ngModel)]="ov.team1"/>
-                  </label>
-                  <label>
-                    team2
-                    <input type="text" [(ngModel)]="ov.team2"/>
-                  </label>
-                  <label>
-                    condition
-                    <input type="text" [(ngModel)]="ov.condition"/>
-                  </label>
-                } @else {
-                  <label>
-                    warning_type
-                    <input type="text" [(ngModel)]="ov.warning_type"/>
-                  </label>
-                  <label>
-                    text
-                    <input type="text" [(ngModel)]="ov.text"/>
-                  </label>
-                  <label>
-                    tc
-                    <input type="number" [(ngModel)]="ov.tc"/>
-                  </label>
-                  <label>
-                    length
-                    <input type="number" [(ngModel)]="ov.length"/>
-                  </label>
-                }
-                <div class="row-actions">
-                  <button
-                    mat-stroked-button
-                    type="button"
-                    (click)="addOverlayAfter($index)"
-                  >
-                    +
-                  </button>
-                  <button
-                    mat-stroked-button
-                    type="button"
-                    (click)="removeOverlay($index)"
-                  >
-                    -
-                  </button>
-                </div>
-              </div>
-            }
-          </div>
-        } @else {
-          <div class="cut-empty">Aucun overlay.</div>
-        }
-      </section>
-    </mat-tab>
-  </mat-tab-group>
+@if (parseError(); as message) {
+  <div class="cut-error">JSON invalide: {{ message }}</div>
+} @else if (payload()) {
+  @if (compact()) {
+    <mat-tab-group class="cut-tabs">
+      <mat-tab label="Points">
+        <ng-container [ngTemplateOutlet]="pointsColumn"></ng-container>
+      </mat-tab>
+      <mat-tab label="Overlays">
+        <ng-container [ngTemplateOutlet]="overlaysColumn"></ng-container>
+      </mat-tab>
+    </mat-tab-group>
+  } @else {
+    <div class="cut-detail">
+      <ng-container [ngTemplateOutlet]="pointsColumn"></ng-container>
+      <ng-container [ngTemplateOutlet]="overlaysColumn"></ng-container>
+    </div>
+  }
 } @else {
   <div class="cut-empty">Aucun contenu.</div>
 }
@@ -386,3 +42,250 @@
     Add to queue
   </button>
 </div>
+
+<ng-template #pointsColumn>
+  @if (payload(); as data) {
+    <section class="column">
+      @if (data.points.length) {
+        <div
+          class="form-list"
+          cdkDropList
+          (cdkDropListDropped)="onDropPoint($event)"
+        >
+          @for (pt of data.points; track pt; let rowIndex = $index) {
+            <div
+              class="form-row"
+              cdkDrag
+              cdkDragLockAxis="y"
+              [class.is-hovered]="hoveredPoint() === rowIndex"
+              (pointerenter)="setHoveredPoint(rowIndex)"
+              (pointerleave)="setHoveredPoint(null)"
+            >
+              <button
+                type="button"
+                class="drag-handle"
+                cdkDragHandle
+                aria-label="Déplacer ce point"
+                title="Glisser pour réordonner"
+              >
+                <span class="drag-grip"></span>
+              </button>
+
+              <label>
+                <span class="label-row" (dblclick)="onSeekToFrame(pt.in)">
+                  in
+                  <span class="timecode" (dblclick)="onSeekToFrame(pt.in)">{{
+                    formatTimecode(pt.in)
+                  }}</span>
+                </span>
+                <div class="input-row">
+                  <input
+                    type="number"
+                    [(ngModel)]="pt.in"
+                    (ngModelChange)="onPointEdited()"
+                    [class.invalid]="isInInvalid(rowIndex)"
+                    (dblclick)="onSeekToFrame(pt.in)"
+                  />
+                  <button
+                    type="button"
+                    class="frame-button"
+                    title="Prendre la frame courante"
+                    (click)="setFromCurrentFrame(pt, 'in')"
+                  >
+                    <span class="frame-dot"></span>
+                  </button>
+                </div>
+              </label>
+
+              <span
+                class="duration-between"
+                [class.invalid]="isRangeInvalid(pt)"
+                >{{ formatDurationFrames(pt.in, pt.out) }}</span
+              >
+
+              <label>
+                <span class="label-row" (dblclick)="onSeekToFrame(pt.out)">
+                  out
+                  <span class="timecode" (dblclick)="onSeekToFrame(pt.out)">{{
+                    formatTimecode(pt.out)
+                  }}</span>
+                </span>
+                <div class="input-row">
+                  <input
+                    type="number"
+                    [(ngModel)]="pt.out"
+                    (ngModelChange)="onPointEdited()"
+                    [class.invalid]="isOutInvalid(rowIndex)"
+                    (dblclick)="onSeekToFrame(pt.out)"
+                  />
+                  <button
+                    type="button"
+                    class="frame-button"
+                    title="Prendre la frame courante"
+                    (click)="setFromCurrentFrame(pt, 'out')"
+                  >
+                    <span class="frame-dot"></span>
+                  </button>
+                </div>
+              </label>
+
+              <div
+                class="point-switch"
+                role="radiogroup"
+                aria-label="point"
+                [attr.data-position]="pointPosition(pt)"
+              >
+                <span class="point-switch-thumb" aria-hidden="true"></span>
+                @for (option of pointOptions; track option.value) {
+                  <label
+                    class="point-switch-option"
+                    [class.is-active]="(pt.point ?? 'nopoint') === option.value"
+                    [title]="option.label"
+                  >
+                    <input
+                      type="radio"
+                      [name]="switchName + rowIndex"
+                      [value]="option.value"
+                      [attr.aria-label]="option.label"
+                      [(ngModel)]="pt.point"
+                      (ngModelChange)="onPointEdited()"
+                    />
+                    <span>{{ option.short }}</span>
+                  </label>
+                }
+              </div>
+
+              <span
+                class="gap-to-next"
+                [class.invalid]="isOutInvalid(rowIndex)"
+                title="Temps jusqu'au point suivant"
+              >
+                @if (gapToNext(rowIndex); as gap) {
+                  {{ gap }}
+                } @else {
+                  <span class="gap-none">—</span>
+                }
+              </span>
+
+              <button
+                type="button"
+                class="row-delete"
+                aria-label="Supprimer ce point"
+                title="Supprimer"
+                (click)="removePoint(rowIndex)"
+              >
+                ×
+              </button>
+
+              <div class="drag-placeholder" *cdkDragPlaceholder></div>
+            </div>
+          }
+        </div>
+      } @else {
+        <div class="cut-empty">Aucun point.</div>
+      }
+      <div class="list-footer">
+        <button mat-stroked-button type="button" (click)="addPoint()">
+          Add point
+        </button>
+      </div>
+    </section>
+  }
+</ng-template>
+
+<ng-template #overlaysColumn>
+  @if (payload(); as data) {
+    <section class="column">
+      <div class="list-header">
+        <button
+          mat-stroked-button
+          type="button"
+          (click)="addOverlay('TeamIntroduction')"
+        >
+          Add TeamIntro
+        </button>
+        <button
+          mat-stroked-button
+          type="button"
+          (click)="addOverlay('Warning')"
+        >
+          Add Warning
+        </button>
+      </div>
+      @if (data.overlays.length) {
+        <div
+          class="form-list"
+          cdkDropList
+          (cdkDropListDropped)="onDropOverlay($event)"
+        >
+          @for (ov of data.overlays; track ov; let rowIndex = $index) {
+            <div class="form-row" cdkDrag cdkDragLockAxis="y">
+              <button
+                type="button"
+                class="drag-handle"
+                cdkDragHandle
+                aria-label="Déplacer cet overlay"
+                title="Glisser pour réordonner"
+              >
+                <span class="drag-grip"></span>
+              </button>
+
+              <label>
+                type
+                <select [(ngModel)]="ov.type">
+                  <option value="TeamIntroduction">TeamIntroduction</option>
+                  <option value="Warning">Warning</option>
+                </select>
+              </label>
+              @if (ov.type === "TeamIntroduction") {
+                <label>
+                  team1
+                  <input type="text" [(ngModel)]="ov.team1" />
+                </label>
+                <label>
+                  team2
+                  <input type="text" [(ngModel)]="ov.team2" />
+                </label>
+                <label>
+                  condition
+                  <input type="text" [(ngModel)]="ov.condition" />
+                </label>
+              } @else {
+                <label>
+                  warning_type
+                  <input type="text" [(ngModel)]="ov.warning_type" />
+                </label>
+                <label>
+                  text
+                  <input type="text" [(ngModel)]="ov.text" />
+                </label>
+                <label>
+                  tc
+                  <input type="number" [(ngModel)]="ov.tc" />
+                </label>
+                <label>
+                  length
+                  <input type="number" [(ngModel)]="ov.length" />
+                </label>
+              }
+
+              <button
+                type="button"
+                class="row-delete"
+                aria-label="Supprimer cet overlay"
+                title="Supprimer"
+                (click)="removeOverlay(rowIndex)"
+              >
+                ×
+              </button>
+
+              <div class="drag-placeholder" *cdkDragPlaceholder></div>
+            </div>
+          }
+        </div>
+      } @else {
+        <div class="cut-empty">Aucun overlay.</div>
+      }
+    </section>
+  }
+</ng-template>

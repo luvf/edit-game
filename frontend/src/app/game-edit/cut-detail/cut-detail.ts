@@ -1,20 +1,54 @@
-import {Component, EventEmitter, inject, Input, OnChanges, Output, signal, SimpleChanges,} from '@angular/core';
-import {CommonModule} from '@angular/common';
-import {HttpClient} from '@angular/common/http';
-import {Cut} from '../../core/models/models';
-import {MatButtonModule} from '@angular/material/button';
-import {CutsService} from '../../core/services/misc-hateoas-models.service';
-import {FormsModule} from '@angular/forms';
-import {MatTabsModule} from '@angular/material/tabs';
-import {GameEditCutsStateService} from '../game-edit-cuts/game-edit-cuts-state';
-import {renderPresets} from '../../core/services/preset-service';
-import {MatOption, MatSelect} from '@angular/material/select';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  effect,
+  EventEmitter,
+  inject,
+  Input,
+  input,
+  OnChanges,
+  Output,
+  signal,
+  SimpleChanges,
+} from '@angular/core';
+import {
+  CdkDragDrop,
+  DragDropModule,
+  moveItemInArray,
+} from '@angular/cdk/drag-drop';
+import { CommonModule } from '@angular/common';
+import { HttpClient } from '@angular/common/http';
+import { Cut } from '../../core/models/models';
+import { MatButtonModule } from '@angular/material/button';
+import { CutsService } from '../../core/services/misc-hateoas-models.service';
+import { FormsModule } from '@angular/forms';
+import { MatTabsModule } from '@angular/material/tabs';
+import {
+  CutPoint,
+  GameEditCutsStateService,
+} from '../game-edit-cuts/game-edit-cuts-state';
+import { renderPresets } from '../../core/services/preset-service';
+import { MatOption, MatSelect } from '@angular/material/select';
 
-type Point = {
-  in: number;
-  out: number;
-  point?: 'left' | 'right' | 'nopoint';
-};
+type Point = CutPoint;
+
+/**
+ * Les trois positions du selecteur de point, dans l'ordre affiche. `short` est
+ * ce qui tient dans la ligne, `label` ce que disent l'infobulle et le lecteur
+ * d'ecran.
+ */
+const POINT_OPTIONS: {
+  value: NonNullable<Point['point']>;
+  short: string;
+  label: string;
+}[] = [
+  { value: 'left', short: 'L', label: 'left' },
+  { value: 'nopoint', short: '–', label: 'nopoint' },
+  { value: 'right', short: 'R', label: 'right' },
+];
+
+/** Compteur de groupes de radios, voir `switchName`. */
+let nextSwitchGroupId = 0;
 
 type TeamIntroductionOverlay = {
   type: 'TeamIntroduction';
@@ -49,22 +83,55 @@ type CutPayload = {
     MatTabsModule,
     MatSelect,
     MatOption,
+    DragDropModule,
   ],
   templateUrl: './cut-detail.html',
   styleUrl: './cut-detail.css',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CutDetailComponent implements OnChanges {
   @Input() cut: Cut | null = null;
+  /**
+   * Mise en page etroite : les points et les overlays passent en onglets au
+   * lieu d'etre cote a cote. Le choix vient du parent, qui mesure le panneau ;
+   * rendre les deux et en cacher une en CSS construisait chaque ligne deux fois.
+   */
+  readonly compact = input(false);
   @Output() seekToFrame = new EventEmitter<number>();
 
   payload = signal<CutPayload | null>(null);
-  parseError: string | null = null;
+  readonly parseError = signal<string | null>(null);
   valid = signal(true);
   queuePreset = 'medium';
   protected readonly renderPresets = renderPresets;
+  protected readonly pointOptions = POINT_OPTIONS;
+  /**
+   * Prefixe des `name` du selecteur de point. Les radios de meme `name` forment
+   * un seul groupe pour le navigateur, et `preserveContent` garde plusieurs
+   * cuts vivants : sans prefixe unique par composant, changer le point d'une
+   * ligne deselectionnerait la meme ligne d'un autre cut.
+   */
+  protected readonly switchName = `cut-point-${++nextSwitchGroupId}-`;
   private http = inject(HttpClient);
   private cutService = inject(CutsService);
   private state = inject(GameEditCutsStateService);
+  /** Point survole, partage avec la timeline sous le lecteur. */
+  readonly hoveredPoint = this.state.hoveredPointIndex;
+
+  constructor() {
+    // La timeline vit a cote du lecteur : seul le cut ouvert lui envoie ses
+    // sections, sinon les onglets gardes en vie par `preserveContent`
+    // s'ecraseraient les uns les autres.
+    effect(() => {
+      // Les deux signaux se lisent avant tout `return` : un effet ne se
+      // reabonne qu'a ce qu'il a lu au dernier passage, et sortir plus haut
+      // le rendrait sourd aux changements de `payload`.
+      const points = this.payload()?.points ?? [];
+      const isActive = this.state.activeCut()?.pk === this.cut?.pk;
+      if (!isActive) return;
+      this.state.activeCutPoints.set([...points]);
+    });
+  }
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['cut']) {
@@ -110,20 +177,31 @@ export class CutDetailComponent implements OnChanges {
     });
   }
 
-  addPointAfter(index: number): void {
+  onDropPoint(event: CdkDragDrop<Point[]>): void {
     const payload = this.payload();
-    if (!payload) return;
-
-    const current = payload.points[index];
-    const next = payload.points[index + 1];
-    const currentOut = Number(current?.out ?? 0);
-    const nextIn = Number(next?.in ?? currentOut + 2);
-    const newIn = Number.isFinite(currentOut) ? currentOut + 1 : 0;
-    const newOut = Number.isFinite(nextIn) ? nextIn - 1 : newIn;
+    if (!payload || event.previousIndex === event.currentIndex) return;
 
     const points = [...payload.points];
-    points.splice(index + 1, 0, { in: newIn, out: newOut, point: 'nopoint' });
+    moveItemInArray(points, event.previousIndex, event.currentIndex);
     this.payload.set({ ...payload, points });
+    this.publishPoints();
+  }
+
+  onDropOverlay(event: CdkDragDrop<Overlay[]>): void {
+    const payload = this.payload();
+    if (!payload || event.previousIndex === event.currentIndex) return;
+
+    const overlays = [...payload.overlays];
+    moveItemInArray(overlays, event.previousIndex, event.currentIndex);
+    this.payload.set({ ...payload, overlays });
+  }
+
+  /**
+   * `ngModel` ecrit dans le point sur place : le signal `payload` ne change
+   * pas d'identite, donc la timeline doit etre prevenue a la main.
+   */
+  onPointEdited(): void {
+    this.publishPoints();
   }
 
   removePoint(index: number): void {
@@ -132,6 +210,7 @@ export class CutDetailComponent implements OnChanges {
     const points = [...payload.points];
     points.splice(index, 1);
     this.payload.set({ ...payload, points });
+    this.publishPoints();
   }
 
   addOverlay(type: Overlay['type'] = 'Warning'): void {
@@ -157,33 +236,6 @@ export class CutDetailComponent implements OnChanges {
       ...payload,
       overlays: [...payload.overlays, overlay],
     });
-  }
-
-  addOverlayAfter(index: number, type?: Overlay['type']): void {
-    const payload = this.payload();
-    if (!payload) return;
-    const current = payload.overlays[index];
-    const nextType = type ?? current?.type ?? 'Warning';
-
-    const overlay =
-      nextType === 'TeamIntroduction'
-        ? {
-            type: 'TeamIntroduction' as const,
-            team1: '',
-            team2: '',
-            condition: '',
-          }
-        : {
-            type: 'Warning' as const,
-            warning_type: '',
-            text: '',
-            tc: 0,
-            length: 300,
-          };
-
-    const overlays = [...payload.overlays];
-    overlays.splice(index + 1, 0, overlay);
-    this.payload.set({ ...payload, overlays });
   }
 
   formatTimecode(frameValue: number): string {
@@ -223,6 +275,12 @@ export class CutDetailComponent implements OnChanges {
     const frame = this.state.rushFrame();
     if (!Number.isFinite(frame as number)) return;
     point[field] = Math.max(0, Math.floor(frame as number));
+    this.publishPoints();
+  }
+
+  private publishPoints(): void {
+    if (this.state.activeCut()?.pk !== this.cut?.pk) return;
+    this.state.activeCutPoints.set([...(this.payload()?.points ?? [])]);
   }
 
   /**
@@ -231,6 +289,30 @@ export class CutDetailComponent implements OnChanges {
    */
   private nominalRushFps(): number {
     return Math.max(1, Math.round(this.state.rushFps()));
+  }
+
+  /**
+   * Temps mort entre la fin de ce point et le debut du suivant, au format
+   * mm:ss:ff. `null` sur le dernier point : il n'y a pas de suivant.
+   */
+  gapToNext(index: number): string | null {
+    const payload = this.payload();
+    if (!payload) return null;
+    const current = payload.points[index];
+    const next = payload.points[index + 1];
+    if (!current || !next) return null;
+    return this.formatDurationFrames(current.out, next.in);
+  }
+
+  setHoveredPoint(index: number | null): void {
+    this.hoveredPoint.set(index);
+  }
+
+  /** Index de la position active du selecteur, pour placer le curseur. */
+  pointPosition(point: Point): number {
+    const value = point.point ?? 'nopoint';
+    const index = POINT_OPTIONS.findIndex((option) => option.value === value);
+    return index < 0 ? 1 : index;
   }
 
   onSeekToFrame(frameValue: number): void {
@@ -279,16 +361,16 @@ export class CutDetailComponent implements OnChanges {
 
   private loadJson(): void {
     this.payload.set(null);
-    this.parseError = null;
+    this.parseError.set(null);
     const path = this.cut?.json_file?.trim();
     if (!path || !this.isFetchablePath(path)) return;
 
     this.http.get(path, { responseType: 'text' }).subscribe({
       next: (text) => queueMicrotask(() => this.parseJson(text)),
       error: (e) => {
-        this.parseError = e?.message
-          ? String(e.message)
-          : 'Erreur de chargement';
+        this.parseError.set(
+          e?.message ? String(e.message) : 'Erreur de chargement',
+        );
       },
     });
   }
@@ -318,7 +400,7 @@ export class CutDetailComponent implements OnChanges {
           .filter((o: Overlay | null) => !!o) as Overlay[],
       });
     } catch (e: any) {
-      this.parseError = e?.message ? String(e.message) : 'Invalid JSON';
+      this.parseError.set(e?.message ? String(e.message) : 'Invalid JSON');
     }
   }
 

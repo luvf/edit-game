@@ -1,19 +1,26 @@
 import {
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   EventEmitter,
   Input,
-  OnInit,
+  input,
+  OnChanges,
   Output,
   signal,
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
-import {Video, VideoFile, VideoFiles, VideoQuality} from '../../core/models/models';
-import {MatButton} from '@angular/material/button';
-import {MatFormField, MatLabel} from '@angular/material/input';
-import {MatOption, MatSelect} from '@angular/material/select';
-import {HttpClient} from '@angular/common/http';
+import {
+  Video,
+  VideoFile,
+  VideoFiles,
+  VideoQuality,
+} from '../../core/models/models';
+import { MatButton } from '@angular/material/button';
+import { MatFormField, MatLabel } from '@angular/material/input';
+import { MatOption, MatSelect } from '@angular/material/select';
+import { HttpClient } from '@angular/common/http';
 
 /**
  * Utilise seulement quand l'API ne renvoie pas de fps : fichier jamais sonde,
@@ -25,30 +32,35 @@ export const FALLBACK_FPS = 60000 / 1001;
   imports: [MatButton, MatFormField, MatLabel, MatSelect, MatOption],
   templateUrl: './video-player.html',
   styleUrl: './video-player.css',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class VideoPlayer implements OnInit {
+export class VideoPlayer implements OnChanges {
   @ViewChild('videoElement') videoElement?: ElementRef<HTMLVideoElement>;
 
   @Input() sourceVideo!: Video;
+  /**
+   * Hauteur maximale de l'image. Le rush merite l'ecran, le cut rendu qui le
+   * suit dans la colonne doit rester un apercu.
+   */
+  readonly maxHeight = input('62vh');
 
-  currentFrame: number = 0;
+  readonly currentFrame = signal(0);
   @Output() currentFrameChange = new EventEmitter<number>();
   /** Frame rate reelle de la source affichee, une fois la qualite choisie. */
   @Output() fpsChange = new EventEmitter<number>();
+  /** Duree de la source en frames, connue seulement une fois les metadonnees lues. */
+  @Output() durationFramesChange = new EventEmitter<number>();
   availableQualities = signal<VideoQuality[]>([]);
   selectedQuality = signal<VideoQuality | null>(null);
   currentVideoUrl = signal<string | null>(null);
-  currentTimecode: string = '00:00:00'; //signal('00:00:00');
+  readonly currentTimecode = signal('00:00:00');
   private fps = FALLBACK_FPS;
-  private animationFrameId?: number;
 
   private pendingSeekTime: number | null = null;
   private pendingPlayAfterLoad = false;
   private isApplyingQuality = false;
 
   constructor(private http: HttpClient) {}
-
-  ngOnInit() {}
 
   ngOnChanges(changes: SimpleChanges) {
     if (changes['sourceVideo']) {
@@ -61,9 +73,12 @@ export class VideoPlayer implements OnInit {
     if (!video) return;
 
     const timeSeconds = video.currentTime;
-    this.currentFrame = this.timeToFrame(timeSeconds);
-    this.currentTimecode = this.formatTimecode(timeSeconds, this.fps);
-    this.currentFrameChange.emit(this.currentFrame);
+    const frame = this.timeToFrame(timeSeconds);
+    if (frame === this.currentFrame()) return;
+
+    this.currentFrame.set(frame);
+    this.currentTimecode.set(this.formatTimecode(timeSeconds, this.fps));
+    this.currentFrameChange.emit(frame);
   }
 
   onLoadedMetadata() {
@@ -72,6 +87,10 @@ export class VideoPlayer implements OnInit {
 
     // La nouvelle source est prête : le seek redevient possible.
     this.isApplyingQuality = false;
+
+    if (Number.isFinite(video.duration)) {
+      this.durationFramesChange.emit(this.timeToFrame(video.duration));
+    }
 
     if (this.pendingSeekTime !== null) {
       const target = Math.max(
@@ -153,10 +172,6 @@ export class VideoPlayer implements OnInit {
 
   timeToFrame(time: number): number {
     return Math.round(time * this.fps);
-  }
-
-  ngOnDestroy() {
-    if (this.animationFrameId) cancelAnimationFrame(this.animationFrameId);
   }
 
   private initQualities(): void {

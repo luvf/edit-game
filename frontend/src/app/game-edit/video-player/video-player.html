@@ -4,7 +4,8 @@
       #videoElement
       class="active-cut-video"
       controls
-      preload="metadata"
+      preload="auto"
+      [style.max-height]="maxHeight()"
       [src]="videoUrl"
       (timeupdate)="onTimeUpdate()"
       (loadedmetadata)="onLoadedMetadata()"
@@ -20,8 +21,8 @@
     <button mat-stroked-button type="button" (click)="seekBy(1)">+1</button>
     <button mat-stroked-button type="button" (click)="seekBy(5)">+5</button>
     <div class="video-metrics">
-      <p>Frame: {{ currentFrame }}</p>
-      <p>Timecode: {{ currentTimecode }}</p>
+      <p>Frame: {{ currentFrame() }}</p>
+      <p>Timecode: {{ currentTimecode() }}</p>
     </div>
     <mat-form-field appearance="outline" class="quality-select">
       <mat-label>Qualité</mat-label>
@@ -37,7 +38,7 @@
   </div>
 
   <div class="video-metrics">
-    <span>Frame: {{ currentFrame }}</span>
-    <span>Timecode: {{ currentTimecode }}</span>
+    <span>Frame: {{ currentFrame() }}</span>
+    <span>Timecode: {{ currentTimecode() }}</span>
   </div>
 </div>
