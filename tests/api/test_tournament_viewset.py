@@ -29,9 +29,7 @@ class TestCreate:
         assert tournament.tournament_dir == "my-tournament"
 
     def test_missing_required_field_returns_400(self, api_client, db):
-        response = api_client.post(
-            reverse("tournament-list"), {"name": "Incomplete"}
-        )
+        response = api_client.post(reverse("tournament-list"), {"name": "Incomplete"})
         assert response.status_code == 400
 
 
@@ -124,7 +122,9 @@ class TestArchiveAllGames:
 
 class TestGames:
     def test_returns_games_for_tournament(self, api_client, game):
-        response = api_client.get(reverse("tournament-games", args=[game.tournament.pk]))
+        response = api_client.get(
+            reverse("tournament-games", args=[game.tournament.pk])
+        )
 
         assert response.status_code == 200
         assert len(response.data) == 1

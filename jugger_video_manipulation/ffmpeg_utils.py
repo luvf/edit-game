@@ -2,7 +2,7 @@
 
 import json
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from jugger_video_manipulation.cut_json_parser import Point
@@ -200,6 +200,38 @@ class FilterComplexBuilder:
 
 
 @dataclass(frozen=True)
+class ExtraInputs:
+    """Inputs a render adds beyond its sources and its chapter metadata."""
+
+    overlays: list[Path] = field(default_factory=list)
+    silence_seconds: float | None = None
+
+
+@dataclass(frozen=True)
+class InputIndices:
+    """Where each kind of input lands in the ffmpeg command."""
+
+    silence: int | None
+    first_overlay: int
+
+
+def input_indices(
+    nb_sources: int, *, has_metadata: bool, has_silence: bool
+) -> InputIndices:
+    """Return the input indices `ffmpeg_command_builder` will produce.
+
+    Computing this in one place rather than at each call site is the point:
+    getting it wrong points a filter at the wrong input, and ffmpeg only says
+    so once it has parsed the whole graph.
+    """
+    cursor = nb_sources + (1 if has_metadata else 0)
+    silence = cursor if has_silence else None
+    return InputIndices(
+        silence=silence, first_overlay=cursor + (1 if has_silence else 0)
+    )
+
+
+@dataclass(frozen=True)
 class CudaUse:
     """Which ends of the pipeline may use the GPU."""
 
@@ -214,7 +246,7 @@ def ffmpeg_command_builder(
     output_file: Path | None,
     preset_args: dict[str, list[str]],
     chapter_metadata_path: Path | None = None,
-    overlay_files: list[Path] | None = None,
+    extras: ExtraInputs | None = None,
     cuda: CudaUse | None = None,
 ) -> list[str]:
     """Build the ffmpeg command.
@@ -225,11 +257,17 @@ def ffmpeg_command_builder(
         output_file : output file path
         preset_args : dictionary of preset arguments
         chapter_metadata_path : path to metadata file
-        overlay_files : still images to composite, added after the metadata
-            input so their indices never shift `-map_metadata`
+        extras : the still images to composite and, when a still is
+            concatenated with the video, the silent track it needs
         cuda : which ends of the pipeline may use the GPU
+
+    The input order is fixed and `input_indices` is the one place that knows
+    it: sources, then the chapter metadata, then the silent track, then the
+    overlay images. Metadata comes before the extras so `-map_metadata` keeps
+    pointing at it however many images follow.
     """
     cuda = cuda or CudaUse()
+    extras = extras or ExtraInputs()
     if output_file is None:
         raise ValueError("output_file must not be None")
 
@@ -243,7 +281,16 @@ def ffmpeg_command_builder(
     filter_complex.create_inputs(len(input_files))
     if chapter_metadata_path:
         cmd += ["-i", str(chapter_metadata_path.absolute())]
-    for overlay in overlay_files or []:
+    if extras.silence_seconds is not None:
+        cmd += [
+            "-f",
+            "lavfi",
+            "-t",
+            f"{max(extras.silence_seconds, 1.0):.3f}",
+            "-i",
+            "anullsrc=channel_layout=stereo:sample_rate=48000",
+        ]
+    for overlay in extras.overlays:
         cmd += ["-i", str(overlay.absolute())]
     cmd += ["-filter_complex", filter_complex.get_filter_complex()]
     cmd += ["-map", filter_complex.out_v, "-map", filter_complex.out_a]

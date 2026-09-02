@@ -20,11 +20,14 @@ from edit_game import settings
 from jugger_video_manipulation.cut_json_parser import CutJsonParser
 from jugger_video_manipulation.ffmpeg_utils import (
     CudaUse,
+    ExtraInputs,
     FilterComplexBuilder,
     ffmpeg_command_builder,
     get_fps,
+    input_indices,
     write_chapters_metadata,
 )
+from jugger_video_manipulation.overlay_pipeline import OverlayPlan
 
 
 @functools.cache
@@ -267,8 +270,14 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
         self,
         chapter_metadata_tmp_path: Path | None = None,
         output_file: Path | None = None,
+        overlay_dir: Path | None = None,
     ) -> list[str]:
-        """Build the ffmpeg command for this queue item."""
+        """Build the ffmpeg command for this queue item.
+
+        `overlay_dir` is where a job may write the images it composites.
+        Passing None means "do not write anything", which is what a preview
+        needs.
+        """
         raise NotImplementedError("Use a concrete ffmpeg queue item type.")
 
     def _execute(self) -> None:
@@ -287,6 +296,7 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
             command = self.build_command(
                 chapter_metadata_tmp_path=metadata_path,
                 output_file=tmp_output_path,
+                overlay_dir=tmp_dir / f"overlays-{uuid.uuid4().hex}",
             )
 
             update_fields: list[str] = ["command"]
@@ -457,6 +467,7 @@ class RenderQueueItemCut(RenderQueueItemFFMPEG):
         self,
         chapter_metadata_tmp_path: Path | None = None,
         output_file: Path | None = None,
+        overlay_dir: Path | None = None,
     ) -> list[str]:
         """Build the ffmpeg command for cut renders.
 
@@ -467,6 +478,8 @@ class RenderQueueItemCut(RenderQueueItemFFMPEG):
         Args:
             chapter_metadata_tmp_path: Path to the temporary metadata file, if any.
             output_file: Path to the output file, if any.
+            overlay_dir: where to write the overlay images. None means write
+                nothing, which is what a preview needs.
 
         Return:
             The ffmpeg command for subprocess.
@@ -500,12 +513,34 @@ class RenderQueueItemCut(RenderQueueItemFFMPEG):
                 fps=fps,
             )
 
+        plan = self._overlay_plan(overlay_dir, source_files[0], scale, fps)
+        indices = input_indices(
+            nb_files,
+            has_metadata=chapter_metadata_tmp_path is not None,
+            has_silence=plan.intro is not None,
+        )
+        if plan.intro is not None and indices.silence is not None:
+            filter_complex.filter_intro(
+                card_index=indices.first_overlay,
+                silence_index=indices.silence,
+                duration=plan.intro.duration,
+                fps=fps,
+                size=self._render_size(source_files[0], scale),
+            )
+        filter_complex.filter_overlay(plan.overlay_arguments(indices.first_overlay))
+
         cmd = ffmpeg_command_builder(
             filter_complex=filter_complex,
             input_files=source_files,
             output_file=out_file,
             chapter_metadata_path=chapter_metadata_tmp_path,
             preset_args=preset_args,
+            extras=ExtraInputs(
+                overlays=plan.files(),
+                silence_seconds=(
+                    plan.total_seconds() if plan.intro is not None else None
+                ),
+            ),
             cuda=CudaUse(
                 decode=self._can_use_cuda_for_decode(source_files),
                 encode=self._can_use_cuda_for_encode(),
@@ -513,6 +548,38 @@ class RenderQueueItemCut(RenderQueueItemFFMPEG):
         )
         self.command = " ".join(cmd)
         return cmd
+
+    def _render_size(self, source: Path, scale: list[str] | None) -> tuple[int, int]:
+        """Return the size this render comes out at."""
+        from core.models.render_queue.overlay import render_size
+
+        return render_size(source, scale)
+
+    def _overlay_plan(
+        self,
+        overlay_dir: Path | None,
+        source: Path,
+        scale: list[str] | None,
+        fps: float,
+    ) -> OverlayPlan:
+        """Draw the overlays this cut asks for, or none at all.
+
+        `overlay_dir` is None when the command is only being previewed, which
+        must not write images: a queue page would otherwise redraw every board
+        of every pending render. The preview then shows the command without
+        them, and the render adds them.
+        """
+        from core.models.render_queue.overlay import plan_for
+
+        if overlay_dir is None:
+            return OverlayPlan()
+        return plan_for(
+            self.cut,
+            directory=overlay_dir,
+            source=source,
+            size=self._render_size(source, scale),
+            fps=fps,
+        )
 
 
 class RenderQueueItemGameRender(RenderQueueItemFFMPEG):
@@ -550,20 +617,23 @@ class RenderQueueItemGameRender(RenderQueueItemFFMPEG):
         self,
         chapter_metadata_tmp_path: Path | None = None,
         output_file: Path | None = None,
+        overlay_dir: Path | None = None,
     ) -> list[str]:
         """Build the ffmpeg command for proxy renders.
 
-        concatenate the source files
-        and encode them with the selected preset.
+        Concatenate the source files and encode them with the selected preset.
 
         Args:
             chapter_metadata_tmp_path: Path to the temporary metadata file, if any.
             output_file: Path to the output file, if any.
+            overlay_dir: ignored. A proxy carries no overlay: it exists to be
+                scrubbed while editing, and a scoreboard drawn on it would be
+                baked into every later render that reads from it.
 
         Returns:
             list of parameters arg for ffmpeg
         """
-        _ = chapter_metadata_tmp_path
+        _ = chapter_metadata_tmp_path, overlay_dir
 
         out_file = output_file or self.final_output_path
         out_file.parent.mkdir(parents=True, exist_ok=True)

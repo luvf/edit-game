@@ -102,6 +102,16 @@ class OverlayPlan:
         """Return how far the match is pushed back by the opening card."""
         return self.intro.duration if self.intro else 0.0
 
+    def total_seconds(self) -> float:
+        """Return how far into the render the last overlay reaches.
+
+        Used to size the silent track the opening card is concatenated with:
+        it only has to outlast the card, but sizing it to the whole render
+        costs nothing and cannot come up short.
+        """
+        end = max((window.end for window in self.windows), default=0.0)
+        return end + self.offset
+
     def files(self) -> list[Path]:
         """Return every image to hand ffmpeg, the card first when there is one."""
         paths = [self.intro.path] if self.intro else []

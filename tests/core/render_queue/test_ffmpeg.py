@@ -284,7 +284,9 @@ class TestExecute:
         item = baker.make("core.RenderQueueItemProxy", game=game, preset="low")
         rendered_bytes = b"rendered-bytes"
 
-        def fake_build_command(self, chapter_metadata_tmp_path=None, output_file=None):
+        def fake_build_command(
+            self, chapter_metadata_tmp_path=None, output_file=None, overlay_dir=None
+        ):
             output_file.write_bytes(rendered_bytes)
             return ["true"]
 
@@ -299,7 +301,9 @@ class TestExecute:
     def test_validation_failure_raises_and_does_not_move_file(self, game, monkeypatch):
         item = baker.make("core.RenderQueueItemProxy", game=game, preset="low")
 
-        def fake_build_command(self, chapter_metadata_tmp_path=None, output_file=None):
+        def fake_build_command(
+            self, chapter_metadata_tmp_path=None, output_file=None, overlay_dir=None
+        ):
             output_file.write_bytes(b"bad-render")
             return ["true"]
 

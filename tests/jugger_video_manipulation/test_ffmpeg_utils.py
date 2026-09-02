@@ -10,12 +10,14 @@ import pytest
 
 from jugger_video_manipulation.ffmpeg_utils import (
     CudaUse,
+    ExtraInputs,
     FilterComplexBuilder,
     _add_input_files,
     _validate_encode_cuda_usage,
     ffmpeg_command_builder,
     get_chapters,
     get_fps,
+    input_indices,
     write_chapters_metadata,
 )
 
@@ -295,7 +297,7 @@ class TestOverlayInputs:
             input_files=[Path("/a.mp4")],
             output_file=Path("/out.mp4"),
             preset_args={"video": ["-c:v", "libx264"], "audio": ["-c:a", "aac"]},
-            overlay_files=[Path("/ov0.png"), Path("/ov1.png")],
+            extras=ExtraInputs(overlays=[Path("/ov0.png"), Path("/ov1.png")]),
         )
 
         assert "/ov0.png" in cmd
@@ -310,7 +312,7 @@ class TestOverlayInputs:
             output_file=Path("/out.mp4"),
             preset_args={"video": ["-c:v", "libx264"], "audio": ["-c:a", "aac"]},
             chapter_metadata_path=metadata,
-            overlay_files=[Path("/ov0.png")],
+            extras=ExtraInputs(overlays=[Path("/ov0.png")]),
         )
 
         assert cmd.index(str(metadata.absolute())) < cmd.index("/ov0.png")
@@ -324,7 +326,7 @@ class TestOverlayInputs:
             output_file=Path("/out.mp4"),
             preset_args={"video": ["-c:v", "libx264"], "audio": ["-c:a", "aac"]},
             chapter_metadata_path=metadata,
-            overlay_files=[Path("/ov0.png"), Path("/ov1.png")],
+            extras=ExtraInputs(overlays=[Path("/ov0.png"), Path("/ov1.png")]),
         )
 
         # One video input, so the metadata is input 1 whatever follows it.
@@ -335,3 +337,89 @@ def _builder_with_outputs() -> FilterComplexBuilder:
     builder = FilterComplexBuilder(1)
     builder.out_v, builder.out_a = "[cv0]", "[ca0]"
     return builder
+
+
+class TestInputIndices:
+    """One place knows the input order; getting it wrong aims a filter wrong."""
+
+    def test_plain_render(self):
+        indices = input_indices(3, has_metadata=False, has_silence=False)
+
+        assert indices.silence is None
+        assert indices.first_overlay == 3
+
+    def test_metadata_shifts_the_overlays(self):
+        indices = input_indices(3, has_metadata=True, has_silence=False)
+
+        assert indices.first_overlay == 4
+
+    def test_silence_comes_after_the_metadata(self):
+        indices = input_indices(3, has_metadata=True, has_silence=True)
+
+        assert indices.silence == 4
+        assert indices.first_overlay == 5
+
+    def test_silence_without_metadata(self):
+        indices = input_indices(3, has_metadata=False, has_silence=True)
+
+        assert indices.silence == 3
+        assert indices.first_overlay == 4
+
+    def test_no_silence_leaves_no_gap(self):
+        # The bug this guards: offsetting for a silent input that was never
+        # added pointed every overlay one index too far.
+        indices = input_indices(7, has_metadata=False, has_silence=False)
+
+        assert indices.first_overlay == 7
+
+
+class TestSilenceInput:
+    def test_it_is_added_when_asked_for(self):
+        cmd = ffmpeg_command_builder(
+            filter_complex=_builder_with_outputs(),
+            input_files=[Path("/a.mp4")],
+            output_file=Path("/out.mp4"),
+            preset_args={"video": ["-c:v", "libx264"], "audio": ["-c:a", "aac"]},
+            extras=ExtraInputs(silence_seconds=4.0),
+        )
+
+        assert any("anullsrc" in argument for argument in cmd)
+
+    def test_it_sits_between_the_metadata_and_the_images(self, tmp_path):
+        metadata = tmp_path / "meta.txt"
+        metadata.write_text("")
+        cmd = ffmpeg_command_builder(
+            filter_complex=_builder_with_outputs(),
+            input_files=[Path("/a.mp4")],
+            output_file=Path("/out.mp4"),
+            preset_args={"video": ["-c:v", "libx264"], "audio": ["-c:a", "aac"]},
+            chapter_metadata_path=metadata,
+            extras=ExtraInputs(overlays=[Path("/ov0.png")], silence_seconds=4.0),
+        )
+
+        silence = next(i for i, a in enumerate(cmd) if "anullsrc" in a)
+        assert cmd.index(str(metadata.absolute())) < silence < cmd.index("/ov0.png")
+
+    def test_map_metadata_is_unaffected(self, tmp_path):
+        metadata = tmp_path / "meta.txt"
+        metadata.write_text("")
+        cmd = ffmpeg_command_builder(
+            filter_complex=_builder_with_outputs(),
+            input_files=[Path("/a.mp4")],
+            output_file=Path("/out.mp4"),
+            preset_args={"video": ["-c:v", "libx264"], "audio": ["-c:a", "aac"]},
+            chapter_metadata_path=metadata,
+            extras=ExtraInputs(overlays=[Path("/ov0.png")], silence_seconds=4.0),
+        )
+
+        assert cmd[cmd.index("-map_metadata") + 1] == "1"
+
+    def test_none_adds_nothing(self):
+        cmd = ffmpeg_command_builder(
+            filter_complex=_builder_with_outputs(),
+            input_files=[Path("/a.mp4")],
+            output_file=Path("/out.mp4"),
+            preset_args={"video": ["-c:v", "libx264"], "audio": ["-c:a", "aac"]},
+        )
+
+        assert not any("anullsrc" in argument for argument in cmd)
