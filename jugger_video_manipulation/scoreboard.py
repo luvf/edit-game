@@ -19,7 +19,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from jugger_video_manipulation.cut_json_parser import Match, Point
+    from jugger_video_manipulation.cut_json_parser import (
+        MatchEvent,
+        Overlay,
+        Point,
+    )
 
 #: The side a point was scored on names the team standing there at that moment.
 SIDES = ("left", "right")
@@ -167,11 +171,30 @@ def to_output_time(segments: Sequence[Segment], tc: int, fps: float) -> float | 
     return None
 
 
+def score_events(overlays: Sequence[Overlay]) -> list[MatchEvent]:
+    """Pull the events that change the score out of the overlay list.
+
+    They are edited alongside the things that are drawn — one list of what
+    happens at a timecode — but they draw nothing, so the state machine takes
+    only these and ignores the rest.
+    """
+    events: list[MatchEvent] = [
+        {
+            "type": "side_switch" if item["type"] == "SideSwitch" else "set_end",
+            "tc": int(item["tc"]),
+        }
+        for item in overlays
+        if item.get("type") in ("SideSwitch", "SetEnd")
+    ]
+    events.sort(key=lambda event: event["tc"])
+    return events
+
+
 def build_states(
     points: Sequence[Point],
-    match: Match,
     fps: float,
     *,
+    overlays: Sequence[Overlay] = (),
     hold_final: float = 0.0,
 ) -> list[BoardState]:
     """Walk the match and return what the board shows, stretch by stretch.
@@ -184,8 +207,9 @@ def build_states(
 
     Args:
         points: the cut file's points.
-        match: the match block, giving the starting sides and the events.
         fps: the frame rate the points are counted in.
+        overlays: the cut's overlays, from which the side switches and set
+            ends are taken. This is where they are edited.
         hold_final: seconds to hold the closing score past the last point.
 
     Returns:
@@ -195,9 +219,11 @@ def build_states(
     if not segments:
         return []
 
-    start_sides = match.get("start_sides") or {"left": "team1", "right": "team2"}
-    tally = _Tally(sides={"left": start_sides["left"], "right": start_sides["right"]})
-    events = list(match.get("events") or [])
+    # Team 1 is the team on the left at kick-off, always: the editor orders
+    # them that way and flips them with a button rather than recording a
+    # separate mapping that could disagree with the names on screen.
+    tally = _Tally(sides={"left": "team1", "right": "team2"})
+    events = score_events(overlays)
 
     states: list[BoardState] = []
     event_index = 0

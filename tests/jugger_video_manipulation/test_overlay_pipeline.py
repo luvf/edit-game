@@ -35,9 +35,9 @@ def warning(tc, length=None):
 
 
 class TestScoreboardWindows:
-    def test_no_match_block_means_no_scoreboard(self, tmp_path):
+    def test_a_cut_that_never_says_who_scored_gets_no_board(self, tmp_path):
         plan = build_plan(
-            CutContent(points=[point(0, 60, "left")]),
+            CutContent(points=[point(0, 60), point(600, 660)]),
             TEAMS,
             FPS,
             tmp_path,
@@ -46,10 +46,20 @@ class TestScoreboardWindows:
 
         assert plan.windows == []
 
+    def test_one_scored_point_is_enough(self, tmp_path):
+        plan = build_plan(
+            CutContent(points=[point(0, 60, "left")]),
+            TEAMS,
+            FPS,
+            tmp_path,
+            context=CONTEXT,
+        )
+
+        assert len(plan.windows) == 1
+
     def test_one_image_per_state(self, tmp_path):
         content = CutContent(
-            points=[point(0, 60, "left"), point(600, 660, "right"), point(1200, 1260)],
-            match={"start_sides": {"left": "team1", "right": "team2"}},
+            points=[point(0, 60, "left"), point(600, 660, "right"), point(1200, 1260)]
         )
 
         plan = build_plan(content, TEAMS, FPS, tmp_path, context=CONTEXT)
@@ -58,10 +68,7 @@ class TestScoreboardWindows:
         assert all(window.path.exists() for window in plan.windows)
 
     def test_the_windows_cover_the_render_without_gaps(self, tmp_path):
-        content = CutContent(
-            points=[point(0, 60, "left"), point(600, 660, "right")],
-            match={"start_sides": {"left": "team1", "right": "team2"}},
-        )
+        content = CutContent(points=[point(0, 60, "left"), point(600, 660, "right")])
 
         plan = build_plan(content, TEAMS, FPS, tmp_path, context=CONTEXT)
 
@@ -69,7 +76,7 @@ class TestScoreboardWindows:
         assert plan.windows[0].end == pytest.approx(plan.windows[1].start)
 
     def test_the_images_are_the_requested_size(self, tmp_path):
-        content = CutContent(points=[point(0, 60)], match={"events": []})
+        content = CutContent(points=[point(0, 60, "left")])
 
         plan = build_plan(content, TEAMS, FPS, tmp_path, context=CONTEXT)
 
@@ -108,9 +115,7 @@ class TestWarnings:
         assert plan.windows[0].duration == pytest.approx(5.0)
 
     def test_a_team_introduction_is_not_a_warning(self, tmp_path):
-        content = CutContent(
-            points=[point(0, 600)], overlays=[{"type": "TeamIntroduction"}]
-        )
+        content = CutContent(points=[point(0, 600)], overlays=[{"type": "GameInfo"}])
 
         plan = build_plan(content, TEAMS, FPS, tmp_path, context=CONTEXT)
 
@@ -127,9 +132,7 @@ class TestIntro:
         assert plan.offset == 0.0
 
     def test_a_team_introduction_produces_a_card(self, tmp_path):
-        content = CutContent(
-            points=[point(0, 60)], overlays=[{"type": "TeamIntroduction"}]
-        )
+        content = CutContent(points=[point(0, 60)], overlays=[{"type": "GameInfo"}])
 
         plan = build_plan(content, TEAMS, FPS, tmp_path, context=CONTEXT)
 
@@ -139,7 +142,7 @@ class TestIntro:
     def test_its_length_is_read_in_frames(self, tmp_path):
         content = CutContent(
             points=[point(0, 60)],
-            overlays=[{"type": "TeamIntroduction"}],
+            overlays=[{"type": "GameInfo"}],
             display={"title_card": {"length": 180}},
         )
 
@@ -148,9 +151,7 @@ class TestIntro:
         assert plan.intro.duration == pytest.approx(3.0)
 
     def test_one_team_missing_means_no_card(self, tmp_path):
-        content = CutContent(
-            points=[point(0, 60)], overlays=[{"type": "TeamIntroduction"}]
-        )
+        content = CutContent(points=[point(0, 60)], overlays=[{"type": "GameInfo"}])
 
         plan = build_plan(content, {"team1": Team("A")}, FPS, tmp_path, context=CONTEXT)
 

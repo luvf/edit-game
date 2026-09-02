@@ -59,7 +59,7 @@ class TestParseOverlays:
         raw = {
             "overlays": [
                 {
-                    "type": "TeamIntroduction",
+                    "type": "GameInfo",
                     "team1": "Alpha",
                     "team2": "Beta",
                     "condition": "start",
@@ -68,7 +68,7 @@ class TestParseOverlays:
         }
         assert self.parser.parse_overlays(raw) == [
             {
-                "type": "TeamIntroduction",
+                "type": "GameInfo",
                 "team1": "Alpha",
                 "team2": "Beta",
                 "condition": "start",
@@ -136,64 +136,6 @@ class TestParse:
         assert overlays == []
 
 
-class TestParseMatch:
-    """The block the scoreboard is computed from."""
-
-    def test_a_file_without_a_match_block_parses_empty(self, tmp_path):
-        path = tmp_path / "c.json"
-        path.write_text(json.dumps({"points": [], "overlays": []}))
-
-        assert CutJsonParser(path).parse_match(json.loads(path.read_text())) == {}
-
-    def test_it_reads_the_winning_condition(self, tmp_path):
-        raw = {"match": {"winning_condition": {"type": "sets", "sets_to_win": 3}}}
-
-        parsed = CutJsonParser(tmp_path / "c.json").parse_match(raw)
-
-        assert parsed["winning_condition"] == {"type": "sets", "sets_to_win": 3}
-
-    def test_an_unknown_condition_type_is_dropped(self, tmp_path):
-        raw = {"match": {"winning_condition": {"type": "coinflip"}}}
-
-        assert "winning_condition" not in CutJsonParser(tmp_path / "c").parse_match(raw)
-
-    def test_it_reads_the_starting_sides(self, tmp_path):
-        raw = {"match": {"start_sides": {"left": "team2", "right": "team1"}}}
-
-        parsed = CutJsonParser(tmp_path / "c").parse_match(raw)
-
-        assert parsed["start_sides"] == {"left": "team2", "right": "team1"}
-
-    def test_half_a_side_mapping_is_dropped(self, tmp_path):
-        raw = {"match": {"start_sides": {"left": "team1"}}}
-
-        assert "start_sides" not in CutJsonParser(tmp_path / "c").parse_match(raw)
-
-    def test_events_are_sorted_by_timecode(self, tmp_path):
-        raw = {
-            "match": {
-                "events": [
-                    {"type": "set_end", "tc": 900},
-                    {"type": "side_switch", "tc": 300},
-                ]
-            }
-        }
-
-        parsed = CutJsonParser(tmp_path / "c").parse_match(raw)
-
-        assert [e["tc"] for e in parsed["events"]] == [300, 900]
-
-    def test_an_unknown_event_type_is_dropped(self, tmp_path):
-        raw = {"match": {"events": [{"type": "coffee_break", "tc": 10}]}}
-
-        assert "events" not in CutJsonParser(tmp_path / "c").parse_match(raw)
-
-    def test_an_event_without_a_timecode_is_dropped(self, tmp_path):
-        raw = {"match": {"events": [{"type": "set_end"}]}}
-
-        assert "events" not in CutJsonParser(tmp_path / "c").parse_match(raw)
-
-
 class TestParseDisplay:
     """Editing choices, kept apart from what happened in the match."""
 
@@ -242,23 +184,105 @@ class TestParseAll:
                             "tc": 10,
                         }
                     ],
-                    "match": {"start_sides": {"left": "team1", "right": "team2"}},
                     "display": {"scoreboard": {"position": "bottom"}},
                 }
             )
         )
 
-        points, overlays, match, display = CutJsonParser(path).parse_all()
+        points, overlays, display = CutJsonParser(path).parse_all()
 
         assert len(points) == 1
         assert len(overlays) == 1
-        assert match["start_sides"]["left"] == "team1"
         assert display["scoreboard"]["position"] == "bottom"
 
     def test_an_old_file_still_parses(self, tmp_path):
         path = tmp_path / "c.json"
         path.write_text(json.dumps({"points": [], "overlays": []}))
 
-        _, _, match, display = CutJsonParser(path).parse_all()
+        points, overlays, display = CutJsonParser(path).parse_all()
 
-        assert (match, display) == ({}, {})
+        assert (points, overlays, display) == ([], [], {})
+
+
+class TestGameInfo:
+    """The block every cut is expected to carry."""
+
+    def test_it_reads_the_number_of_sets(self, tmp_path):
+        raw = {
+            "overlays": [
+                {
+                    "type": "GameInfo",
+                    "team1": "A",
+                    "team2": "B",
+                    "condition": "au temps",
+                    "sets_to_win": 3,
+                }
+            ]
+        }
+
+        parsed = CutJsonParser(tmp_path / "c").parse_overlays(raw)
+
+        assert parsed[0]["sets_to_win"] == 3
+
+    def test_the_condition_stays_free_text(self, tmp_path):
+        raw = {
+            "overlays": [
+                {
+                    "type": "GameInfo",
+                    "team1": "A",
+                    "team2": "B",
+                    "condition": "n'importe",
+                }
+            ]
+        }
+
+        parsed = CutJsonParser(tmp_path / "c").parse_overlays(raw)
+
+        assert parsed[0]["condition"] == "n'importe"
+
+    def test_the_old_name_still_parses(self, tmp_path):
+        # Files written before the rename must not have to be migrated.
+        raw = {
+            "overlays": [
+                {
+                    "type": "TeamIntroduction",
+                    "team1": "A",
+                    "team2": "B",
+                    "condition": "",
+                }
+            ]
+        }
+
+        parsed = CutJsonParser(tmp_path / "c").parse_overlays(raw)
+
+        assert parsed[0]["type"] == "GameInfo"
+
+    def test_no_sets_leaves_the_key_out(self, tmp_path):
+        raw = {"overlays": [{"type": "GameInfo", "team1": "A", "team2": "B"}]}
+
+        parsed = CutJsonParser(tmp_path / "c").parse_overlays(raw)
+
+        assert "sets_to_win" not in parsed[0]
+
+
+class TestScoreEventOverlays:
+    """Side switches and set ends are edited among the overlays."""
+
+    def test_a_side_switch_keeps_only_its_timecode(self, tmp_path):
+        raw = {"overlays": [{"type": "SideSwitch", "tc": 720, "text": "ignoré"}]}
+
+        parsed = CutJsonParser(tmp_path / "c").parse_overlays(raw)
+
+        assert parsed == [{"type": "SideSwitch", "tc": 720}]
+
+    def test_a_set_end_is_parsed(self, tmp_path):
+        raw = {"overlays": [{"type": "SetEnd", "tc": 900}]}
+
+        parsed = CutJsonParser(tmp_path / "c").parse_overlays(raw)
+
+        assert parsed == [{"type": "SetEnd", "tc": 900}]
+
+    def test_one_without_a_timecode_is_dropped(self, tmp_path):
+        raw = {"overlays": [{"type": "SetEnd"}]}
+
+        assert CutJsonParser(tmp_path / "c").parse_overlays(raw) == []

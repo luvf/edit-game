@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from jugger_video_manipulation.overlay_pipeline import (
     CutContent,
@@ -24,9 +24,12 @@ from jugger_video_manipulation.overlay_pipeline import (
 from jugger_video_manipulation.overlay_render import CardText, Team
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from PIL import Image
 
     from core.models.cut import Cut
+    from jugger_video_manipulation.cut_json_parser import GameInfoOverlay, Overlay
 
 #: A video dimension must stay even for the encoders in use.
 EVEN = 2
@@ -151,14 +154,34 @@ def teams_for(cut: Cut) -> dict[str, Team]:
     return teams
 
 
-def card_text_for(cut: Cut) -> CardText:
-    """Return the words on the opening card, taken from the game itself."""
-    tournament = cut.game.tournament
-    condition = ""
-    winning = (cut.get_json().get("match") or {}).get("winning_condition") or {}
-    if winning.get("type") == "sets" and winning.get("sets_to_win"):
-        condition = f"{winning['sets_to_win']} sets gagnants"
-    return CardText(tournament=tournament.name, stage=cut.name, condition=condition)
+def card_text_for(cut: Cut, info: GameInfoOverlay | None = None) -> CardText:
+    """Return the words on the opening card.
+
+    The condition is the free text the editor wrote, with the number of sets
+    spelled out in front of it when there is one — both come from the cut's
+    own GameInfo, so the card says what the editor said.
+    """
+    parts: list[str] = []
+    if info is None:
+        return CardText(tournament=cut.game.tournament.name, stage=cut.name)
+    sets_to_win = info.get("sets_to_win")
+    if sets_to_win:
+        parts.append(f"{sets_to_win} sets gagnants")
+    if info.get("condition"):
+        parts.append(str(info["condition"]))
+    return CardText(
+        tournament=cut.game.tournament.name,
+        stage=cut.name,
+        condition=" · ".join(parts),
+    )
+
+
+def _game_info(overlays: Sequence[Overlay]) -> GameInfoOverlay | None:
+    """Return the cut's GameInfo block, or None when it has none."""
+    for item in overlays:
+        if item.get("type") == "GameInfo":
+            return cast("GameInfoOverlay", item)
+    return None
 
 
 def plan_for(
@@ -183,21 +206,24 @@ def plan_for(
     """
     from jugger_video_manipulation.cut_json_parser import CutJsonParser
 
-    points, overlays, match, display = CutJsonParser(cut.json_file.path).parse_all()
-    if not match and not overlays:
+    points, overlays, display = CutJsonParser(cut.json_file.path).parse_all()
+    scored = any(point.get("point") in ("left", "right") for point in points)
+    if not overlays and not scored:
         return OverlayPlan()
 
     background = None
-    if any(item.get("type") == "TeamIntroduction" for item in overlays):
+    if any(item.get("type") == "GameInfo" for item in overlays):
         at_frame = points[0]["in"] if points else 0
         background = first_frame(source, at_frame, fps, directory / "background.png")
 
     return build_plan(
-        CutContent(points=points, overlays=overlays, match=match, display=display),
+        CutContent(points=points, overlays=overlays, display=display),
         teams_for(cut),
         fps,
         directory,
         context=RenderContext(
-            background=background, card_text=card_text_for(cut), size=size
+            background=background,
+            card_text=card_text_for(cut, _game_info(overlays)),
+            size=size,
         ),
     )

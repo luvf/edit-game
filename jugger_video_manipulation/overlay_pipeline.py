@@ -33,12 +33,7 @@ if TYPE_CHECKING:
 
     from PIL import Image
 
-    from jugger_video_manipulation.cut_json_parser import (
-        Display,
-        Match,
-        Overlay,
-        Point,
-    )
+    from jugger_video_manipulation.cut_json_parser import Display, Overlay, Point
     from jugger_video_manipulation.overlay_render import CardText, Team
 
 #: A warning with no length of its own stays up this long, in seconds.
@@ -54,7 +49,6 @@ class CutContent:
 
     points: Sequence[Point] = ()
     overlays: Sequence[Overlay] = ()
-    match: Match = field(default_factory=dict)
     display: Display = field(default_factory=dict)
 
 
@@ -134,6 +128,11 @@ class OverlayPlan:
         ]
 
 
+def _wants_scoreboard(content: CutContent) -> bool:
+    """Tell whether the file says enough for a board to mean anything."""
+    return any(point.get("point") in ("left", "right") for point in content.points)
+
+
 def _save(image: Image.Image, path: Path) -> Path:
     """Write an overlay image, making its directory if needed."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -209,8 +208,11 @@ def build_plan(
 
     Returns:
         The images, their windows, and the opening card if the file asks for
-        one. A file with no `match` block gets no scoreboard, which is how an
-        existing cut file keeps rendering exactly as it does today.
+        one.
+
+        A scoreboard appears as soon as the file says who scored: any point
+        marked `left` or `right`. A file that never says gets none, which is
+        how the cuts that exist today keep rendering exactly as they do today.
     """
     context = context or RenderContext()
     style, size = context.style, context.size
@@ -218,8 +220,13 @@ def build_plan(
     position = board.get("position", "bottom")
     plan = OverlayPlan()
 
-    if content.match:
-        states = build_states(content.points, content.match, fps, hold_final=hold_final)
+    if _wants_scoreboard(content):
+        states = build_states(
+            content.points,
+            fps,
+            overlays=content.overlays,
+            hold_final=hold_final,
+        )
         for index, state in enumerate(states):
             image = draw_scoreboard(
                 state,
@@ -251,9 +258,7 @@ def build_plan(
     )
 
     card = content.display.get("title_card") or {}
-    asks_for_card = any(
-        item.get("type") == "TeamIntroduction" for item in content.overlays
-    )
+    asks_for_card = any(item.get("type") == "GameInfo" for item in content.overlays)
     first, second = teams.get("team1"), teams.get("team2")
     if asks_for_card and first is not None and second is not None:
         length = card.get("length")
