@@ -8,6 +8,7 @@ from model_bakery import baker
 from core.models.cut import Cut
 from core.models.render_queue.base import RenderQueueItemBase
 from core.models.render_queue.ffmpeg import RenderQueueItemArchive
+from core.models.render_queue.ml_cut import RenderQueueItemMlCut
 
 
 class TestListAndRetrieve:
@@ -154,3 +155,34 @@ class TestCreateArchive:
         assert (
             RenderQueueItemArchive.objects.filter(game=game, preset="high").count() == 2
         )
+
+
+class TestMlCut:
+    def test_creates_an_ml_cut_and_queues_the_model(self, api_client, game):
+        response = api_client.post(reverse("game-ml-cut", args=[game.pk]))
+
+        assert response.status_code == 201
+        cut = Cut.objects.get(game=game)
+        assert cut.type_cut == "ML"
+        # Empty and already openable: the front has something to watch while
+        # the queue works.
+        assert cut.get_json() == {"points": [], "overlays": []}
+        item = RenderQueueItemMlCut.objects.get(cut=cut)
+        assert item.job_type == RenderQueueItemBase.JobType.ML_CUT
+        assert response.data["render_queue_item_id"] == item.pk
+
+    def test_the_run_can_be_chosen_per_request(self, api_client, game):
+        response = api_client.post(
+            reverse("game-ml-cut", args=[game.pk]), {"run": "ast_268"}
+        )
+
+        assert response.status_code == 201
+        assert response.data["run"] == "ast_268"
+        assert RenderQueueItemMlCut.objects.get().run_name == "ast_268"
+
+    def test_defaults_to_the_configured_run(self, api_client, game, settings):
+        settings.AUTOEDIT_RUN = "configured_run"
+
+        response = api_client.post(reverse("game-ml-cut", args=[game.pk]))
+
+        assert response.data["run"] == "configured_run"

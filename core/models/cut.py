@@ -14,6 +14,7 @@ from django.db.models import OneToOneField
 
 from core.models.render_queue.ffmpeg import RenderQueueItemCut
 from core.models.render_queue.gen_cut import RenderQueueItemGenCut
+from core.models.render_queue.ml_cut import RenderQueueItemMlCut
 from core.models.video import Video
 
 
@@ -33,6 +34,11 @@ class Cut(models.Model):
     json_file = models.FileField(
         upload_to="json_files/cuts/", default="json_files/cuts/default.json"
     )
+    # The three probability curves the model produced, when a model produced
+    # this cut. Kept next to the cut rather than in the auto-edit cache, which
+    # is disposable by design: they are this proposal's provenance, and what
+    # lets its thresholds be turned again months later without a GPU.
+    curves_file = models.FileField(upload_to="curves/", blank=True, default="")
     slug = models.SlugField(default="", null=False)
     game = models.ForeignKey("core.Game", on_delete=models.CASCADE, related_name="cuts")
     rendered_video = OneToOneField(
@@ -47,6 +53,21 @@ class Cut(models.Model):
     def __str__(self) -> str:
         """To string representation."""
         return self.name
+
+    @property
+    def has_curves(self) -> bool:
+        """Tell whether this cut's probability curves are still on disk.
+
+        The row can outlive the file — the cache was cleaned, the media
+        directory was pruned — and every reader has to cope, so this answers
+        the question rather than raising.
+        """
+        if not self.curves_file:
+            return False
+        try:
+            return Path(self.curves_file.path).exists()
+        except (ValueError, NotImplementedError):
+            return False
 
     @property
     def json_file_path(self) -> Path:
@@ -128,6 +149,26 @@ class Cut(models.Model):
             rendered_path=f"{rendered_path}",
             tmp_dir=f"{tmp_path}",
         )
+
+    def enqueue_ml_generation(
+        self,
+        *,
+        run_name: str = "",
+        run_now: bool = False,
+    ) -> RenderQueueItemMlCut:
+        """Queue a job that fills this cut from the auto-edit model.
+
+        Args:
+            run_name: which training run to use; the configured one otherwise.
+            run_now: queue it ahead of the waiting jobs.
+
+        Returns:
+            The queue item, already created.
+        """
+        item = RenderQueueItemMlCut.objects.create(cut=self, run_name=run_name)
+        if run_now:
+            item.run_now()
+        return item
 
     def enqueue_cut_render(
         self, *, preset: str = "medium", run_now: bool = False

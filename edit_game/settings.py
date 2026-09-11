@@ -17,6 +17,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 TOURNAMENTS_BASE_DIR = Path("/mnt/video/juggerData/tournois")
 TOURNAMENTS_ARCHIVE_DIR = Path("/mnt/jugger/tournois")
 
+# Which trained run proposes cuts. Runs live in the auto-edit cache; comparing
+# two of them is a matter of pointing this elsewhere and proposing again.
+AUTOEDIT_RUN = "ast_ms_268"
+
+# Where that cache lives. None leaves the pipeline to its own default
+# (`$GAME_AUTOEDIT_CACHE`, else /mnt/video/juggerData/cache_game_edit); tests
+# point it at a temporary directory so nothing reads the real mount.
+AUTOEDIT_CACHE: str | None = None
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/

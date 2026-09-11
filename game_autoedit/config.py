@@ -38,6 +38,12 @@ ARCHIVE_QUALITIES: tuple[str, ...] = ("archive", "high")
 # real edit, VID is reconstructed by audio alignment and is the noisy one.
 CUT_TYPE_PRIORITY: tuple[str, ...] = ("OTIO", "MAN", "VID", "XML", "ML", "X")
 
+# The cut type this pipeline writes. A proposal is never training material: a
+# model fed its own output drifts without anything in the numbers saying so,
+# so `build_catalog` ignores these however a game is otherwise labelled. A
+# corrected proposal is a human edit and must be saved under another type.
+PREDICTED_CUT_TYPE = "ML"
+
 _ENV_CACHE = "GAME_AUTOEDIT_CACHE"
 _DEFAULT_CACHE = Path("/mnt/video/juggerData/cache_game_edit")
 

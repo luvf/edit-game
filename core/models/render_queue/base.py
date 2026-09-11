@@ -30,6 +30,7 @@ class RenderQueueItemBase(models.Model):
         GAME_PROXY = "GAME_PROXY", "game_proxy"
         GEN_CUT = "GEN_CUT", "gen_cut"
         GAME_ARCHIVE = "GAME_ARCHIVE", "game_archive"
+        ML_CUT = "ML_CUT", "ml_cut"
 
     class Status(models.TextChoices):
         """Status values for queue items."""
@@ -90,6 +91,10 @@ class RenderQueueItemBase(models.Model):
         try:
             return self.renderqueueitemgencut.cut
         except ObjectDoesNotExist:
+            pass
+        try:
+            return self.renderqueueitemmlcut.cut
+        except ObjectDoesNotExist:
             return None
 
     @property
@@ -122,6 +127,7 @@ class RenderQueueItemBase(models.Model):
             RenderQueueItemProxy,
         )
         from core.models.render_queue.gen_cut import RenderQueueItemGenCut
+        from core.models.render_queue.ml_cut import RenderQueueItemMlCut
 
         if self.job_type == self.JobType.CUT_RENDER:
             return RenderQueueItemCut.objects.get(pk=self.pk)
@@ -131,6 +137,8 @@ class RenderQueueItemBase(models.Model):
             return RenderQueueItemGenCut.objects.get(pk=self.pk)
         if self.job_type == self.JobType.GAME_ARCHIVE:
             return RenderQueueItemArchive.objects.get(pk=self.pk)
+        if self.job_type == self.JobType.ML_CUT:
+            return RenderQueueItemMlCut.objects.get(pk=self.pk)
         raise ValueError(f"Unsupported job type: {self.job_type}")
 
     def run(self) -> None:

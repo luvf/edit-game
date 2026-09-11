@@ -17,6 +17,7 @@ from game_autoedit.config import (
     AUDIO_QUALITY,
     CUT_TYPE_PRIORITY,
     DEFAULT_FPS,
+    PREDICTED_CUT_TYPE,
 )
 from game_autoedit.data.labels import has_points
 
@@ -46,6 +47,10 @@ class LabeledGame:
     def key(self) -> str:
         """Return a stable, human-readable identifier for logs and filenames."""
         return f"{self.game_id}:{self.slug or self.name}"
+
+
+class UnusableGameError(RuntimeError):
+    """A game the model cannot be run on, with the reason a user can act on."""
 
 
 @dataclass(frozen=True)
@@ -184,9 +189,11 @@ def build_catalog(
 
     for game in queryset:
         tournament = game.tournament.name
-        cuts = list(game.cuts.all())
+        cuts = [cut for cut in game.cuts.all() if cut.type_cut != PREDICTED_CUT_TYPE]
         if not cuts:
-            rejected.append(Rejection(game.pk, game.name, tournament, "aucun cut"))
+            rejected.append(
+                Rejection(game.pk, game.name, tournament, "aucun cut humain")
+            )
             continue
 
         cut = pick_cut(cuts)
@@ -226,3 +233,65 @@ def build_catalog(
         )
 
     return Catalog(games=games, rejected=rejected)
+
+
+def predictable_game(
+    game_id: int,
+    *,
+    cut_id: int | None = None,
+    quality: str = AUDIO_QUALITY,
+) -> LabeledGame:
+    """Return a game the model can be run on, whether or not it is labelled.
+
+    `build_catalog` answers "what can I train on" and needs a cut with points
+    in it. Proposing a cut is the other direction: the only requirement is an
+    audio source on disk, and the cut file the result will be written to is
+    empty by definition.
+
+    Args:
+        game_id: the game to run on.
+        cut_id: the cut the proposal belongs to. Only its path is recorded;
+            its content is never read. Defaults to the game's best cut.
+        quality: which VideoFile quality to read audio from.
+
+    Returns:
+        The game, with its audio source resolved.
+
+    Raises:
+        UnusableGameError: the game does not exist, or carries no readable
+            audio source.
+    """
+    from core.models.cut import Cut  # noqa: F401
+    from core.models.game import Game
+
+    try:
+        game = Game.objects.select_related(
+            "tournament", "archive_video", "video_proxy"
+        ).get(pk=game_id)
+    except Game.DoesNotExist as error:
+        raise UnusableGameError(f"game {game_id} introuvable") from error
+
+    source = _audio_source(game, quality)
+    if source.path is None:
+        raise UnusableGameError(
+            f"game {game_id} : {source.reason}. Le modèle lit l'audio de "
+            f"l'archive : générer l'archive de cette game d'abord."
+        )
+
+    cuts = list(game.cuts.all())
+    cut = next((c for c in cuts if c.pk == cut_id), None) if cut_id else None
+    if cut is None and cuts:
+        cut = pick_cut(cuts)
+
+    return LabeledGame(
+        game_id=game.pk,
+        name=game.name,
+        slug=game.slug,
+        tournament=game.tournament.name,
+        cut_id=cut.pk if cut else 0,
+        cut_type=cut.type_cut if cut else PREDICTED_CUT_TYPE,
+        cut_json_path=Path(cut.json_file.path) if cut else Path(),
+        audio_source=source.path,
+        fps=source.fps,
+        quality=source.quality,
+    )

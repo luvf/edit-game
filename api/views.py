@@ -8,7 +8,7 @@ import urllib.parse
 from collections.abc import Sequence
 from http import HTTPMethod
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from xml.etree import ElementTree
 
 from django.conf import settings
@@ -50,7 +50,11 @@ from core.models.render_queue.ffmpeg import RenderQueueItemArchive
 from core.models.tournament import Team, Tournament
 from core.models.video import Video
 from core.tasks import run_async_task
+from core.utils.curves import DEFAULT_POINTS, CurvesUnreadableError, load_curves
 from core.utils.dataset_utils import get_base_json
+from game_autoedit.config import DEFAULT_FPS, Paths
+from game_autoedit.data.catalog import UnusableGameError
+from game_autoedit.service import redecode as redecode_cut
 from jugger_video_manipulation.build_miniature import get_video_file_names
 
 type PermissionClass = type[BasePermission] | OperandHolder | SingleOperandHolder
@@ -621,6 +625,41 @@ class GameViewSet(viewsets.ModelViewSet[Game]):
         serializer = CutSerializer(cut, context=self.get_serializer_context())
         return Response(serializer.data)
 
+    @action(detail=True, methods=[HTTPMethod.POST], url_path="ml-cut")
+    def ml_cut(self, request: Request, pk: str | None = None) -> Response:
+        """Create a cut and queue the model that fills it.
+
+        The cut is created empty and immediately: the front has something to
+        open and to watch, and the queue item carries the progress. It is
+        created with type ML so it never becomes training material — a
+        corrected proposal must be saved under another type.
+        """
+        _ = pk
+        game = self.get_object()
+        name = request.data.get("name") or f"Proposition ML {game.name}"
+        run_name = request.data.get("run") or ""
+
+        cut = Cut.objects.create(
+            game=game, name=name, slug=slugify(name), type_cut="ML"
+        )
+        cut.json_file.save(
+            f"cut_{cut.pk}_data.json",
+            ContentFile(json.dumps({"points": [], "overlays": []}).encode("utf-8")),
+            save=True,
+        )
+        item = cut.enqueue_ml_generation(run_name=run_name)
+
+        return Response(
+            {
+                "detail": "La proposition de cut a été ajoutée à la file de rendu.",
+                "cut": CutSerializer(cut, context=self.get_serializer_context()).data,
+                "render_queue_item_id": item.id,
+                "status": item.status,
+                "run": item.effective_run,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
     @action(detail=True, methods=["post"], url_path="create_archive")
     def create_archive(self, request: Request, pk: str | None = None) -> Response:
         """Create a render queue item that generates the game archive."""
@@ -660,6 +699,50 @@ class TeamViewSet(viewsets.ModelViewSet[Team]):
     permission_classes: Sequence[PermissionClass] = [AllowAny]
 
 
+def _decoding_options(data: Any) -> tuple[Any, bool]:
+    """Build a decode spec from a request body, clamped to sane ranges.
+
+    Every value is optional: what is not sent keeps the measured default, so
+    a caller can nudge one threshold without restating the other nine.
+    """
+    from game_autoedit.eval.decode import DecodeSpec
+
+    defaults = DecodeSpec()
+
+    def number(key: str, fallback: float, low: float, high: float) -> float:
+        try:
+            value = float(data.get(key, fallback))
+        except (TypeError, ValueError):
+            return fallback
+        return max(low, min(high, value))
+
+    spec = DecodeSpec(
+        threshold={
+            "in": number("threshold_in", defaults.threshold["in"], 0.0, 1.0),
+            "out": number("threshold_out", defaults.threshold["out"], 0.0, 1.0),
+        },
+        min_peak_distance=number(
+            "min_peak_distance", defaults.min_peak_distance, 0.0, 60.0
+        ),
+        min_gap=number("min_gap", defaults.min_gap, 0.0, 600.0),
+        min_duration=number("min_duration", defaults.min_duration, 0.0, 600.0),
+        max_duration=number("max_duration", defaults.max_duration, 1.0, 3600.0),
+        inside_veto=number("inside_veto", defaults.inside_veto, 0.0, 1.0),
+        snap_fraction=number("snap_fraction", defaults.snap_fraction, 0.0, 1.0),
+        inside_weight=number("inside_weight", defaults.inside_weight, 0.0, 1.0),
+        inside_smoothing=number(
+            "inside_smoothing", defaults.inside_smoothing, 0.0, 10.0
+        ),
+    )
+    snap = str(data.get("snap", "true")).strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+    return spec, snap
+
+
 class CutViewSet(viewsets.ModelViewSet[Cut]):
     """Cut viewset."""
 
@@ -688,6 +771,100 @@ class CutViewSet(viewsets.ModelViewSet[Cut]):
             item, context=self.get_serializer_context()
         )
         return Response(serializer.data)
+
+    @action(detail=True, methods=[HTTPMethod.POST], url_path="redecode")
+    def redecode(self, request: Request, pk: str | None = None) -> Response:
+        """Re-derive the cut from its stored curves, with other thresholds.
+
+        Costs a pass of numpy over a file already on disk — no model, no GPU —
+        so a person can turn a threshold and watch the result.
+
+        Nothing is written unless `apply` is true: a proposal that has already
+        been corrected by hand would otherwise be silently overwritten by a
+        slider.
+        """
+        _ = pk
+        cut = self.get_object()
+        if not cut.has_curves:
+            return Response(
+                {"detail": "Ce cut ne porte pas de courbes."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        spec, snap = _decoding_options(request.data)
+        previous = cut.get_json()
+        comment = previous.get("comment", {})
+        fps = comment.get("fps") or DEFAULT_FPS
+        apply_changes = str(request.data.get("apply", "")).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+        cache = settings.AUTOEDIT_CACHE
+        try:
+            decoding = redecode_cut(
+                Path(cut.curves_file.path),
+                fps=float(fps),
+                game_id=cut.game_id,
+                decode_spec=spec,
+                paths=Paths(root=Path(cache)) if cache else None,
+                snap=snap,
+                model_info=comment.get("model", {}),
+            )
+        except UnusableGameError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND)
+
+        if apply_changes:
+            cut.set_json(decoding.payload)
+
+        return Response(
+            {
+                "applied": apply_changes,
+                "snapped": decoding.snapped,
+                "segments": decoding.segments,
+                "points": decoding.payload["points"],
+                "stats": decoding.payload["comment"]["stats"],
+                "review": decoding.payload["comment"]["review"],
+            }
+        )
+
+    @action(detail=True, methods=[HTTPMethod.GET], url_path="curves")
+    def curves(self, request: Request, pk: str | None = None) -> Response:
+        """Return the model's probability curves, thinned for display.
+
+        `points` says how many values per channel to return; the default is
+        wide enough for any timeline. Thresholds come along so the front can
+        draw the line a peak had to clear to become a boundary.
+        """
+        _ = pk
+        cut = self.get_object()
+        if not cut.has_curves:
+            return Response(
+                {"detail": "Ce cut ne porte pas de courbes."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            points = int(request.query_params.get("points", DEFAULT_POINTS))
+        except (TypeError, ValueError):
+            points = DEFAULT_POINTS
+
+        try:
+            curves = load_curves(Path(cut.curves_file.path), points=points)
+        except CurvesUnreadableError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND)
+
+        comment = cut.get_json().get("comment", {})
+        return Response(
+            {
+                **curves.payload(),
+                "fps": comment.get("fps"),
+                "decode": comment.get("decode", {}),
+                "run": comment.get("model", {}).get("run"),
+            }
+        )
 
     @action(detail=True, methods=[HTTPMethod.POST], url_path="gen-from-file")
     def gen_from_file(self, request: Request, pk: str | None = None) -> Response:

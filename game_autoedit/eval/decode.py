@@ -9,7 +9,7 @@ retraining.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -184,13 +184,31 @@ class Peak:
     channel: str
 
 
+@dataclass(frozen=True)
+class Rejected:
+    """Something the decoder nearly proposed, and why it did not.
+
+    Carried with its instant rather than described in prose: a rejection is
+    above all a place to go and look, so it has to be placeable on a timeline
+    and clickable, not read.
+    """
+
+    at: float
+    kind: str
+    detail: str
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return the JSON form stored in a cut's comment."""
+        return {"at": round(self.at, 2), "kind": self.kind, "detail": self.detail}
+
+
 @dataclass
 class Decoded:
     """The decoding result, with everything a reviewer would want to see."""
 
     segments: list[Segment]
     peaks: list[Peak]
-    dropped: list[str]
+    dropped: list[Rejected]
 
 
 def find_peaks(
@@ -230,7 +248,9 @@ def find_peaks(
     return sorted((float(times[i]), float(curve[i])) for i in taken)
 
 
-def _pair_peaks(peaks: Sequence[Peak], dropped: list[str]) -> list[tuple[Peak, Peak]]:
+def _pair_peaks(
+    peaks: Sequence[Peak], dropped: list[Rejected]
+) -> list[tuple[Peak, Peak]]:
     """Pair ``in`` peaks with the ``out`` that closes them.
 
     Walks the timeline once. Two ``in`` in a row means the first was a false
@@ -246,21 +266,39 @@ def _pair_peaks(peaks: Sequence[Peak], dropped: list[str]) -> list[tuple[Peak, P
                 weaker = min(pending, peak, key=lambda item: item.score)
                 pending = max(pending, peak, key=lambda item: item.score)
                 dropped.append(
-                    f"in isolé à {weaker.time:.1f}s (score {weaker.score:.2f}) : "
-                    f"faux départ ou out manquant"
+                    Rejected(
+                        at=weaker.time,
+                        kind="in_isole",
+                        detail=(
+                            f"in isolé (score {weaker.score:.2f}) : faux départ "
+                            f"ou out manquant"
+                        ),
+                    )
                 )
             else:
                 pending = peak
             continue
 
         if pending is None:
-            dropped.append(f"out sans in à {peak.time:.1f}s (score {peak.score:.2f})")
+            dropped.append(
+                Rejected(
+                    at=peak.time,
+                    kind="out_orphelin",
+                    detail=f"out sans in ouvert (score {peak.score:.2f})",
+                )
+            )
             continue
         pairs.append((pending, peak))
         pending = None
 
     if pending is not None:
-        dropped.append(f"in non refermé à {pending.time:.1f}s : out manquant en fin")
+        dropped.append(
+            Rejected(
+                at=pending.time,
+                kind="in_non_referme",
+                detail="in non refermé : out manquant en fin de game",
+            )
+        )
     return pairs
 
 
@@ -300,7 +338,7 @@ def boundary_scores(
 
 
 def merge_close_segments(
-    segments: list[Segment], min_gap: float, dropped: list[str]
+    segments: list[Segment], min_gap: float, dropped: list[Rejected]
 ) -> list[Segment]:
     """Merge segments separated by less than `min_gap` seconds."""
     merged: list[Segment] = []
@@ -308,9 +346,15 @@ def merge_close_segments(
         if merged and segment.start - merged[-1].end < min_gap:
             previous = merged.pop()
             dropped.append(
-                f"segments fusionnés autour de {previous.end:.1f}s : "
-                f"{segment.start - previous.end:.1f}s d'écart, moins que les "
-                f"{min_gap:.0f}s minimales entre deux points"
+                Rejected(
+                    at=previous.end,
+                    kind="fusion",
+                    detail=(
+                        f"segments fusionnés : {segment.start - previous.end:.1f}s "
+                        f"d'écart, moins que les {min_gap:.0f}s minimales entre "
+                        f"deux points"
+                    ),
+                )
             )
             merged.append(Segment(previous.start, segment.end, previous.point))
             continue
@@ -334,7 +378,7 @@ def decode(
         The segments, the boundary candidates, and every rejection with a
         reason, so a reviewer can see what the model nearly proposed.
     """
-    dropped: list[str] = []
+    dropped: list[Rejected] = []
     inside = probabilities[:, CHANNEL_INDEX["inside"]]
     scores = boundary_scores(probabilities, times, spec)
 
@@ -355,12 +399,20 @@ def decode(
         duration = end_peak.time - start_peak.time
         if duration < spec.min_duration:
             dropped.append(
-                f"segment trop court à {start_peak.time:.1f}s ({duration:.1f}s)"
+                Rejected(
+                    at=start_peak.time,
+                    kind="segment_court",
+                    detail=f"segment trop court : {duration:.1f}s",
+                )
             )
             continue
         if duration > spec.max_duration:
             dropped.append(
-                f"segment trop long à {start_peak.time:.1f}s ({duration:.1f}s)"
+                Rejected(
+                    at=start_peak.time,
+                    kind="segment_trop_long",
+                    detail=f"segment trop long : {duration:.1f}s, un out a été manqué",
+                )
             )
             continue
 
@@ -368,8 +420,14 @@ def decode(
         mean_inside = float(inside[window].mean()) if window.any() else 0.0
         if mean_inside < spec.inside_veto:
             dropped.append(
-                f"segment rejeté à {start_peak.time:.1f}s : "
-                f"probabilité 'dans un cut' {mean_inside:.2f}"
+                Rejected(
+                    at=start_peak.time,
+                    kind="inside_faible",
+                    detail=(
+                        f"segment rejeté : probabilité « dans un point » "
+                        f"{mean_inside:.2f}"
+                    ),
+                )
             )
             continue
         segments.append(Segment(start_peak.time, end_peak.time))
@@ -378,5 +436,7 @@ def decode(
         segments = merge_close_segments(segments, spec.min_gap, dropped)
 
     return Decoded(
-        segments=segments, peaks=sorted(peaks, key=lambda p: p.time), dropped=dropped
+        segments=segments,
+        peaks=sorted(peaks, key=lambda p: p.time),
+        dropped=sorted(dropped, key=lambda item: item.at),
     )

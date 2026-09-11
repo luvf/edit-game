@@ -21,6 +21,7 @@ def _isolated_media_paths(settings, tmp_path):
     settings.MEDIA_ROOT = str(media_root)
     settings.TOURNAMENTS_BASE_DIR = tmp_path / "video_source"
     settings.TOURNAMENTS_ARCHIVE_DIR = tmp_path / "video_archive"
+    settings.AUTOEDIT_CACHE = str(tmp_path / "autoedit_cache")
 
 
 @pytest.fixture()

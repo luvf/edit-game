@@ -150,5 +150,5 @@ def build_comment(
             "gaps": _distribution(gaps),
         },
         "review": review,
-        "rejected": decoded.dropped,
+        "rejected": [rejection.as_dict() for rejection in decoded.dropped],
     }

@@ -175,6 +175,25 @@ def _register_train_commands(subparsers: argparse._SubParsersAction) -> None:  #
     evaluate.add_argument("--encoder", help="encodeur gelé du run, si applicable")
     evaluate.add_argument("--device")
 
+    propose = subparsers.add_parser(
+        "propose",
+        help="proposer un cut pour une game, pour l'application (une game, "
+        "labels non requis, cache construit à la demande)",
+    )
+    _add_decode_args(propose)
+    propose.add_argument("--game", required=True, type=int, metavar="ID")
+    propose.add_argument("--run", required=True, help="nom du run à utiliser")
+    propose.add_argument(
+        "--out", required=True, help="dossier où écrire le cut et les courbes"
+    )
+    propose.add_argument("--cut", type=int, help="cut auquel la proposition appartient")
+    propose.add_argument(
+        "--quality",
+        default=AUDIO_QUALITY,
+        help=f"qualité de la source audio (défaut: {AUDIO_QUALITY})",
+    )
+    propose.add_argument("--device")
+
     predict = subparsers.add_parser(
         "predict", help="générer un fichier de cut pour une ou plusieurs games"
     )
@@ -311,6 +330,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "train": commands.train,
         "evaluate": commands.evaluate,
         "predict": commands.predict,
+        "propose": commands.propose,
     }
     handler = handlers.get(args.command)
     if handler is None:

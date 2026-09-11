@@ -851,3 +851,35 @@ def predict(args: argparse.Namespace, paths: Paths) -> int:
         )
 
     return 0
+
+
+def propose(args: argparse.Namespace, paths: Paths) -> int:
+    """Propose a cut for one game, for the application to attach.
+
+    Unlike `predict`, this needs no labels and no prebuilt cache: it is what
+    the render queue calls, on a game that may have been filmed yesterday.
+    """
+    from game_autoedit.data.catalog import UnusableGameError
+    from game_autoedit.service import ProposalOptions, generate_cut
+
+    try:
+        proposal = generate_cut(
+            args.game,
+            run=args.run,
+            out_dir=Path(args.out),
+            cut_id=args.cut,
+            paths=paths,
+            options=ProposalOptions(
+                decode_spec=_decode_spec_from_args(args),
+                device=args.device,
+                quality=args.quality,
+                snap=args.snap,
+            ),
+        )
+    except UnusableGameError as error:
+        print(f"Proposition impossible : {error}")
+        return 1
+
+    print(proposal.summary())
+    print(f"{proposal.cut_path}\n{proposal.curves_path}")
+    return 0

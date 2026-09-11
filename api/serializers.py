@@ -388,6 +388,7 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
     create_archive = serializers.HyperlinkedIdentityField(
         view_name="game-create-archive"
     )
+    ml_cut = serializers.HyperlinkedIdentityField(view_name="game-ml-cut")
 
     default_hal_embedded: ClassVar[dict[str, str]] = {
         "tournament": "TournamentSerializer",
@@ -414,6 +415,7 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
             "create_cut",
             "generate_proxy",
             "create_archive",
+            "ml_cut",
             "video_proxy",
             "archive_video",
         ]
@@ -427,6 +429,9 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
     gen_from_rendered = serializers.HyperlinkedIdentityField(
         view_name="cut-gen-from-rendered"
     )
+    has_curves = serializers.BooleanField(read_only=True)
+    curves = serializers.HyperlinkedIdentityField(view_name="cut-curves")
+    redecode = serializers.HyperlinkedIdentityField(view_name="cut-redecode")
     default_hal_embedded: ClassVar[dict[str, str]] = {
         "rendered_video": "VideoSerializer",
     }
@@ -447,6 +452,9 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
             "render",
             "gen_from_file",
             "gen_from_rendered",
+            "has_curves",
+            "curves",
+            "redecode",
         ]
 
     def to_internal_value(self, data: Any) -> dict[str, Any]:

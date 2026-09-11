@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from game_autoedit.data.labels import Segment
-from game_autoedit.eval.decode import Decoded, DecodeSpec, Peak
+from game_autoedit.eval.decode import Decoded, DecodeSpec, Peak, Rejected
 from game_autoedit.eval.report import build_comment
 
 LOOSE = {"in": 0.3, "out": 0.3}
@@ -84,10 +84,19 @@ class TestBuildComment:
 
         assert comment["decode"]["threshold"] == LOOSE
 
-    def test_carries_the_rejections(self):
-        comment = comment_for([(0, 100)], dropped=["out sans in à 5.0s"])
+    def test_carries_the_rejections_with_their_instant(self):
+        comment = comment_for(
+            [(0, 100)],
+            dropped=[
+                Rejected(at=5.0, kind="out_orphelin", detail="out sans in ouvert")
+            ],
+        )
 
-        assert comment["rejected"] == ["out sans in à 5.0s"]
+        # Placeable and clickable rather than a sentence to read: a rejection
+        # is above all somewhere to go and look.
+        assert comment["rejected"] == [
+            {"at": 5.0, "kind": "out_orphelin", "detail": "out sans in ouvert"}
+        ]
 
     def test_few_segments_are_not_flagged_as_outliers(self):
         comment = comment_for([(0, 10), (100, 600)])

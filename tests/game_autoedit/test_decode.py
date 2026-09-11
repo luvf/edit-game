@@ -97,7 +97,7 @@ class TestDecode:
         decoded = decode(probabilities, times, DecodeSpec(**RAW))
 
         assert decoded.segments == []
-        assert any("out sans in" in reason for reason in decoded.dropped)
+        assert any("out sans in" in item.detail for item in decoded.dropped)
 
     def test_unclosed_in_is_reported(self):
         probabilities, times = grid(100.0)
@@ -106,7 +106,7 @@ class TestDecode:
         decoded = decode(probabilities, times, DecodeSpec(**RAW))
 
         assert decoded.segments == []
-        assert any("non refermé" in reason for reason in decoded.dropped)
+        assert any("non refermé" in item.detail for item in decoded.dropped)
 
     def test_two_ins_in_a_row_keep_the_stronger(self):
         probabilities, times = grid(200.0)
@@ -119,7 +119,7 @@ class TestDecode:
 
         assert len(decoded.segments) == 1
         assert decoded.segments[0].start == pytest.approx(60.0, abs=0.3)
-        assert any("faux départ" in reason for reason in decoded.dropped)
+        assert any("faux départ" in item.detail for item in decoded.dropped)
 
     def test_short_segment_is_dropped(self):
         probabilities, times = curves_for([(20, 22)])
@@ -127,7 +127,7 @@ class TestDecode:
         decoded = decode(probabilities, times, DecodeSpec(**RAW, min_duration=5.0))
 
         assert decoded.segments == []
-        assert any("trop court" in reason for reason in decoded.dropped)
+        assert any("trop court" in item.detail for item in decoded.dropped)
 
     def test_long_segment_is_dropped(self):
         probabilities, times = curves_for([(10, 190)])
@@ -135,7 +135,7 @@ class TestDecode:
         decoded = decode(probabilities, times, DecodeSpec(**RAW, max_duration=60.0))
 
         assert decoded.segments == []
-        assert any("trop long" in reason for reason in decoded.dropped)
+        assert any("trop long" in item.detail for item in decoded.dropped)
 
     def test_inside_veto_rejects_a_dead_segment(self):
         probabilities, times = curves_for([(20, 60)], inside=0.05)
@@ -143,7 +143,7 @@ class TestDecode:
         decoded = decode(probabilities, times, DecodeSpec(**RAW, inside_veto=0.25))
 
         assert decoded.segments == []
-        assert any("probabilité" in reason for reason in decoded.dropped)
+        assert any("probabilité" in item.detail for item in decoded.dropped)
 
     def test_threshold_is_per_channel(self):
         probabilities, times = curves_for([(20, 60)])
@@ -205,7 +205,7 @@ class TestMinimumGap:
 
         decoded = decode(probabilities, times, DecodeSpec(**RAW, min_gap=30.0))
 
-        assert any("fusionnés" in reason for reason in decoded.dropped)
+        assert any("fusionnés" in item.detail for item in decoded.dropped)
 
     def test_a_long_enough_gap_is_left_alone(self):
         probabilities, times = curves_for([(20, 60), (120, 160)], duration=300.0)
