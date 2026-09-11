@@ -1,0 +1,136 @@
+<div
+  class="timeline"
+  [class.is-empty]="durationFrames() <= 0"
+  (pointerdown)="onPointerDown($event)"
+  (pointermove)="onPointerMove($event)"
+  (pointerup)="onPointerUp($event)"
+  (pointercancel)="onPointerUp($event)"
+  (pointerleave)="onPointerLeave()"
+>
+  <div class="track">
+    @for (segment of segments(); track $index) {
+      <div
+        class="segment"
+        [class]="'segment is-' + segment.point"
+        [class.is-hovered]="hoveredIndex() === segment.index"
+        [style.left.%]="segment.left"
+        [style.width.%]="segment.width"
+        [title]="segment.title"
+        (pointerenter)="onSegmentEnter(segment.index)"
+        (pointerleave)="onSegmentLeave()"
+      ></div>
+    }
+  </div>
+
+  <!-- Les endroits a verifier, sur le meme axe : c'est la carte de la ou il
+       faut aller regarder, et chaque repere y emmene. -->
+  @if (reviewTicks().length) {
+    <div class="review-track">
+      @for (tick of reviewTicks(); track $index) {
+        <button
+          type="button"
+          class="review-tick"
+          [class.is-rejected]="tick.source === 'rejected'"
+          [style.left.%]="tick.left"
+          [title]="tick.title"
+          (pointerdown)="onReviewTick(tick, $event)"
+        ></button>
+      }
+    </div>
+  }
+
+  <!-- L'apercu d'un autre reglage, aligne sur le meme axe : une voie a part
+       plutot qu'une surcharge de la barre, pour qu'on lise d'un coup ce qui
+       apparait et ce qui disparait. -->
+  @if (previewSegments().length) {
+    <div class="preview-track" title="Apercu du reglage, non applique">
+      @for (segment of previewSegments(); track $index) {
+        <div
+          class="preview-segment"
+          [style.left.%]="segment.left"
+          [style.width.%]="segment.width"
+          [title]="segment.title"
+        ></div>
+      }
+    </div>
+  }
+
+  <!-- La bande des courbes partage l'axe des x de la barre : meme repere de
+       0 a 100, donc un x est deja un pourcentage. `preserveAspectRatio=none`
+       etire le repere a la largeur disponible, ce qui deformerait l'epaisseur
+       des traits : `vector-effect` la garde en pixels d'ecran. -->
+  @if (curveShapes().length) {
+    <svg
+      class="curves"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      @for (curve of curveShapes(); track curve.channel) {
+        @if (curve.threshold !== null) {
+          <line
+            class="threshold"
+            [class]="'threshold is-' + curve.channel"
+            x1="0"
+            x2="100"
+            [attr.y1]="thresholdY(curve.threshold)"
+            [attr.y2]="thresholdY(curve.threshold)"
+            vector-effect="non-scaling-stroke"
+          />
+        }
+        <polyline
+          [class]="'curve is-' + curve.channel"
+          [attr.points]="curve.points"
+          vector-effect="non-scaling-stroke"
+        />
+      }
+    </svg>
+  }
+
+  @for (marker of markers(); track $index) {
+    <div
+      class="marker"
+      [class]="'marker is-' + marker.type"
+      [style.left.%]="marker.left"
+      [title]="marker.title"
+    ></div>
+  }
+
+  @if (hoverFrame() !== null) {
+    <div class="hover-marker" [style.left.%]="hoverPercent()"></div>
+    <div class="hover-label" [style.left.%]="hoverPercent()">
+      {{ hoverTimecode() }}
+      @if (hoverValues(); as values) {
+        <span class="hover-values">{{ values }}</span>
+      }
+    </div>
+  }
+
+  <div class="playhead" [style.left.%]="playheadPercent()"></div>
+</div>
+
+<div class="legend">
+  <span class="legend-item"><i class="swatch is-left"></i>left</span>
+  <span class="legend-item"><i class="swatch is-right"></i>right</span>
+  <span class="legend-item"><i class="swatch is-nopoint"></i>nopoint</span>
+  <span class="legend-item"
+    ><i class="swatch is-marker is-SideSwitch"></i>côté</span
+  >
+  <span class="legend-item"
+    ><i class="swatch is-marker is-SetEnd"></i>fin de set</span
+  >
+  <span class="legend-item"
+    ><i class="swatch is-marker is-Warning"></i>warning</span
+  >
+  @if (curveShapes().length) {
+    <span class="legend-item"><i class="swatch is-curve is-in"></i>in</span>
+    <span class="legend-item"><i class="swatch is-curve is-out"></i>out</span>
+    <span class="legend-item"
+      ><i class="swatch is-curve is-inside"></i>dans un point</span
+    >
+  }
+  <span class="legend-spacer"></span>
+  <span class="legend-time"
+    >{{ timecode(currentFrame()) }} / {{ timecode(durationFrames()) }}</span
+  >
+</div>

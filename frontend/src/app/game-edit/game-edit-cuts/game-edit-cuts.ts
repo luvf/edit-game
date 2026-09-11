@@ -28,6 +28,7 @@ import {
 import { TournamentService } from '../../core/services/tournament.service';
 import {
   Cut,
+  CutCurves,
   Game,
   Tournament,
   Video,
@@ -125,6 +126,8 @@ export class GameEditCutsComponent
   });
   cutTemplates = signal<CutTemplate[]>([]);
   newCutName = signal('');
+  /** Vrai entre la demande de proposition ML et la creation du cut. */
+  mlCutPending = signal(false);
   selectedCutType = signal<string | null>(null);
   loadedFile = signal<File | null>(null);
   renderedFiles = signal<string[]>([]);
@@ -145,8 +148,34 @@ export class GameEditCutsComponent
   rushFps = this.state.rushFps;
   rushDurationFrames = this.state.rushDurationFrames;
   activeCutPoints = this.state.activeCutPoints;
+  activeCutEvents = this.state.activeCutEvents;
+  previewPoints = this.state.previewPoints;
+  reviewMarkers = this.state.reviewMarkers;
+  activeCutScore = this.state.activeCutScore;
+  activePointIndex = this.state.activePointIndex;
   hoveredPointIndex = this.state.hoveredPointIndex;
+
+  /** Timecode du rush sous la tete de lecture, au fps reel de la source. */
+  readonly rushTimecode = computed(() => {
+    const fps = Math.max(1, Math.round(this.rushFps()));
+    const frames = Math.max(0, Math.floor(this.rushFrame()));
+    const totalSeconds = Math.floor(frames / fps);
+    const pad = (value: number) => value.toString().padStart(2, '0');
+    return `${pad(Math.floor(totalSeconds / 3600))}:${pad(
+      Math.floor(totalSeconds / 60) % 60,
+    )}:${pad(totalSeconds % 60)}:${pad(frames % fps)}`;
+  });
+
+  /** Le point sous la tete de lecture, ou l'absence de point. */
+  readonly pointLabel = computed(() => {
+    const index = this.activePointIndex();
+    const total = this.activeCutPoints().length;
+    if (index === null) return total ? 'hors point' : 'aucun point';
+    return `point ${index + 1} / ${total}`;
+  });
   activeCut = this.state.activeCut;
+  /** Courbes du modele pour le cut ouvert, absentes pour un cut manuel. */
+  activeCutCurves = signal<CutCurves | null>(null);
   private gameService = inject(GamesService);
   private cutService = inject(CutsService);
   private tournamentService = inject(TournamentService);
@@ -202,6 +231,10 @@ export class GameEditCutsComponent
       return;
     }
     const name = this.newCutName().trim() || template.label;
+    if (template.code === 'ML') {
+      this.onProposeMlCut(name);
+      return;
+    }
     const payload = {
       name,
       slug: this.slugify(name),
@@ -243,6 +276,30 @@ export class GameEditCutsComponent
         }
       },
       error: (e) => console.error('Erreur lors de la création du cut', e),
+    });
+  }
+
+  /**
+   * Demande une proposition de cut au modele.
+   *
+   * Le cut revient vide et son onglet s'ouvre tout de suite : le modele
+   * tourne dans la file de rendu et peut prendre quelques minutes, le temps
+   * d'extraire l'audio de l'archive la premiere fois.
+   */
+  onProposeMlCut(name: string): void {
+    if (!this.game) return;
+    this.mlCutPending.set(true);
+    this.gameService.ml_cut(this.game, { name }).subscribe({
+      next: (response) => {
+        this.mlCutPending.set(false);
+        this.cuts.set([...this.cuts(), response.cut]);
+        this.selectedCutTabIndex.set(this.cuts().length - 1);
+        this.newCutName.set('');
+      },
+      error: (e) => {
+        this.mlCutPending.set(false);
+        console.error('Erreur lors de la demande de proposition ML', e);
+      },
     });
   }
 
@@ -288,8 +345,14 @@ export class GameEditCutsComponent
     // Le detail du nouvel onglet republiera ses points ; en attendant, mieux
     // vaut une timeline vide que les sections de l'onglet qu'on vient de quitter.
     this.activeCutPoints.set([]);
+    this.activeCutEvents.set([]);
     this.hoveredPointIndex.set(null);
-    this.activeCut.set(this.cuts()[index] ?? null);
+    // L'apercu et les reperes appartiennent a l'onglet qu'on quitte.
+    this.previewPoints.set([]);
+    this.reviewMarkers.set([]);
+    const cut = this.cuts()[index] ?? null;
+    this.activeCut.set(cut);
+    this.loadActiveCurves(cut);
   }
 
   private loadGameVideo(): void {
@@ -340,11 +403,33 @@ export class GameEditCutsComponent
             : this.selectedCutTabIndex();
 
         this.selectedCutTabIndex.set(nextIndex);
-        this.activeCut.set(cuts[nextIndex] ?? null);
+        const active = cuts[nextIndex] ?? null;
+        this.activeCut.set(active);
+        this.loadActiveCurves(active);
       },
       error: (e) => console.error('Erreur lors du chargement des cuts', e),
     });
   }
+  /**
+   * Charge les courbes du cut ouvert, s'il en porte.
+   *
+   * Une requete par onglet ouvert plutot qu'un chargement de tous les cuts :
+   * un cut manuel n'a rien a charger, et seul celui qu'on regarde est
+   * dessine.
+   */
+  private loadActiveCurves(cut: Cut | null): void {
+    this.activeCutCurves.set(null);
+    if (!cut?.has_curves) return;
+
+    this.cutService.curves(cut).subscribe({
+      next: (curves) => {
+        // L'onglet a pu changer pendant la requete.
+        if (this.activeCut()?.pk === cut.pk) this.activeCutCurves.set(curves);
+      },
+      error: (e) => console.error('Erreur lors du chargement des courbes', e),
+    });
+  }
+
   private loadCutVideo(cut: Cut): void {
     this.cutService.rendered_video(cut).subscribe({
       next: (video: Video) => {

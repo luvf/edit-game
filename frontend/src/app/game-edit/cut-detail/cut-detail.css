@@ -34,47 +34,69 @@
 }
 
 .cut-detail {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-:host ::ng-deep .cut-tabs .mat-mdc-tab-header {
-  border-bottom: none;
-  margin-bottom: 12px;
+/* Les infos du match restent en tete : elles n'ont pas de timecode. Deux
+   lignes, pas plus : c'est un en-tete, la liste est le sujet du panneau. */
+.game-info {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
 }
 
-:host ::ng-deep .cut-tabs .mat-mdc-tab-list {
-  background: #f3f4f6;
-  border-radius: 8px;
-  padding: 4px;
+.game-info.is-missing {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.game-info-fields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 84px;
+  gap: 6px 10px;
+  align-items: end;
+}
+
+.cut-detail.is-compact .game-info-fields {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.game-info-fields label {
+  display: flex;
+  flex-direction: column;
   gap: 4px;
+  min-width: 0;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.85;
 }
 
-:host ::ng-deep .cut-tabs .mat-mdc-tab {
-  min-height: 14px;
+.game-info-fields label.wide {
+  grid-column: 1 / -1;
+}
+
+.cut-detail.is-compact .game-info-fields label.wide {
+  grid-column: auto;
+}
+
+.game-info-fields input {
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid #d1d5db;
   border-radius: 6px;
-  opacity: 0.75;
-}
-
-:host ::ng-deep .cut-tabs .mdc-tab__content {
-  padding: 2px 8px;
-}
-
-:host ::ng-deep .cut-tabs .mdc-tab__text-label {
-  font-size: 12px;
-  line-height: 14px;
-}
-
-:host ::ng-deep .cut-tabs .mat-mdc-tab.mdc-tab--active {
-  background: #ffffff;
-  opacity: 1;
-}
-
-:host ::ng-deep .cut-tabs .mdc-tab-indicator {
-  display: none;
+  font: inherit;
+  font-size: 13px;
+  text-transform: none;
 }
 
 .section-title {
@@ -222,65 +244,6 @@
   height: 8px;
   border-radius: 999px;
   background: #d32f2f;
-}
-
-/* --- Glisser-deposer ---------------------------------------------------- */
-
-.drag-handle {
-  flex: 0 0 auto;
-  align-self: flex-end;
-  margin-bottom: 3px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 30px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: #c3c7ce;
-  cursor: grab;
-}
-
-.form-row:hover .drag-handle {
-  color: #6b7280;
-}
-
-.drag-handle:active {
-  cursor: grabbing;
-}
-
-/* Deux colonnes de points, en fond, plutot que six noeuds par ligne. */
-.drag-grip {
-  width: 7px;
-  height: 15px;
-  background-image: radial-gradient(currentColor 1.1px, transparent 1.2px);
-  background-size: 4px 5px;
-}
-
-.drag-placeholder {
-  height: 42px;
-  border: 1px dashed #9ca3af;
-  border-radius: 10px;
-  background: #f3f4f6;
-}
-
-.form-row.cdk-drag-preview {
-  box-shadow: 0 8px 20px rgba(17, 24, 39, 0.22);
-  background: #fff;
-}
-
-.form-row.cdk-drag-preview .drag-handle {
-  color: #6b7280;
-  cursor: grabbing;
-}
-
-.form-list.cdk-drop-list-dragging .form-row:not(.cdk-drag-placeholder) {
-  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
-}
-
-.form-row.cdk-drag-animating {
-  transition: transform 220ms cubic-bezier(0, 0, 0.2, 1);
 }
 
 /* Meme traitement que la duree in-out : c'est la meme nature d'information. */
@@ -431,4 +394,222 @@
 
 .cut-empty {
   opacity: 0.65;
+}
+
+/* Un evenement n'a qu'un timecode : la ligne est plus courte, et se distingue
+   des points par sa teinte pour qu'on la retrouve dans la liste melangee. */
+.form-row.is-event {
+  background: #f5f3ff;
+  border: 1px dashed #ddd6fe;
+}
+
+.form-row.is-event:hover {
+  background: #ede9fe;
+}
+
+.form-row.is-event[data-event="Warning"] {
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
+.form-row.is-event[data-event="Warning"]:hover {
+  background: #ffedd5;
+}
+
+.row-kind {
+  flex: 0 0 auto;
+  width: 14px;
+  text-align: center;
+  font-size: 11px;
+  opacity: 0.45;
+}
+
+.event-label {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+.form-row.is-event label {
+  text-transform: uppercase;
+}
+
+.form-row.is-event label.wide {
+  flex: 1 1 auto;
+  min-width: 80px;
+}
+
+.form-row.is-event label.wide input {
+  width: 100%;
+  text-transform: none;
+}
+
+.form-row.is-event label.narrow input {
+  width: 64px;
+}
+
+/* Le score n'est pas stocke : il decoule des points et des evenements
+   au-dessus, donc il se lit mais ne s'edite pas. */
+.row-score {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.form-row.is-event .row-delete,
+.form-row.is-event .row-kind {
+  opacity: 0.6;
+}
+
+.form-row.is-event:hover .row-delete {
+  opacity: 1;
+}
+
+/* Les seuils du modele. Replies par defaut : on ne les ouvre que quand la
+   proposition tombe a cote, et jamais sur un cut monte a la main. */
+.cut-decode {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.cut-decode > summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.cut-decode-badge {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+  font-size: 12px;
+}
+
+.cut-decode-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cut-decode-row {
+  display: grid;
+  grid-template-columns: 8.5rem 1fr 3.5rem;
+  align-items: center;
+  gap: 8px;
+}
+
+.cut-decode-row input[type="range"] {
+  width: 100%;
+}
+
+.cut-decode-row output {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  text-align: right;
+}
+
+.cut-decode-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cut-decode-hint {
+  margin: 2px 0 0;
+  max-width: 60ch;
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.7;
+}
+
+.cut-decode-warn {
+  display: block;
+  margin-top: 4px;
+  color: #b45309;
+  opacity: 1;
+}
+
+.cut-decode-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Les endroits a verifier. Repliee par defaut comme les seuils : on l'ouvre
+   quand on doute, pas a chaque ouverture de cut. */
+.cut-review {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.cut-review > summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.cut-review-count {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(180, 83, 9, 0.14);
+  color: #b45309;
+  font-size: 12px;
+}
+
+.cut-review-list {
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.cut-review-row {
+  display: grid;
+  grid-template-columns: 7.5rem 9rem 1fr;
+  gap: 8px;
+  align-items: baseline;
+  padding: 3px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cut-review-row:hover {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.cut-review-tc {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.cut-review-kind {
+  color: #b45309;
+}
+
+/* Un candidat rejete n'est pas un doute sur le montage rendu : il dit que le
+   modele a failli proposer quelque chose ici. */
+.cut-review-row.is-rejected .cut-review-kind {
+  color: #6b7280;
+}
+
+.cut-review-detail {
+  opacity: 0.75;
 }

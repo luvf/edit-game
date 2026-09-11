@@ -129,6 +129,7 @@ export interface GameLinks extends HalLinks {
   create_cut?: Link;
   generate_proxy?: Link;
   create_archive?: Link;
+  ml_cut?: Link;
   video_proxy?: Link;
   archive_video?: Link;
 }
@@ -151,6 +152,8 @@ export interface CutLinks extends HalLinks {
   gen_from_file?: Link;
   gen_from_rendered?: Link;
   rendered_video?: Link;
+  curves?: Link;
+  redecode?: Link;
 }
 
 export interface Cut extends BaseHalModel {
@@ -160,8 +163,85 @@ export interface Cut extends BaseHalModel {
   json_file: string;
   slug: string;
   valid?: boolean;
+  /** Vrai quand le modele a laisse ses courbes de probabilite sur ce cut. */
+  has_curves?: boolean;
   _links?: CutLinks;
   _embedded?: HalEmbedded;
+}
+
+/**
+ * Les trois courbes de probabilite du modele, amincies pour l'affichage.
+ *
+ * `points` est ce qui est renvoye, `steps` ce que le fichier contient : le
+ * serveur reduit `in` et `out` par leur maximum, `inside` par sa moyenne.
+ */
+export interface CutCurves {
+  hop: number;
+  duration: number;
+  points: number;
+  steps: number;
+  /** Cadence de l'archive, pour passer des secondes aux frames du rush. */
+  fps?: number | null;
+  in: number[];
+  out: number[];
+  inside: number[];
+  decode?: { threshold?: { in?: number; out?: number } };
+  run?: string;
+}
+
+/**
+ * Un endroit ou aller regarder : un point douteux, ou un candidat rejete.
+ *
+ * `at` est en secondes de l'archive, `kind` dit pourquoi (`in_incertain`,
+ * `pause_longue`, `out_orphelin`...), `detail` le raconte en une ligne.
+ */
+export interface CutReviewItem {
+  at: number;
+  kind: string;
+  detail: string;
+}
+
+/** Le bloc que le modele laisse dans le fichier de cut : sa provenance. */
+export interface CutComment {
+  generated_by?: string;
+  model?: { run?: string; redecoded?: boolean; snapped?: boolean };
+  fps?: number;
+  decode?: { threshold?: { in?: number; out?: number } };
+  stats?: { duration?: number; kept?: number; kept_ratio?: number };
+  /** Ce que le modele a propose mais dont il n'est pas sur. */
+  review?: CutReviewItem[];
+  /** Ce qu'il a failli proposer, et pourquoi il ne l'a pas fait. */
+  rejected?: CutReviewItem[];
+  curves_file?: string;
+  curves_hop?: number;
+}
+
+/** Reglages du decodage : ce qu'on tourne quand l'outil propose trop ou trop peu. */
+export interface DecodeSettings {
+  threshold_in: number;
+  threshold_out: number;
+  min_gap: number;
+  snap: boolean;
+}
+
+/** Reponse de `cuts/{id}/redecode` : ce que donnerait ce reglage. */
+export interface RedecodeResponse {
+  applied: boolean;
+  /** Faux quand l'enveloppe d'attaques manque : les debuts ne sont pas cales. */
+  snapped: boolean;
+  segments: number;
+  points: { in: number; out: number; point?: string }[];
+  stats: { kept: number; duration: number; kept_ratio: number };
+  review: { at: number; kind: string; detail: string }[];
+}
+
+/** Reponse de `games/{id}/ml-cut` : le cut vide, et le job qui le remplit. */
+export interface MlCutResponse {
+  detail: string;
+  cut: Cut;
+  render_queue_item_id: number;
+  status: string;
+  run: string;
 }
 
 export type VideoQuality = 'low' | 'medium' | 'high' | 'archive';

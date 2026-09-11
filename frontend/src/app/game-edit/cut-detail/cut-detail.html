@@ -1,23 +1,131 @@
 @if (parseError(); as message) {
   <div class="cut-error">JSON invalide: {{ message }}</div>
 } @else if (payload()) {
-  @if (compact()) {
-    <mat-tab-group class="cut-tabs">
-      <mat-tab label="Points">
-        <ng-container [ngTemplateOutlet]="pointsColumn"></ng-container>
-      </mat-tab>
-      <mat-tab label="Overlays">
-        <ng-container [ngTemplateOutlet]="overlaysColumn"></ng-container>
-      </mat-tab>
-    </mat-tab-group>
-  } @else {
-    <div class="cut-detail">
-      <ng-container [ngTemplateOutlet]="pointsColumn"></ng-container>
-      <ng-container [ngTemplateOutlet]="overlaysColumn"></ng-container>
-    </div>
-  }
+  <div class="cut-detail" [class.is-compact]="compact()">
+    <ng-container [ngTemplateOutlet]="gameInfoPanel"></ng-container>
+    <ng-container [ngTemplateOutlet]="timeline"></ng-container>
+  </div>
 } @else {
   <div class="cut-empty">Aucun contenu.</div>
+}
+
+<!-- Ce que le modele n'a pas su trancher. Une liste d'endroits ou aller
+     regarder, pas un rapport : chaque ligne deplace la tete de lecture. -->
+@if (reviewRows().length) {
+  <details class="cut-review">
+    <summary>
+      À vérifier
+      <span class="cut-review-count">{{ reviewRows().length }}</span>
+    </summary>
+    <ul class="cut-review-list">
+      @for (row of reviewRows(); track $index) {
+        <li
+          class="cut-review-row"
+          [class.is-rejected]="row.source === 'rejected'"
+          (click)="onReviewSeek(row)"
+        >
+          <span class="cut-review-tc">{{ row.timecode }}</span>
+          <span class="cut-review-kind">{{ reviewLabel(row.kind) }}</span>
+          <span class="cut-review-detail">{{ row.detail }}</span>
+        </li>
+      }
+    </ul>
+  </details>
+}
+
+<!-- Le decodage est separe du modele : tourner un seuil ne coute qu'une passe
+     de numpy sur les courbes deja sur disque, donc ca se regle en regardant
+     le resultat plutot qu'en reentrainant. -->
+@if (cut?.has_curves) {
+  <details class="cut-decode">
+    <summary>
+      Seuils du modèle
+      @if (decodePreview(); as preview) {
+        <span class="cut-decode-badge"
+          >{{ preview.segments }} segments ·
+          {{ preview.kept / 60 | number: "1.0-1" }} min</span
+        >
+      }
+    </summary>
+
+    <div class="cut-decode-body">
+      <label class="cut-decode-row">
+        <span>seuil <i>in</i></span>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          [value]="decode().threshold_in"
+          (input)="onDecodeChange('threshold_in', +$any($event.target).value)"
+        />
+        <output>{{ decode().threshold_in | number: "1.2-2" }}</output>
+      </label>
+
+      <label class="cut-decode-row">
+        <span>seuil <i>out</i></span>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          [value]="decode().threshold_out"
+          (input)="onDecodeChange('threshold_out', +$any($event.target).value)"
+        />
+        <output>{{ decode().threshold_out | number: "1.2-2" }}</output>
+      </label>
+
+      <label class="cut-decode-row">
+        <span>temps mort min.</span>
+        <input
+          type="range"
+          min="0"
+          max="120"
+          step="1"
+          [value]="decode().min_gap"
+          (input)="onDecodeChange('min_gap', +$any($event.target).value)"
+        />
+        <output>{{ decode().min_gap }} s</output>
+      </label>
+
+      <label class="cut-decode-check">
+        <input
+          type="checkbox"
+          [checked]="decode().snap"
+          (change)="onDecodeChange('snap', $any($event.target).checked)"
+        />
+        <span>caler les débuts sur le tambour</span>
+      </label>
+
+      <p class="cut-decode-hint">
+        L'aperçu s'affiche sous la barre, hachuré. Rien n'est écrit tant que
+        vous n'avez pas appliqué — appliquer remplace la liste de points,
+        corrections manuelles comprises.
+        @if (decodePreview(); as preview) {
+          @if (!preview.snapped && decode().snap) {
+            <strong class="cut-decode-warn">
+              Calage indisponible : l'enveloppe d'attaques n'est plus dans le
+              cache, les débuts restent où le modèle les a mis.
+            </strong>
+          }
+        }
+      </p>
+
+      <div class="cut-decode-actions">
+        <button
+          mat-stroked-button
+          type="button"
+          [disabled]="decodePending() || !decodePreview()"
+          (click)="onDecodeApply()"
+        >
+          Appliquer
+        </button>
+        <button mat-stroked-button type="button" (click)="onDecodeReset()">
+          Réinitialiser
+        </button>
+      </div>
+    </div>
+  </details>
 }
 
 <div class="cut-toolbar">
@@ -43,54 +151,108 @@
   </button>
 </div>
 
-<ng-template #pointsColumn>
-  @if (payload(); as data) {
-    <section class="column">
-      @if (data.points.length) {
-        <div
-          class="form-list"
-          cdkDropList
-          (cdkDropListDropped)="onDropPoint($event)"
-        >
-          @for (pt of data.points; track pt; let rowIndex = $index) {
+<ng-template #gameInfoPanel>
+  @if (gameInfo(); as info) {
+    <section class="game-info">
+      <div class="game-info-fields">
+        <label>
+          <span>équipe 1 — à gauche</span>
+          <input
+            type="text"
+            [ngModel]="info.team1"
+            (ngModelChange)="setGameInfo('team1', $event)"
+          />
+        </label>
+        <label>
+          <span>équipe 2 — à droite</span>
+          <input
+            type="text"
+            [ngModel]="info.team2"
+            (ngModelChange)="setGameInfo('team2', $event)"
+          />
+        </label>
+        <label class="narrow">
+          <span>sets à gagner</span>
+          <input
+            type="number"
+            min="1"
+            [ngModel]="info.sets_to_win"
+            (ngModelChange)="setGameInfo('sets_to_win', $event)"
+          />
+        </label>
+        <label class="wide">
+          <span>condition</span>
+          <input
+            type="text"
+            placeholder="texte libre, affiché sur la carte d'ouverture"
+            [ngModel]="info.condition"
+            (ngModelChange)="setGameInfo('condition', $event)"
+          />
+        </label>
+      </div>
+    </section>
+  } @else {
+    <section class="game-info is-missing">
+      <span>Ce cut n'a pas encore ses infos de match.</span>
+      <button mat-stroked-button type="button" (click)="addGameInfo()">
+        Ajouter les infos du match
+      </button>
+    </section>
+  }
+</ng-template>
+
+<ng-template #timeline>
+  <section class="column">
+    <div class="list-header">
+      <button mat-stroked-button type="button" (click)="addPoint()">
+        + point
+      </button>
+      <button mat-stroked-button type="button" (click)="addEvent('Warning')">
+        + warning
+      </button>
+      <button mat-stroked-button type="button" (click)="addEvent('SideSwitch')">
+        + changement de côté
+      </button>
+      <button mat-stroked-button type="button" (click)="addEvent('SetEnd')">
+        + fin de set
+      </button>
+    </div>
+
+    @if (rows().length) {
+      <div class="form-list">
+        @for (row of rows(); track row; let rowIndex = $index) {
+          @if (row.kind === "point") {
             <div
-              class="form-row"
-              cdkDrag
-              cdkDragLockAxis="y"
-              [class.is-hovered]="hoveredPoint() === rowIndex"
-              (pointerenter)="setHoveredPoint(rowIndex)"
+              class="form-row is-point"
+              [class.is-hovered]="hoveredPoint() === row.index"
+              (pointerenter)="setHoveredPoint(row.index)"
               (pointerleave)="setHoveredPoint(null)"
             >
-              <button
-                type="button"
-                class="drag-handle"
-                cdkDragHandle
-                aria-label="Déplacer ce point"
-                title="Glisser pour réordonner"
-              >
-                <span class="drag-grip"></span>
-              </button>
+              <span class="row-kind" title="Point du montage">▮</span>
 
               <label>
-                <span class="label-row" (dblclick)="onSeekToFrame(pt.in)">
+                <span
+                  class="label-row"
+                  (dblclick)="onSeekToFrame(row.point.in)"
+                >
                   in
-                  <span class="timecode" (dblclick)="onSeekToFrame(pt.in)">{{
-                    formatTimecode(pt.in)
+                  <span class="timecode">{{
+                    formatTimecode(row.point.in)
                   }}</span>
                 </span>
                 <div class="input-row">
                   <input
                     type="number"
-                    [(ngModel)]="pt.in"
+                    [(ngModel)]="row.point.in"
                     (ngModelChange)="onPointEdited()"
-                    [class.invalid]="isInInvalid(rowIndex)"
-                    (dblclick)="onSeekToFrame(pt.in)"
+                    [class.invalid]="isInInvalid(row.index)"
+                    (dblclick)="onSeekToFrame(row.point.in)"
                   />
                   <button
                     type="button"
                     class="frame-button"
                     title="Prendre la frame courante"
-                    (click)="setFromCurrentFrame(pt, 'in')"
+                    (click)="setFromCurrentFrame(row.point, 'in')"
                   >
                     <span class="frame-dot"></span>
                   </button>
@@ -99,30 +261,33 @@
 
               <span
                 class="duration-between"
-                [class.invalid]="isRangeInvalid(pt)"
-                >{{ formatDurationFrames(pt.in, pt.out) }}</span
+                [class.invalid]="isRangeInvalid(row.point)"
+                >{{ formatDurationFrames(row.point.in, row.point.out) }}</span
               >
 
               <label>
-                <span class="label-row" (dblclick)="onSeekToFrame(pt.out)">
+                <span
+                  class="label-row"
+                  (dblclick)="onSeekToFrame(row.point.out)"
+                >
                   out
-                  <span class="timecode" (dblclick)="onSeekToFrame(pt.out)">{{
-                    formatTimecode(pt.out)
+                  <span class="timecode">{{
+                    formatTimecode(row.point.out)
                   }}</span>
                 </span>
                 <div class="input-row">
                   <input
                     type="number"
-                    [(ngModel)]="pt.out"
+                    [(ngModel)]="row.point.out"
                     (ngModelChange)="onPointEdited()"
-                    [class.invalid]="isOutInvalid(rowIndex)"
-                    (dblclick)="onSeekToFrame(pt.out)"
+                    [class.invalid]="isOutInvalid(row.index)"
+                    (dblclick)="onSeekToFrame(row.point.out)"
                   />
                   <button
                     type="button"
                     class="frame-button"
                     title="Prendre la frame courante"
-                    (click)="setFromCurrentFrame(pt, 'out')"
+                    (click)="setFromCurrentFrame(row.point, 'out')"
                   >
                     <span class="frame-dot"></span>
                   </button>
@@ -133,13 +298,15 @@
                 class="point-switch"
                 role="radiogroup"
                 aria-label="point"
-                [attr.data-position]="pointPosition(pt)"
+                [attr.data-position]="pointPosition(row.point)"
               >
                 <span class="point-switch-thumb" aria-hidden="true"></span>
                 @for (option of pointOptions; track option.value) {
                   <label
                     class="point-switch-option"
-                    [class.is-active]="(pt.point ?? 'nopoint') === option.value"
+                    [class.is-active]="
+                      (row.point.point ?? 'nopoint') === option.value
+                    "
                     [title]="option.label"
                   >
                     <input
@@ -147,7 +314,7 @@
                       [name]="switchName + rowIndex"
                       [value]="option.value"
                       [attr.aria-label]="option.label"
-                      [(ngModel)]="pt.point"
+                      [(ngModel)]="row.point.point"
                       (ngModelChange)="onPointEdited()"
                     />
                     <span>{{ option.short }}</span>
@@ -157,135 +324,107 @@
 
               <span
                 class="gap-to-next"
-                [class.invalid]="isOutInvalid(rowIndex)"
+                [class.invalid]="isOutInvalid(row.index)"
                 title="Temps jusqu'au point suivant"
               >
-                @if (gapToNext(rowIndex); as gap) {
+                @if (gapToNext(row.index); as gap) {
                   {{ gap }}
                 } @else {
                   <span class="gap-none">—</span>
                 }
               </span>
 
+              <span
+                class="row-score"
+                title="Score affiché pendant ce point, gauche – droite"
+                >{{ scoreFor(row) }}</span
+              >
+
               <button
                 type="button"
                 class="row-delete"
                 aria-label="Supprimer ce point"
                 title="Supprimer"
-                (click)="removePoint(rowIndex)"
+                (click)="removeRow(row)"
               >
                 ×
               </button>
-
-              <div class="drag-placeholder" *cdkDragPlaceholder></div>
             </div>
-          }
-        </div>
-      } @else {
-        <div class="cut-empty">Aucun point.</div>
-      }
-      <div class="list-footer">
-        <button mat-stroked-button type="button" (click)="addPoint()">
-          Add point
-        </button>
-      </div>
-    </section>
-  }
-</ng-template>
-
-<ng-template #overlaysColumn>
-  @if (payload(); as data) {
-    <section class="column">
-      <div class="list-header">
-        <button
-          mat-stroked-button
-          type="button"
-          (click)="addOverlay('TeamIntroduction')"
-        >
-          Add TeamIntro
-        </button>
-        <button
-          mat-stroked-button
-          type="button"
-          (click)="addOverlay('Warning')"
-        >
-          Add Warning
-        </button>
-      </div>
-      @if (data.overlays.length) {
-        <div
-          class="form-list"
-          cdkDropList
-          (cdkDropListDropped)="onDropOverlay($event)"
-        >
-          @for (ov of data.overlays; track ov; let rowIndex = $index) {
-            <div class="form-row" cdkDrag cdkDragLockAxis="y">
-              <button
-                type="button"
-                class="drag-handle"
-                cdkDragHandle
-                aria-label="Déplacer cet overlay"
-                title="Glisser pour réordonner"
-              >
-                <span class="drag-grip"></span>
-              </button>
+          } @else {
+            <div class="form-row is-event" [attr.data-event]="row.overlay.type">
+              <span class="row-kind" [title]="row.overlay.type">◆</span>
 
               <label>
-                type
-                <select [(ngModel)]="ov.type">
-                  <option value="TeamIntroduction">TeamIntroduction</option>
-                  <option value="Warning">Warning</option>
-                </select>
+                <span
+                  class="label-row"
+                  (dblclick)="onSeekToFrame(row.overlay.tc)"
+                >
+                  tc
+                  <span class="timecode">{{
+                    formatTimecode(row.overlay.tc)
+                  }}</span>
+                </span>
+                <div class="input-row">
+                  <input
+                    type="number"
+                    [(ngModel)]="row.overlay.tc"
+                    (ngModelChange)="onPointEdited()"
+                    (dblclick)="onSeekToFrame(row.overlay.tc)"
+                  />
+                  <button
+                    type="button"
+                    class="frame-button"
+                    title="Prendre la frame courante"
+                    (click)="setEventFromCurrentFrame(row.overlay)"
+                  >
+                    <span class="frame-dot"></span>
+                  </button>
+                </div>
               </label>
-              @if (ov.type === "TeamIntroduction") {
+
+              @if (row.overlay.type === "Warning") {
                 <label>
-                  team1
-                  <input type="text" [(ngModel)]="ov.team1" />
+                  <span>type</span>
+                  <input
+                    type="text"
+                    placeholder="replay, timeout…"
+                    [(ngModel)]="row.overlay.warning_type"
+                    (ngModelChange)="onPointEdited()"
+                  />
                 </label>
-                <label>
-                  team2
-                  <input type="text" [(ngModel)]="ov.team2" />
+                <label class="wide">
+                  <span>texte</span>
+                  <input
+                    type="text"
+                    [(ngModel)]="row.overlay.text"
+                    (ngModelChange)="onPointEdited()"
+                  />
                 </label>
-                <label>
-                  condition
-                  <input type="text" [(ngModel)]="ov.condition" />
+                <label class="narrow">
+                  <span>durée</span>
+                  <input type="number" [(ngModel)]="row.overlay.length" />
                 </label>
               } @else {
-                <label>
-                  warning_type
-                  <input type="text" [(ngModel)]="ov.warning_type" />
-                </label>
-                <label>
-                  text
-                  <input type="text" [(ngModel)]="ov.text" />
-                </label>
-                <label>
-                  tc
-                  <input type="number" [(ngModel)]="ov.tc" />
-                </label>
-                <label>
-                  length
-                  <input type="number" [(ngModel)]="ov.length" />
-                </label>
+                <span class="event-label">{{
+                  eventLabel(row.overlay.type)
+                }}</span>
               }
 
               <button
                 type="button"
                 class="row-delete"
-                aria-label="Supprimer cet overlay"
+                aria-label="Supprimer cet événement"
                 title="Supprimer"
-                (click)="removeOverlay(rowIndex)"
+                (click)="removeRow(row)"
               >
                 ×
               </button>
-
-              <div class="drag-placeholder" *cdkDragPlaceholder></div>
             </div>
           }
-        </div>
-      } @else {
-        <div class="cut-empty">Aucun overlay.</div>
-      }
-    </section>
-  }
+        }
+      </div>
+    } @else {
+      <div class="cut-empty">Aucun point ni événement.</div>
+    }
+  </section>
 </ng-template>

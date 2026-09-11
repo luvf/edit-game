@@ -1,0 +1,343 @@
+:host {
+  display: block;
+  --segment-left: #2563eb;
+  --segment-right: #d97706;
+  --segment-nopoint: #9ca3af;
+  --marker-side-switch: #7c3aed;
+  --marker-set-end: #0f766e;
+  --marker-warning: #dc2626;
+  --curve-in: #16a34a;
+  --curve-out: #dc2626;
+  --curve-inside: #6366f1;
+}
+
+/* La hauteur suit le contenu : la bande des courbes n'existe que pour un cut
+   qui en porte, et la barre seule doit garder sa taille d'avant. */
+.timeline {
+  position: relative;
+  min-height: 34px;
+  padding: 8px 0;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+
+.timeline.is-empty {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.track {
+  position: relative;
+  height: 18px;
+  border-radius: 4px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.segment {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+}
+
+/* Le pendant du surlignage de la ligne dans la liste. Un segment court se
+   repere mal a la seule luminosite : il lui faut un contour. */
+.segment.is-hovered {
+  box-shadow:
+    inset 0 0 0 2px #111827,
+    0 0 0 1px rgba(255, 255, 255, 0.9);
+  filter: brightness(1.12);
+  z-index: 1;
+}
+
+.segment.is-left {
+  background: var(--segment-left);
+}
+
+.segment.is-right {
+  background: var(--segment-right);
+}
+
+.segment.is-nopoint {
+  background: var(--segment-nopoint);
+}
+
+/* Les reperes de revue. Une voie a eux, sous la barre : poses dessus, ils se
+   melangeraient aux evenements du montage, qui disent tout autre chose. */
+.review-track {
+  position: relative;
+  height: 10px;
+  margin-top: 3px;
+}
+
+.review-tick {
+  position: absolute;
+  top: 1px;
+  width: 7px;
+  height: 7px;
+  margin-left: -3.5px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--marker-warning);
+  opacity: 0.8;
+  cursor: pointer;
+}
+
+.review-tick:hover {
+  opacity: 1;
+  transform: scale(1.3);
+}
+
+/* Un rejet n'est pas un doute sur ce qui a ete propose : c'est un endroit ou
+   le modele a failli proposer quelque chose. Creux plutot que plein. */
+.review-tick.is-rejected {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px #6b7280;
+}
+
+/* La voie d'apercu : hachuree et sans remplissage plein, pour qu'on ne la
+   confonde jamais avec le montage reellement enregistre. */
+.preview-track {
+  position: relative;
+  height: 9px;
+  margin-top: 3px;
+  border-radius: 3px;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(100, 116, 139, 0.12),
+    rgba(100, 116, 139, 0.12) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+.preview-segment {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+  background: rgba(37, 99, 235, 0.35);
+  box-shadow: inset 0 0 0 1px #2563eb;
+}
+
+.curves {
+  display: block;
+  width: 100%;
+  height: 54px;
+  margin-top: 3px;
+  overflow: hidden;
+  background: #f8fafc;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+
+.curve {
+  fill: none;
+  stroke-width: 1.25;
+  stroke-linejoin: round;
+}
+
+.curve.is-in {
+  stroke: var(--curve-in);
+}
+
+.curve.is-out {
+  stroke: var(--curve-out);
+}
+
+/* `inside` est un plateau, pas un pic : plus fin et en retrait, il sert de
+   fond aux deux autres plutot que de leur disputer l'oeil. */
+.curve.is-inside {
+  stroke: var(--curve-inside);
+  stroke-width: 1;
+  opacity: 0.45;
+}
+
+.threshold {
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.5;
+}
+
+.threshold.is-in {
+  stroke: var(--curve-in);
+}
+
+.threshold.is-out {
+  stroke: var(--curve-out);
+}
+
+/* Un evenement n'a pas de duree : un trait, et une tete au-dessus de la barre
+   qui porte l'infobulle. Le trait laisse passer le pointeur pour ne pas voler
+   le survol des segments qu'il traverse. */
+.marker {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  margin-left: -1px;
+  pointer-events: none;
+}
+
+.marker::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: currentColor;
+  opacity: 0.75;
+}
+
+.marker::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  margin-left: -4.5px;
+  border-radius: 2px;
+  background: currentColor;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9);
+  transform: rotate(45deg);
+  pointer-events: auto;
+  z-index: 2;
+}
+
+.marker.is-SideSwitch {
+  color: var(--marker-side-switch);
+}
+
+.marker.is-SetEnd {
+  color: var(--marker-set-end);
+}
+
+.marker.is-Warning {
+  color: var(--marker-warning);
+}
+
+.playhead {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  margin-left: -1px;
+  background: #111827;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8);
+  pointer-events: none;
+}
+
+.hover-marker {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: rgba(17, 24, 39, 0.45);
+  pointer-events: none;
+}
+
+.hover-values {
+  margin-left: 6px;
+  opacity: 0.75;
+}
+
+.hover-label {
+  position: absolute;
+  top: -4px;
+  transform: translateX(-50%);
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #111827;
+  color: #fff;
+  font-size: 11px;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 2px;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.swatch.is-left {
+  background: var(--segment-left);
+}
+
+.swatch.is-right {
+  background: var(--segment-right);
+}
+
+.swatch.is-nopoint {
+  background: var(--segment-nopoint);
+}
+
+.swatch.is-curve {
+  width: 12px;
+  height: 3px;
+  border-radius: 1px;
+}
+
+.swatch.is-curve.is-in {
+  background: var(--curve-in);
+}
+
+.swatch.is-curve.is-out {
+  background: var(--curve-out);
+}
+
+.swatch.is-curve.is-inside {
+  background: var(--curve-inside);
+  opacity: 0.5;
+}
+
+.swatch.is-marker {
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+
+.swatch.is-marker.is-SideSwitch {
+  background: var(--marker-side-switch);
+}
+
+.swatch.is-marker.is-SetEnd {
+  background: var(--marker-set-end);
+}
+
+.swatch.is-marker.is-Warning {
+  background: var(--marker-warning);
+}
+
+.legend-spacer {
+  flex: 1 1 auto;
+}
+
+.legend-time {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}

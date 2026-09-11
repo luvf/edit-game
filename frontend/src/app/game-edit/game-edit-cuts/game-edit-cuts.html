@@ -9,11 +9,34 @@
           (durationFramesChange)="rushDurationFrames.set($event)"
           (currentFrameChange)="rushFrame.set($event)"
         >
+          <!-- Projete a cote du compteur de frames : c'est le seul endroit ou
+               l'on regarde deja pour savoir ou l'on est dans le rush. -->
+          <span player-status class="player-badges">
+            <span
+              class="status-point"
+              [class.is-outside]="activePointIndex() === null"
+              title="Point du montage sous la tête de lecture"
+            >
+              {{ pointLabel() }}
+            </span>
+            @if (activeCutScore(); as score) {
+              <span
+                class="status-score"
+                title="Score que le rendu affichera ici, gauche – droite"
+              >
+                {{ score }}
+              </span>
+            }
+          </span>
         </app-video-player>
         <app-cut-timeline
           [durationFrames]="rushDurationFrames()"
           [currentFrame]="rushFrame()"
           [points]="activeCutPoints()"
+          [events]="activeCutEvents()"
+          [curves]="activeCutCurves()"
+          [previewPoints]="previewPoints()"
+          [reviewMarkers]="reviewMarkers()"
           [fps]="rushFps()"
           [(hoveredIndex)]="hoveredPointIndex"
           (seek)="onSeekRush($event)"
@@ -110,11 +133,20 @@
                 color="primary"
                 class="cut-add"
                 type="button"
+                [disabled]="mlCutPending()"
                 (click)="onGenerateCut()"
               >
-                Creer
+                {{ mlCutPending() ? "En file…" : "Creer" }}
               </button>
             </div>
+            @if (selectedCutType() === "ML") {
+              <p class="cut-ml-hint">
+                Le modèle propose un montage à partir de l'audio de l'archive.
+                Il tourne dans la file de rendu : quelques minutes, davantage la
+                première fois pour cette game. Le cut s'ouvre vide et se
+                remplira quand le job sera passé.
+              </p>
+            }
             @if (selectedCutType() === "OTIO") {
               <div class="cut-xml-upload">
                 <label for="xml-upload">Fichier XML</label>

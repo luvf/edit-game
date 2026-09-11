@@ -1,8 +1,20 @@
-import {Injectable} from '@angular/core';
-import {HttpClient} from '@angular/common/http';
-import {Cut, Game, RenderQueueItem, Team, TmpImage, Video, Yt_Video,} from '../models/models';
-import {HateoasService} from '../hateoas.service';
-import {map, Observable, throwError} from 'rxjs';
+import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import {
+  Cut,
+  CutCurves,
+  DecodeSettings,
+  Game,
+  MlCutResponse,
+  RedecodeResponse,
+  RenderQueueItem,
+  Team,
+  TmpImage,
+  Video,
+  Yt_Video,
+} from '../models/models';
+import { HateoasService } from '../hateoas.service';
+import { map, Observable, throwError } from 'rxjs';
 
 /**
  /**
@@ -106,6 +118,40 @@ export class CutsService extends HateoasService<Cut> {
   ): Observable<Cut> {
     return this.invoke_resource<Cut>(resource, 'gen_from_rendered', body);
   }
+
+  /**
+   * Courbes de probabilite du cut, a la resolution demandee.
+   *
+   * `points` est une resolution d'affichage, pas une troncature : le serveur
+   * reduit chaque godet, par maximum pour les frontieres et par moyenne pour
+   * `inside`, donc un pic reste un pic.
+   */
+  /**
+   * Re-derive le cut de ses courbes avec d'autres seuils.
+   *
+   * Sans `apply`, rien n'est ecrit : c'est un apercu, et les corrections
+   * deja faites a la main sur ce cut restent intactes.
+   */
+  redecode(
+    resource: Cut,
+    settings: Partial<DecodeSettings>,
+    apply = false,
+  ): Observable<RedecodeResponse> {
+    return this.invoke_resource<RedecodeResponse>(resource, 'redecode', {
+      ...settings,
+      apply,
+    });
+  }
+
+  curves(resource: Cut, points = 1500): Observable<CutCurves> {
+    const link = resource._links?.curves;
+    if (!link || !('href' in link)) {
+      return throwError(
+        () => new Error("Relation 'curves' introuvable sur le cut."),
+      );
+    }
+    return this.http.get<CutCurves>(link.href, { params: { points } });
+  }
 }
 
 @Injectable({ providedIn: 'root' })
@@ -146,6 +192,19 @@ export class GamesService extends HateoasService<Game> {
 
   create_archive(resource: Game, body: unknown = {}): Observable<Game> {
     return this.invoke_resource<Game>(resource, 'create_archive', body);
+  }
+
+  /**
+   * Cree un cut vide et met le modele en file d'attente pour le remplir.
+   *
+   * Le cut revient tout de suite, vide : il y a un onglet a ouvrir pendant
+   * que la file travaille, et `render_queue_item_id` dit ou en est le job.
+   */
+  ml_cut(
+    resource: Game,
+    body: { name?: string; run?: string } = {},
+  ): Observable<MlCutResponse> {
+    return this.invoke_resource<MlCutResponse>(resource, 'ml_cut', body);
   }
 }
 
