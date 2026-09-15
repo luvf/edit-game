@@ -61,6 +61,27 @@
   margin-top: 8px;
 }
 
+.header-line .match-number-part {
+  flex: 0 0 84px;
+  width: auto;
+}
+
+/* Aligne sur le texte des champs voisins, pas sur leur bordure. */
+.match-number {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-top: 18px;
+  font-family: monospace;
+  font-size: 1.1em;
+  letter-spacing: 0.05em;
+}
+
+.header-line .match-win-condition {
+  flex: 1 1 120px;
+  width: auto;
+  min-width: 0;
+}
+
 .header-line .match-sets {
   flex: 0 0 130px;
   width: auto;

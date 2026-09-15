@@ -11,6 +11,60 @@
           </mat-hint>
         </mat-form-field>
 
+        <!-- Le numero du match, TTJGG, et sa condition en code court : c'est
+             ce qui nomme ses rendus. -->
+        <div class="header-line">
+          <mat-form-field appearance="outline" class="match-number-part">
+            <mat-label>Terrain</mat-label>
+            <input
+              matInput
+              type="number"
+              min="0"
+              [max]="numberMax.field"
+              [ngModel]="fieldNumberDraft()"
+              (ngModelChange)="fieldNumberDraft.set($event)"
+            />
+          </mat-form-field>
+          <mat-form-field appearance="outline" class="match-number-part">
+            <mat-label>Jour</mat-label>
+            <input
+              matInput
+              type="number"
+              min="0"
+              [max]="numberMax.day"
+              [ngModel]="dayNumberDraft()"
+              (ngModelChange)="dayNumberDraft.set($event)"
+            />
+          </mat-form-field>
+          <mat-form-field appearance="outline" class="match-number-part">
+            <mat-label>Game</mat-label>
+            <input
+              matInput
+              type="number"
+              min="0"
+              [max]="numberMax.game"
+              [ngModel]="gameNumberDraft()"
+              (ngModelChange)="gameNumberDraft.set($event)"
+            />
+          </mat-form-field>
+          <output
+            class="match-number"
+            title="Numéro du match : terrain, jour, game. Il ouvre le nom des rendus."
+            >{{ numberPreview() }}</output
+          >
+          <mat-form-field appearance="outline" class="match-win-condition">
+            <mat-label>Condition courte</mat-label>
+            <input
+              matInput
+              placeholder="1a10+2v"
+              maxlength="30"
+              [ngModel]="winConditionDraft()"
+              (ngModelChange)="winConditionDraft.set($event)"
+            />
+            <mat-hint>dans le nom des rendus</mat-hint>
+          </mat-form-field>
+        </div>
+
         <div class="header-line">
           <mat-form-field appearance="outline" class="match-sets">
             <mat-label>Sets à gagner</mat-label>

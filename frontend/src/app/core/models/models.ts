@@ -146,6 +146,14 @@ export interface Game extends BaseHalModel {
    * nombre par set pour chaque equipe, le dernier etant le set en cours.
    */
   start_score?: { team1: number[]; team2: number[] } | null;
+  /** Numero de terrain, sur 2 chiffres. */
+  field_number?: number;
+  /** Numero de jour, sur 1 chiffre. */
+  day_number?: number;
+  /** Numero de la game dans la journee, sur 2 chiffres. */
+  game_number?: number;
+  /** Condition de victoire en code court, comme `1a10+2v` : elle nomme les rendus. */
+  win_condition?: string;
   json_file: string;
   cuts: string[];
   /** Rendus de cuts en High h265 ou High AV1, presents sur le disque. */

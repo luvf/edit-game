@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   inject,
   OnDestroy,
   OnInit,
@@ -22,6 +23,7 @@ import { GameEditCutsComponent } from './game-edit-cuts/game-edit-cuts';
 import { TeamSelectComponent } from '../game-miniature/team-select/team-select';
 import { TeamCreateComponent } from './team-create/team-create';
 import { formatSetScores, pairStartScore, parseSetScores } from './scoreboard';
+import { GAME_NUMBER_MAX, gameNumber, numberPart } from './game-number';
 
 @Component({
   selector: 'app-game-edit',
@@ -52,6 +54,20 @@ export class GameEditComponent implements OnInit, OnDestroy {
   /** Scores de depart tels qu'on les tape : `10-3`, un tiret par set. */
   startTeam1Draft = signal('');
   startTeam2Draft = signal('');
+  /** Terrain, jour et game dans la journee : le numero TTJGG du match. */
+  fieldNumberDraft = signal<number | null>(null);
+  dayNumberDraft = signal<number | null>(null);
+  gameNumberDraft = signal<number | null>(null);
+  winConditionDraft = signal('');
+  /** Le numero tel qu'il ouvrira le nom des rendus. */
+  numberPreview = computed(() =>
+    gameNumber(
+      this.fieldNumberDraft(),
+      this.dayNumberDraft(),
+      this.gameNumberDraft(),
+    ),
+  );
+  readonly numberMax = GAME_NUMBER_MAX;
   private route = inject(ActivatedRoute);
   private gamesService = inject(GamesService);
   private navService = inject(NavService);
@@ -99,6 +115,10 @@ export class GameEditComponent implements OnInit, OnDestroy {
           parseSetScores(this.startTeam1Draft()),
           parseSetScores(this.startTeam2Draft()),
         ) ?? null,
+      field_number: numberPart(this.fieldNumberDraft(), GAME_NUMBER_MAX.field),
+      day_number: numberPart(this.dayNumberDraft(), GAME_NUMBER_MAX.day),
+      game_number: numberPart(this.gameNumberDraft(), GAME_NUMBER_MAX.game),
+      win_condition: this.winConditionDraft().trim(),
     };
 
     this.gamesService.update(current, payload).subscribe({
@@ -167,6 +187,10 @@ export class GameEditComponent implements OnInit, OnDestroy {
     this.setsToWinDraft.set(game.sets_to_win ?? null);
     this.startTeam1Draft.set(formatSetScores(game.start_score?.team1));
     this.startTeam2Draft.set(formatSetScores(game.start_score?.team2));
+    this.fieldNumberDraft.set(game.field_number ?? 0);
+    this.dayNumberDraft.set(game.day_number ?? 0);
+    this.gameNumberDraft.set(game.game_number ?? 0);
+    this.winConditionDraft.set(game.win_condition ?? '');
   }
 
   private updateNav(game: Game) {
