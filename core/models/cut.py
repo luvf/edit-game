@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+import unicodedata
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
@@ -53,6 +55,25 @@ class Cut(models.Model):
     def __str__(self) -> str:
         """To string representation."""
         return self.name
+
+    @property
+    def render_basename(self) -> str:
+        """Return the name this cut's renders are filed under, before the quality.
+
+        `<TTJGG>_<team1>_<team2>_<win condition>_c<pk>`: what the match is,
+        readable at a glance, then the cut's pk, which keeps two cuts of one
+        game apart. Teams go by short name, case kept. A part the game does
+        not have yet is left out rather than left empty.
+        """
+        game = self.game
+        teams = (game.team1, game.team2)
+        parts = [
+            game.number,
+            *(team.short_name if team is not None else "" for team in teams),
+            game.win_condition,
+        ]
+        readable = [_filename_part(part) for part in parts]
+        return "_".join([*(part for part in readable if part), f"c{self.pk}"])
 
     @property
     def has_curves(self) -> bool:
@@ -185,3 +206,15 @@ class Cut(models.Model):
         if run_now:
             render_queue_item.run()
         return render_queue_item
+
+
+def _filename_part(value: str) -> str:
+    """Make a piece of text safe in a filename, case and `+` kept.
+
+    Accents are dropped, and anything else that is not a letter, a digit, a
+    `+` or a `-` becomes a `-`: an underscore is what separates the parts.
+    """
+    ascii_value = (
+        unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
+    )
+    return re.sub(r"[^A-Za-z0-9+-]+", "-", ascii_value).strip("-")

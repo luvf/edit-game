@@ -103,7 +103,13 @@ class Video(models.Model):
 
     @property
     def base_filename(self) -> str:
-        """Build the stable base filename for this video."""
+        """Build the stable base filename for this video.
+
+        A cut's render is named after the match it shows, see
+        `Cut.render_basename`. Any other video goes by its name and uuid.
+        """
+        if self.pk is not None and hasattr(self, "cut"):
+            return self.cut.render_basename
         slug = slugify(self.name) if self.name else "video"
         return f"{slug}_{self.uuid}"
 

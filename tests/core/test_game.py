@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 import pytest
@@ -340,3 +341,60 @@ class TestGetMiniatureSource:
 
         with pytest.raises(FileNotFoundError):
             game.get_miniature_source()
+
+
+class TestNumber:
+    def test_pads_terrain_and_game_to_two_digits(self, game):
+        game.field_number, game.day_number, game.game_number = 8, 2, 5
+
+        assert game.number == "08205"
+
+    def test_a_two_digit_terrain_needs_no_padding(self, game):
+        game.field_number, game.day_number, game.game_number = 12, 2, 7
+
+        assert game.number == "12207"
+
+    def test_defaults_to_zeros(self, game):
+        assert game.number == "00000"
+
+
+class TestScheduleFromName:
+    @pytest.fixture()
+    def migration(self):
+        return importlib.import_module("core.migrations.0037_game_schedule_numbers")
+
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            ("8205 blue fangs vs mh 1a10+2v", (8, 2, 5, "1a10+2v")),
+            ("12207 schatten vs gag 1a10+2v", (12, 2, 7, "1a10+2v")),
+            (
+                "9111  Fontanes Faust vs Leipziger Nachtwache 1a10+2v",
+                (9, 1, 11, "1a10+2v"),
+            ),
+            ("7105 Unicorsairs vs SpVgg  1a8", (7, 1, 5, "1a8")),
+            ("7110 sugoi vs MH", (7, 1, 10, "")),
+        ],
+    )
+    def test_reads_terrain_day_game_and_condition(self, migration, name, expected):
+        assert migration.parse_schedule(name) == expected
+
+    @pytest.mark.parametrize(
+        "name", ["1014", "mh vs bamb", "mh vs bamberg fight for place 27"]
+    )
+    def test_leaves_other_names_alone(self, migration, name):
+        assert migration.parse_schedule(name) is None
+
+    def test_fills_the_games_it_can_read(self, migration, game, tournament):
+        from django.apps import apps
+
+        game.name = "10208 mh vs leondiger 1a10+2v"
+        game.save()
+        bare = baker.make("core.Game", tournament=tournament, name="1014", files=[])
+
+        migration.fill_schedule(apps, None)
+
+        game.refresh_from_db()
+        bare.refresh_from_db()
+        assert (game.number, game.win_condition) == ("10208", "1a10+2v")
+        assert (bare.number, bare.win_condition) == ("00000", "")

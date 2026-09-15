@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator
 from django.db import models
 from django.db.models import OneToOneField
 
@@ -70,6 +71,30 @@ class Game(models.Model):
         ),
     )
 
+    # Where the match sits in the schedule: its terrain, its day, and its
+    # place in that day. Together they make the game's number, TTJGG.
+    field_number = models.PositiveSmallIntegerField(
+        default=0,
+        validators=[MaxValueValidator(99)],
+        help_text="Numéro de terrain, sur 2 chiffres.",
+    )
+    day_number = models.PositiveSmallIntegerField(
+        default=0,
+        validators=[MaxValueValidator(9)],
+        help_text="Numéro de jour, sur 1 chiffre.",
+    )
+    game_number = models.PositiveSmallIntegerField(
+        default=0,
+        validators=[MaxValueValidator(99)],
+        help_text="Numéro de la game dans la journée, sur 2 chiffres.",
+    )
+    win_condition = models.CharField(
+        max_length=30,
+        blank=True,
+        default="",
+        help_text="Condition de victoire en code court, comme 1a10+2v : elle entre dans le nom des rendus.",
+    )
+
     json_file = models.FileField(upload_to="json_files", default="tt")
     slug = models.SlugField(default="", null=False)
     video_proxy = OneToOneField(
@@ -110,6 +135,11 @@ class Game(models.Model):
     def __str__(self) -> str:
         """To string representation."""
         return self.name
+
+    @property
+    def number(self) -> str:
+        """Return the game's number, TTJGG: terrain, day, game of the day."""
+        return f"{self.field_number:02d}{self.day_number}{self.game_number:02d}"
 
     def ensure_archive_video(self) -> Video:
         """Ensure this game has an archive video object and return it."""

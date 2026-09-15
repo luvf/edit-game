@@ -19,6 +19,44 @@ class TestBaseFilename:
         assert video.base_filename == f"video_{video.uuid}"
 
 
+class TestCutRenderFilename:
+    @staticmethod
+    def _render(game):
+        cut = baker.make("core.Cut", game=game, type_cut="MAN", name="from ML")
+        cut.ensure_video()
+        return cut
+
+    def test_names_the_render_after_its_match(self, game):
+        game.field_number, game.day_number, game.game_number = 8, 2, 5
+        game.win_condition = "1a10+2v"
+        game.save()
+        cut = self._render(game)
+
+        assert (
+            cut.rendered_video.expected_filename("high")
+            == f"08205_ALP_BET_1a10+2v_c{cut.pk}_high.mp4"
+        )
+
+    def test_leaves_out_what_the_game_does_not_have(self, game):
+        game.team2 = None
+        game.save()
+        cut = self._render(game)
+
+        assert cut.rendered_video.base_filename == f"00000_ALP_c{cut.pk}"
+
+    def test_makes_team_names_safe_in_a_filename(self, game):
+        game.team1.short_name = "Méca n'Hy_dre"
+        game.team1.save()
+        cut = self._render(game)
+
+        assert cut.rendered_video.base_filename.startswith("00000_Meca-n-Hy-dre_BET_")
+
+    def test_other_videos_keep_their_name_and_uuid(self, game):
+        game.ensure_video()
+
+        assert game.video_proxy.base_filename.endswith(str(game.video_proxy.uuid))
+
+
 class TestValidateQuality:
     def test_valid_quality_returns_false(self):
         assert VideoFile.validate_quality(quality="low") is False
