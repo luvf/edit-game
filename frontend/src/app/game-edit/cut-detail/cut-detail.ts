@@ -62,19 +62,6 @@ const DEFAULT_DECODE: DecodeSettings = {
 let nextSwitchGroupId = 0;
 
 /**
- * Ce qu'est le match. Attendu sur tout cut : c'est lui qui donne la carte
- * d'ouverture et le nombre de sets. L'ancien nom `TeamIntroduction` est
- * encore lu par le back, donc les fichiers deja ecrits passent.
- */
-type GameInfoOverlay = {
-  type: 'GameInfo';
-  team1: string;
-  team2: string;
-  condition: string;
-  sets_to_win?: number;
-};
-
-/**
  * Un evenement qui change la lecture du score sans rien dessiner : les
  * equipes changent de cote, ou un set se termine.
  */
@@ -91,10 +78,14 @@ type WarningOverlay = {
   length?: number;
 };
 
-type Overlay = GameInfoOverlay | ScoreEventOverlay | WarningOverlay;
+/**
+ * Ce que porte la liste d'overlays d'un cut. Ce qu'est le match (equipes,
+ * condition, sets, score de depart) vit sur la game, pas dans le fichier.
+ */
+type Overlay = ScoreEventOverlay | WarningOverlay;
 
-/** Tout ce qui vit dans la liste, hors les infos du match. */
-type TimedOverlay = ScoreEventOverlay | WarningOverlay;
+/** Tout ce qui vit dans la liste : chaque overlay a un timecode. */
+type TimedOverlay = Overlay;
 
 /**
  * Une ligne de la liste unique : un point du montage, ou un evenement.
@@ -112,33 +103,54 @@ function rowFrame(row: Row): number {
   return row.kind === 'point' ? row.point.in : row.overlay.tc;
 }
 
-/**
- * Le timecode d'un overlay. Les infos du match n'en ont pas : elles restent
- * en tete, d'ou le -1.
- */
+/** Le timecode d'un overlay. */
 function overlayFrame(overlay: Overlay): number {
-  return overlay.type === 'GameInfo' ? -1 : overlay.tc;
+  return overlay.tc;
 }
 
-/**
- * Ce que la timeline pose sur la barre : tout ce qui a un timecode.
- *
- * Les infos du match n'en font pas partie, elles n'ont pas d'instant.
- */
+/** Ce que la timeline pose sur la barre : tout ce qui a un timecode. */
 function timelineEvents(overlays: readonly Overlay[]): CutEvent[] {
-  return overlays
-    .filter((overlay): overlay is TimedOverlay => overlay.type !== 'GameInfo')
-    .map((overlay) => ({
-      type: overlay.type,
-      tc: overlay.tc,
-      label:
-        overlay.type === 'Warning'
-          ? overlay.warning_type || overlay.text || 'warning'
-          : overlay.type === 'SideSwitch'
-            ? 'changement de côté'
-            : 'fin de set',
-    }));
+  return overlays.map((overlay) => ({
+    type: overlay.type,
+    tc: overlay.tc,
+    label:
+      overlay.type === 'Warning'
+        ? overlay.warning_type || overlay.text || 'warning'
+        : overlay.type === 'SideSwitch'
+          ? 'changement de côté'
+          : 'fin de set',
+  }));
 }
+
+/** Une case sous la liste des points, et la cle qu'elle ecrit dans `display`. */
+type RenderOption = {
+  key: 'intro' | 'tail' | 'stabilise';
+  label: string;
+  hint: string;
+  fallback: boolean;
+};
+
+/** Les options du rendu, avec les defauts que le rendu applique lui-meme. */
+const RENDER_OPTIONS: RenderOption[] = [
+  {
+    key: 'intro',
+    label: "écran d'introduction",
+    hint: 'Ouvre la vidéo sur la carte du match : tournoi, équipes, condition.',
+    fallback: true,
+  },
+  {
+    key: 'tail',
+    label: 'écran de fin',
+    hint: 'Laisse tourner la vidéo 25 s après le dernier point, score final affiché.',
+    fallback: true,
+  },
+  {
+    key: 'stabilise',
+    label: 'stabiliser',
+    hint: "Fige le cadre de chaque plan conservé. Rogne 8 % de l'image et allonge le rendu.",
+    fallback: false,
+  },
+];
 
 type CutPayload = {
   points: Point[];
@@ -150,6 +162,12 @@ type CutPayload = {
    * silencieuse.
    */
   comment?: CutComment;
+  /**
+   * Les choix de montage : tableau de score, carte d'ouverture,
+   * stabilisation. Conserve tel quel pour la meme raison que `comment` — un
+   * enregistrement qui ne connait pas une option ne doit pas l'effacer.
+   */
+  display?: Record<string, unknown>;
 };
 
 /** Une ligne de la liste « a verifier », prete a etre affichee. */
@@ -272,6 +290,35 @@ export class CutDetailComponent implements OnChanges {
   /** Point survole, partage avec la timeline sous le lecteur. */
   readonly hoveredPoint = this.state.hoveredPointIndex;
 
+  /**
+   * Le point a surligner dans la liste : celui sous la tete de lecture, ou a
+   * defaut le plus proche d'elle, pour voir ou l'on en est sans chercher.
+   * `null` quand ce cut n'est pas celui du lecteur, ou qu'il n'a aucun point.
+   */
+  readonly currentPointIndex = computed(() => {
+    if (this.state.activeCut()?.pk !== this.cut?.pk) return null;
+    const frame = this.state.rushFrame();
+    let closest: number | null = null;
+    let closestDistance = Number.POSITIVE_INFINITY;
+    for (const [index, point] of (this.payload()?.points ?? []).entries()) {
+      const start = Number(point.in);
+      const end = Number(point.out);
+      if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+      const distance =
+        frame < start ? start - frame : frame > end ? frame - end : 0;
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closest = index;
+      }
+    }
+    return closest;
+  });
+
+  /** Vrai quand le point est deja attribue a un cote : il est traite. */
+  isScored(point: Point): boolean {
+    return point.point === 'left' || point.point === 'right';
+  }
+
   constructor() {
     // La timeline vit a cote du lecteur : seul le cut ouvert lui envoie ses
     // sections, sinon les onglets gardes en vie par `preserveContent`
@@ -368,6 +415,30 @@ export class CutDetailComponent implements OnChanges {
     });
   }
 
+  protected readonly renderOptions = RENDER_OPTIONS;
+
+  /**
+   * L'etat d'une option de rendu. Une option absente du fichier vaut son
+   * defaut, celui que le rendu applique aussi : la case dit ce qui sortira.
+   */
+  renderOption(option: RenderOption): boolean {
+    const value = this.payload()?.display?.[option.key];
+    return typeof value === 'boolean' ? value : option.fallback;
+  }
+
+  /**
+   * Coche ou decoche une option. Ecrit dans le cut comme le reste : elle ne
+   * part au rendu qu'une fois enregistree.
+   */
+  onRenderOptionChange(option: RenderOption, checked: boolean): void {
+    const payload = this.payload();
+    if (!payload) return;
+    this.payload.set({
+      ...payload,
+      display: { ...(payload.display ?? {}), [option.key]: checked },
+    });
+  }
+
   onSave(): void {
     if (!this.cut) return;
     const json = this.buildJson();
@@ -397,7 +468,7 @@ export class CutDetailComponent implements OnChanges {
       (overlay): overlay is ScoreEventOverlay =>
         overlay.type === 'SideSwitch' || overlay.type === 'SetEnd',
     );
-    return buildStates(payload.points, events);
+    return buildStates(payload.points, events, this.state.startScore());
   });
 
   /**
@@ -440,39 +511,13 @@ export class CutDetailComponent implements OnChanges {
         point,
         index,
       })),
-      ...payload.overlays
-        .filter(
-          (overlay): overlay is TimedOverlay => overlay.type !== 'GameInfo',
-        )
-        .map((overlay) => ({ kind: 'event' as const, overlay })),
+      ...payload.overlays.map((overlay) => ({
+        kind: 'event' as const,
+        overlay,
+      })),
     ];
     rows.sort((a, b) => rowFrame(a) - rowFrame(b));
     this.rows.set(rows);
-  }
-
-  /** Les infos du match, creees si le fichier n'en a pas encore. */
-  gameInfo(): GameInfoOverlay | null {
-    const payload = this.payload();
-    if (!payload) return null;
-    const found = payload.overlays.find(
-      (overlay): overlay is GameInfoOverlay =>
-        overlay.type === 'GameInfo' ||
-        (overlay.type as string) === 'TeamIntroduction',
-    );
-    return found ? { ...found, type: 'GameInfo' } : null;
-  }
-
-  /** Ajoute le bloc d'infos du match, absent des fichiers anciens. */
-  addGameInfo(): void {
-    const payload = this.payload() ?? { points: [], overlays: [] };
-    if (this.gameInfo()) return;
-    const info: GameInfoOverlay = {
-      type: 'GameInfo',
-      team1: '',
-      team2: '',
-      condition: '',
-    };
-    this.payload.set({ ...payload, overlays: [info, ...payload.overlays] });
   }
 
   /** Ajoute un evenement, place a la frame courante du lecteur. */
@@ -501,30 +546,6 @@ export class CutDetailComponent implements OnChanges {
   setEventFromCurrentFrame(overlay: TimedOverlay): void {
     overlay.tc = Math.max(Math.round(this.state.rushFrame()), 0);
     this.onPointEdited();
-  }
-
-  /**
-   * Ecrit un champ des infos du match.
-   *
-   * Passe par le payload plutot que par un `ngModel` a deux sens : le bloc
-   * est retrouve par recherche dans la liste, donc l'objet rendu par
-   * `gameInfo()` est une copie.
-   */
-  setGameInfo(field: keyof GameInfoOverlay, value: unknown): void {
-    const payload = this.payload();
-    if (!payload) return;
-    const overlays = payload.overlays.map((overlay) => {
-      if (overlay.type !== 'GameInfo') return overlay;
-      if (field === 'sets_to_win') {
-        const sets = Number(value);
-        return {
-          ...overlay,
-          sets_to_win: Number.isFinite(sets) && sets > 0 ? sets : undefined,
-        };
-      }
-      return { ...overlay, [field]: String(value ?? '') };
-    });
-    this.payload.set({ ...payload, overlays });
   }
 
   /** Retire une ligne, point ou evenement. */
@@ -733,6 +754,12 @@ export class CutDetailComponent implements OnChanges {
           raw?.comment && typeof raw.comment === 'object'
             ? (raw.comment as CutComment)
             : undefined,
+        display:
+          raw?.display &&
+          typeof raw.display === 'object' &&
+          !Array.isArray(raw.display)
+            ? (raw.display as Record<string, unknown>)
+            : undefined,
         overlays: overlays
           .filter((o: any) => o && typeof o === 'object')
           .map((o: any) => this.normalizeOverlay(o))
@@ -757,22 +784,9 @@ export class CutDetailComponent implements OnChanges {
       return Number.isFinite(tc) ? { type, tc } : null;
     }
 
-    if (
-      type === 'GameInfo' ||
-      type === 'TeamIntroduction' ||
-      raw.team1 !== undefined ||
-      raw.team2 !== undefined ||
-      raw.condition !== undefined
-    ) {
-      const sets = Number(raw.sets_to_win);
-      return {
-        type: 'GameInfo',
-        team1: String(raw.team1 ?? ''),
-        team2: String(raw.team2 ?? ''),
-        condition: String(raw.condition ?? ''),
-        sets_to_win: Number.isFinite(sets) ? sets : undefined,
-      };
-    }
+    // Ce qu'est le match vit sur la game : un ancien bloc d'infos est ignore,
+    // et disparait du fichier au prochain enregistrement.
+    if (type === 'GameInfo' || type === 'TeamIntroduction') return null;
 
     if (
       type === 'Warning' ||
@@ -804,6 +818,7 @@ export class CutDetailComponent implements OnChanges {
         points: payload.points,
         overlays: payload.overlays,
         ...(payload.comment ? { comment: payload.comment } : {}),
+        ...(payload.display ? { display: payload.display } : {}),
       },
       null,
       2,

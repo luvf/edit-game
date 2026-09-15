@@ -39,6 +39,25 @@ class Game(models.Model):
     team2 = models.ForeignKey(
         "core.Team", on_delete=models.SET_NULL, related_name="game_team2", null=True
     )
+    # What the match is, shared by every cut of it: the render reads these for
+    # the opening card and the scoreboard. `team1` is the team on the left at
+    # kick-off, which is what tells the board whose point a `left` is.
+    condition = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="Condition de victoire, en texte libre, affichée sur la carte d'ouverture.",
+    )
+    sets_to_win = models.PositiveSmallIntegerField(null=True, blank=True)
+    start_score = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Score quand l'enregistrement commence, pour un match déjà en cours : "
+            '{"team1": [10, 3], "team2": [8, 0]}, un nombre par set, le dernier '
+            "étant le set en cours."
+        ),
+    )
 
     json_file = models.FileField(upload_to="json_files", default="tt")
     slug = models.SlugField(default="", null=False)
@@ -57,7 +76,6 @@ class Game(models.Model):
         related_name="game_archive",
         help_text="Vidéo haute qualité utilisée comme archive/master pour les encodages de ce match.",
     )
-
     class Meta:
         """Model metadata."""
 

@@ -11,7 +11,7 @@
     @for (segment of segments(); track $index) {
       <div
         class="segment"
-        [class]="'segment is-' + segment.point"
+        [class]="'segment is-' + segment.scorer"
         [class.is-hovered]="hoveredIndex() === segment.index"
         [style.left.%]="segment.left"
         [style.width.%]="segment.width"
@@ -110,9 +110,16 @@
 </div>
 
 <div class="legend">
-  <span class="legend-item"><i class="swatch is-left"></i>left</span>
-  <span class="legend-item"><i class="swatch is-right"></i>right</span>
-  <span class="legend-item"><i class="swatch is-nopoint"></i>nopoint</span>
+  <!-- Par equipe et non par cote : l'equipe 1 commence a gauche et change de
+       cote a chaque SideSwitch, donc deux points `left` peuvent appartenir a
+       deux equipes differentes. -->
+  <span class="legend-item" title="L'équipe 1 commence à gauche"
+    ><i class="swatch is-team1"></i>équipe 1</span
+  >
+  <span class="legend-item" title="L'équipe 2 commence à droite"
+    ><i class="swatch is-team2"></i>équipe 2</span
+  >
+  <span class="legend-item"><i class="swatch is-nopoint"></i>aucun point</span>
   <span class="legend-item"
     ><i class="swatch is-marker is-SideSwitch"></i>côté</span
   >

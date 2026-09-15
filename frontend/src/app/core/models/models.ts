@@ -138,8 +138,18 @@ export interface Game extends BaseHalModel {
   pk: number;
   name: string;
   files: string;
+  /** Condition de victoire, en texte libre, affichee sur la carte d'ouverture. */
+  condition?: string;
+  sets_to_win?: number | null;
+  /**
+   * Score quand l'enregistrement commence, pour un match deja en cours : un
+   * nombre par set pour chaque equipe, le dernier etant le set en cours.
+   */
+  start_score?: { team1: number[]; team2: number[] } | null;
   json_file: string;
   cuts: string[];
+  /** Rendus de cuts en High h265 ou High AV1, presents sur le disque. */
+  high_renders?: number;
 
   _links?: GameLinks;
   _embedded?: HalEmbedded;

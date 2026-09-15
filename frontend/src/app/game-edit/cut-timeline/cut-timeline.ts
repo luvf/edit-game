@@ -14,6 +14,7 @@ import {
   CutPoint,
   ReviewMarker,
 } from '../game-edit-cuts/game-edit-cuts-state';
+import { scorers, scoringEvents, Side } from '../scoreboard';
 
 /** Un point projete sur la barre, en pourcentage de la duree du rush. */
 type Segment = {
@@ -21,7 +22,14 @@ type Segment = {
   index: number;
   left: number;
   width: number;
-  point: 'left' | 'right' | 'nopoint';
+  /**
+   * L'equipe qui marque, `nopoint` quand personne ne marque.
+   *
+   * La barre est coloree par equipe et non par cote du terrain : les equipes
+   * changent de cote en cours de match, donc un point `left` d'avant le
+   * changement et un point `left` d'apres ne sont pas du meme camp.
+   */
+  scorer: Side | 'nopoint';
   title: string;
 };
 
@@ -49,6 +57,13 @@ type Curve = {
 
 /** Hauteur du repere des courbes. L'axe des x reste celui de la barre. */
 const CURVE_HEIGHT = 100;
+
+/** Ce que dit l'infobulle d'une bande, et la legende sous la barre. */
+const SCORER_LABEL: Record<Side | 'nopoint', string> = {
+  team1: 'équipe 1',
+  team2: 'équipe 2',
+  nopoint: 'aucun point',
+};
 
 @Component({
   selector: 'app-cut-timeline',
@@ -90,16 +105,19 @@ export class CutTimelineComponent implements OnDestroy {
     const duration = this.durationFrames();
     if (duration <= 0) return [];
 
+    const scoring = scorers(points, scoringEvents(this.events()));
+
     return points
       .map((point, index) => {
         const start = Math.max(0, Math.min(duration, point.in));
         const end = Math.max(start, Math.min(duration, point.out));
+        const scorer: Side | 'nopoint' = scoring[index] ?? 'nopoint';
         return {
           index,
           left: (start / duration) * 100,
           width: Math.max(((end - start) / duration) * 100, 0.25),
-          point: point.point ?? 'nopoint',
-          title: `${this.timecode(start)} → ${this.timecode(end)}`,
+          scorer,
+          title: `${this.timecode(start)} → ${this.timecode(end)} — ${SCORER_LABEL[scorer]}`,
         };
       })
       .filter((segment) => segment.left < 100);

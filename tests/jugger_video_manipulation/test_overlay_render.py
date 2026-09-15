@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
@@ -19,7 +20,10 @@ from jugger_video_manipulation.overlay_render import (
     draw_scoreboard,
     draw_title_card,
     draw_warning,
+    generated_logo,
     load_logo,
+    scoreboard_layout,
+    team_logo,
     truncate,
 )
 from jugger_video_manipulation.scoreboard import BoardState, SetScore
@@ -214,6 +218,24 @@ class TestTitleCard:
 
         assert with_bg.getpixel((10, 10)) != without.getpixel((10, 10))
 
+    def test_the_card_has_no_room_for_an_internal_label(self):
+        # The cut's name used to be drawn under the tournament; a viewer has
+        # no use for it, so `CardText` no longer has anywhere to put it.
+        assert not hasattr(CardText(), "stage")
+
+    def test_a_card_for_the_moving_intro_is_see_through(self):
+        # The render lays it over the blurred match: only the words and logos.
+        card = draw_title_card(
+            Team("A"),
+            Team("B"),
+            CardText(tournament="Darmstadt"),
+            size=SMALL,
+            transparent=True,
+        )
+
+        assert card.getpixel((0, 0))[3] == 0
+        assert painted(card) is not None
+
     def test_the_words_are_optional(self):
         bare = draw_title_card(Team("A"), Team("B"), size=SMALL)
         titled = draw_title_card(
@@ -223,12 +245,80 @@ class TestTitleCard:
         assert bare.tobytes() != titled.tobytes()
 
 
+class TestLogosAgainstTheEnds:
+    """Both logos at the ends of the bar, whatever the names measure."""
+
+    @pytest.fixture()
+    def logos(self, tmp_path):
+        paths = []
+        for name, colour in (("a.png", (220, 60, 60)), ("b.png", (60, 60, 220))):
+            path = tmp_path / name
+            Image.new("RGBA", (120, 120), (*colour, 255)).save(path)
+            paths.append(path)
+        return paths
+
+    @staticmethod
+    def _logo_columns(image, colour):
+        """Return the leftmost and rightmost column painted in `colour`."""
+        pixels = np.asarray(image.convert("RGB"))
+        columns = np.flatnonzero((pixels == colour).all(axis=2).any(axis=0))
+        return (int(columns[0]), int(columns[-1])) if columns.size else None
+
+    def test_they_sit_at_the_same_distance_from_the_middle(self, logos):
+        # One short name, one long one: the logos must not follow the names.
+        teams = {
+            "team1": Team("Mécan'hydre de Darmstadt", logos[0]),
+            "team2": Team("BK", logos[1]),
+        }
+
+        board = draw_scoreboard(state(), teams, size=SMALL)
+
+        left = self._logo_columns(board, (220, 60, 60))
+        right = self._logo_columns(board, (60, 60, 220))
+        middle = SMALL[0] / 2
+        assert middle - left[0] == pytest.approx(right[1] - middle, abs=2)
+
+    def test_they_stay_inside_the_bar(self, logos):
+        teams = {"team1": Team("A", logos[0]), "team2": Team("B", logos[1])}
+
+        board = draw_scoreboard(state(), teams, size=SMALL)
+
+        bar = painted(board)
+        left = self._logo_columns(board, (220, 60, 60))
+        right = self._logo_columns(board, (60, 60, 220))
+        assert bar[0] <= left[0]
+        assert right[1] <= bar[2]
+
+    def test_a_longer_name_does_not_push_its_logo_outwards(self, logos):
+        short = draw_scoreboard(
+            state(),
+            {"team1": Team("BK", logos[0]), "team2": Team("BK", logos[1])},
+            size=SMALL,
+        )
+        long = draw_scoreboard(
+            state(),
+            {
+                "team1": Team("Mécan'hydre de Darmstadt", logos[0]),
+                "team2": Team("BK", logos[1]),
+            },
+            size=SMALL,
+        )
+
+        # The bar widens with the name, and the logo goes with the bar's end,
+        # not with the end of the name.
+        assert painted(long)[0] < painted(short)[0]
+        assert self._logo_columns(long, (220, 60, 60))[0] == pytest.approx(
+            painted(long)[0], abs=12
+        )
+
+
 class TestLogos:
     def test_a_missing_logo_is_not_an_error(self):
         assert load_logo(Path("/nowhere.png"), 40) is None
         assert load_logo(None, 40) is None
 
-    def test_the_bar_narrows_without_logos(self):
+    def test_a_team_without_a_logo_gets_a_generated_one(self):
+        # A missing file no longer leaves a hole: the bar keeps its shape.
         teams = {
             "team1": Team("A", Path("/nowhere.png")),
             "team2": Team("B", Path("/nowhere.png")),
@@ -236,9 +326,113 @@ class TestLogos:
         with_logos = draw_scoreboard(state(), teams, size=SMALL)
         without = draw_scoreboard(state(), teams, show_logos=False, size=SMALL)
 
-        # Both end up without logos on disk, so the bar is the same: what is
-        # tested here is that a missing file never widens or crashes anything.
-        assert painted(with_logos) == painted(without)
+        assert painted(with_logos)[2] - painted(with_logos)[0] > (
+            painted(without)[2] - painted(without)[0]
+        )
+
+
+class TestOneSizeForTheMatch:
+    """The bar keeps its size and its names in place from point to point."""
+
+    @staticmethod
+    def _states():
+        return [
+            state(left_score=9, right_score=2),
+            state(left_score=10, right_score=2),
+            state(
+                left_score=0,
+                right_score=0,
+                finished_sets=(SetScore(team1=10, team2=8),),
+                set_number=2,
+            ),
+        ]
+
+    def test_measured_one_state_at_a_time_the_bar_changes_size(self):
+        # The bug: a second digit, or a closed set, widened the bar.
+        boxes = {
+            painted(draw_scoreboard(one, TEAMS, size=SMALL)) for one in self._states()
+        }
+
+        assert len(boxes) > 1
+
+    def test_drawn_with_the_match_s_layout_it_keeps_one_size(self):
+        states = self._states()
+        layout = scoreboard_layout(states, TEAMS, size=SMALL)
+
+        boxes = {
+            painted(draw_scoreboard(one, TEAMS, size=SMALL, layout=layout))
+            for one in states
+        }
+
+        assert len(boxes) == 1
+
+    def test_the_names_do_not_move_when_a_score_gains_a_digit(self):
+        states = self._states()[:2]
+        layout = scoreboard_layout(states, TEAMS, size=SMALL)
+        nine, ten = (
+            np.asarray(draw_scoreboard(one, TEAMS, size=SMALL, layout=layout))
+            for one in states
+        )
+
+        # Outside the score slots, the two images are the same pixels.
+        differs = np.flatnonzero((nine != ten).any(axis=(0, 2)))
+        centre = SMALL[0] // 2
+        assert differs.size
+        assert np.abs(differs - centre).max() < SMALL[0] * 0.08
+
+
+class TestGeneratedLogo:
+    def test_a_three_letter_short_name_is_kept_whole(self):
+        from jugger_video_manipulation.overlay_render import _initials
+
+        assert _initials("LND") == "LND"
+        assert _initials("torpedo") == "TO"
+        assert _initials("Munich Monks") == "MM"
+
+    def test_three_letters_stay_inside_the_disc(self):
+        logo = generated_logo("WWW", 64)
+
+        # The letters are white, and so is the rim: look inside the rim only,
+        # and the letters must keep clear of it.
+        columns = [
+            x for x in range(4, 60) if logo.getpixel((x, 32))[:3] == (255, 255, 255)
+        ]
+        assert columns
+        assert min(columns) > 6
+        assert max(columns) < 57
+
+    def test_it_is_the_size_asked_for(self):
+        assert generated_logo("Munich Monks", 64).size == (64, 64)
+
+    def test_the_same_name_draws_the_same_logo(self):
+        assert generated_logo("Torpedo Bääm!", 48).tobytes() == (
+            generated_logo("Torpedo Bääm!", 48).tobytes()
+        )
+
+    def test_two_names_get_two_colours(self):
+        first = generated_logo("Munich Monks", 48).getpixel((10, 24))
+        second = generated_logo("Torpedo Bääm!", 48).getpixel((10, 24))
+
+        assert first != second
+
+    def test_the_corners_stay_transparent(self):
+        # A disc, not a square: the bar shows through around it.
+        assert generated_logo("NSA", 48).getpixel((0, 0))[3] == 0
+
+    def test_a_real_logo_wins(self, tmp_path):
+        path = tmp_path / "logo.png"
+        Image.new("RGBA", (40, 20), (1, 2, 3, 255)).save(path)
+
+        logo = team_logo(Team("A", path), 20)
+
+        assert logo.size == (40, 20)
+        assert logo.getpixel((20, 10)) == (1, 2, 3, 255)
+
+    def test_the_short_name_gives_the_initials(self):
+        with_short = team_logo(Team("Mécan'hydre", None, short_name="MH"), 48)
+        from_name = team_logo(Team("Mécan'hydre", None), 48)
+
+        assert with_short.tobytes() != from_name.tobytes()
 
 
 class TestCardScalesWithTheFrame:
@@ -259,13 +453,13 @@ class TestCardScalesWithTheFrame:
         big = draw_title_card(
             Team("Mécan'hydre"),
             Team("Pink Pain"),
-            CardText("Darmstadt", "Poule A", "2 sets"),
+            CardText("Darmstadt", "2 sets gagnants"),
             size=(1920, 1080),
         )
         small = draw_title_card(
             Team("Mécan'hydre"),
             Team("Pink Pain"),
-            CardText("Darmstadt", "Poule A", "2 sets"),
+            CardText("Darmstadt", "2 sets gagnants"),
             size=(854, 480),
         )
 
@@ -282,7 +476,7 @@ class TestCardScalesWithTheFrame:
         card = draw_title_card(
             Team("Mécan'hydre"),
             Team("Pink Pain"),
-            CardText("Darmstadt", "Poule A", "2 sets"),
+            CardText("Darmstadt", "2 sets gagnants"),
             size=(854, 480),
         )
 

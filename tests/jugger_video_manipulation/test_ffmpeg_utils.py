@@ -60,7 +60,9 @@ class TestFilterComplexBuilder:
         builder.filter_concat(builder.inputs_v, builder.inputs_a)
         builder.filter_cut(fps=25, points=[{"in": 0, "out": 25, "point": None}])
         complex_str = builder.get_filter_complex()
-        assert "trim=0.0:1.0" in complex_str
+        # Video bounds sit half a frame back, between two frames; the audio
+        # keeps its exact bounds.
+        assert "trim=start=0.000000:end=0.980000" in complex_str
         assert "atrim=0.0:1.0" in complex_str
         # after cutting a single point, the builder re-concats down to one output
         assert builder.out_v.startswith("[cv") or builder.out_v.startswith("[scale_v")
@@ -83,6 +85,167 @@ class TestFilterComplexBuilder:
         builder = FilterComplexBuilder(1)
         builder.filter_concat(builder.inputs_v, builder.inputs_a)
         assert builder.get_filter_complex() == ";".join(builder.filter_complex)
+
+
+class TestCrossfadeBetweenPoints:
+    """One point dissolving into the next, rather than cutting to it."""
+
+    @staticmethod
+    def _points():
+        # Six, five and four seconds at 25 fps, in that order.
+        return [
+            {"in": 0, "out": 150, "point": None},
+            {"in": 300, "out": 425, "point": None},
+            {"in": 600, "out": 700, "point": None},
+        ]
+
+    @staticmethod
+    def _cut(points, crossfade):
+        builder = FilterComplexBuilder(1)
+        builder.filter_concat(builder.inputs_v, builder.inputs_a)
+        builder.filter_cut(25, points, crossfade)
+        return builder
+
+    def test_without_a_crossfade_the_points_are_concatenated(self):
+        builder = self._cut(self._points(), 0)
+
+        graph = builder.get_filter_complex()
+        assert "xfade" not in graph
+        assert "concat=n=3" in graph
+
+    def test_each_join_gets_its_transition(self):
+        builder = self._cut(self._points(), 1.0)
+
+        graph = builder.get_filter_complex()
+        assert graph.count("xfade=transition=fade") == 2
+        assert graph.count("acrossfade=d=1.000") == 2
+        assert "concat" not in graph.split("copy[cv0]")[1]
+
+    def test_the_offsets_are_counted_on_the_shortened_timeline(self):
+        builder = self._cut(self._points(), 1.0)
+
+        graph = builder.get_filter_complex()
+        # First join five seconds in: six seconds of point, less the second
+        # the transition takes. The second join four seconds after that:
+        # 6 + 5 - 1 - 1 = 9.
+        assert "duration=1.000:offset=5.000" in graph
+        assert "duration=1.000:offset=9.000" in graph
+
+    def test_a_short_point_shortens_its_transitions(self):
+        # Half a second of point cannot give a second to each of its two
+        # neighbours; xfade would refuse the graph outright.
+        points = [
+            {"in": 0, "out": 150, "point": None},
+            {"in": 300, "out": 312, "point": None},
+            {"in": 600, "out": 700, "point": None},
+        ]
+
+        graph = self._cut(points, 1.0).get_filter_complex()
+
+        assert graph.count("duration=0.240") == 2
+
+    def test_each_dissolve_is_pinned_to_4_2_0(self):
+        graph = self._cut(self._points(), 1.0).get_filter_complex()
+
+        assert graph.count(",format=pix_fmts=yuvj420p|yuv420p|yuv420p10le[xv") == 2
+
+    def test_a_dissolved_render_stays_4_2_0_with_libx264(self, tmp_path):
+        # Left to itself xfade negotiates 4:4:4 with libx264, a profile most
+        # players refuse; this runs ffmpeg to check what actually comes out.
+        clip = tmp_path / "rush.mp4"
+        subprocess.run(
+            [
+                "ffmpeg", "-nostdin", "-v", "error", "-y",
+                "-f", "lavfi", "-i", "testsrc=size=96x54:rate=25:duration=12",
+                "-f", "lavfi", "-i", "sine=duration=12",
+                "-shortest", "-c:v", "libx264", "-pix_fmt", "yuvj420p", str(clip),
+            ],
+            check=True,
+            capture_output=True,
+        )  # fmt: skip
+        builder = self._cut(self._points(), 1.0)
+        out = tmp_path / "out.mp4"
+
+        subprocess.run(
+            [
+                "ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(clip),
+                "-filter_complex", builder.get_filter_complex(),
+                "-map", builder.out_v, "-map", builder.out_a,
+                "-c:v", "libx264", str(out),
+            ],
+            check=True,
+            capture_output=True,
+        )  # fmt: skip
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=pix_fmt", "-of", "csv=p=0", str(out)],
+            capture_output=True, text=True, check=True,
+        )  # fmt: skip
+
+        assert probe.stdout.strip() == "yuvj420p"
+
+    def test_the_last_nodes_become_the_output(self):
+        builder = self._cut(self._points(), 1.0)
+
+        assert builder.out_v.startswith("[xv")
+        assert builder.out_a.startswith("[xa")
+
+    def test_a_point_that_keeps_nothing_is_dropped(self):
+        # Otherwise the transitions and the scoreboard, which drops it, would
+        # be one point out of step with each other.
+        points = [
+            {"in": 0, "out": 150, "point": None},
+            {"in": 300, "out": 300, "point": None},
+            {"in": 600, "out": 700, "point": None},
+        ]
+
+        graph = self._cut(points, 1.0).get_filter_complex()
+
+        assert "split=2" in graph
+        assert graph.count("xfade=transition=fade") == 1
+
+    def test_a_single_point_has_nothing_to_dissolve_into(self):
+        graph = self._cut([{"in": 0, "out": 150, "point": None}], 1.0)
+
+        assert "xfade" not in graph.get_filter_complex()
+
+
+class TestIntroCard:
+    """The card in front of the match, and how it gets out of the way."""
+
+    @staticmethod
+    def _intro(fade):
+        builder = FilterComplexBuilder(1)
+        builder.filter_concat(builder.inputs_v, builder.inputs_a)
+        builder.filter_intro(
+            card_index=2,
+            silence_index=1,
+            duration=4.0,
+            fps=25,
+            size=(1920, 1080),
+            fade=fade,
+        )
+        return builder.get_filter_complex()
+
+    def test_without_a_fade_the_card_is_concatenated(self):
+        graph = self._intro(0.0)
+
+        assert "concat=n=2" in graph
+        assert "xfade" not in graph
+
+    def test_the_card_dissolves_into_the_match(self):
+        graph = self._intro(1.0)
+
+        # Four seconds of card, the last of which is the dissolve.
+        assert "duration=1.000:offset=3.000" in graph
+        assert "acrossfade=d=1.000" in graph
+
+    def test_both_branches_are_put_on_one_timebase(self):
+        # A still given a frame rate and a rush from a container do not agree
+        # on a timebase, and xfade refuses two inputs that disagree.
+        graph = self._intro(1.0)
+
+        assert graph.count("settb=AVTB") == 2
 
 
 class TestValidateEncodeCudaUsage:
@@ -244,6 +407,45 @@ class TestWriteChaptersMetadata:
         assert "title=point 0" in content
         assert "title=point 1" in content
 
+    def test_the_chapters_follow_the_transitions(self, tmp_path: Path):
+        # Two points of two seconds joined by a half-second dissolve: the
+        # second chapter starts where its point starts, which is half a
+        # second before the first one ends.
+        metadata_path = tmp_path / "chapters.txt"
+        points = [
+            {"in": 0, "out": 50, "point": None},
+            {"in": 100, "out": 150, "point": None},
+        ]
+
+        write_chapters_metadata(
+            points=points, metadata_path=metadata_path, fps=25, crossfade=0.5
+        )
+
+        content = metadata_path.read_text()
+        assert "START=0\nEND=2000" in content
+        assert "START=1500\nEND=3500" in content
+
+    def test_an_opening_card_pushes_the_chapters_back(self, tmp_path: Path):
+        metadata_path = tmp_path / "chapters.txt"
+        points = [{"in": 0, "out": 50, "point": None}]
+
+        write_chapters_metadata(
+            points=points, metadata_path=metadata_path, fps=25, offset=3.0
+        )
+
+        assert "START=3000\nEND=5000" in metadata_path.read_text()
+
+    def test_a_point_that_keeps_nothing_gets_no_chapter(self, tmp_path: Path):
+        metadata_path = tmp_path / "chapters.txt"
+        points = [
+            {"in": 0, "out": 50, "point": None},
+            {"in": 100, "out": 100, "point": None},
+        ]
+
+        write_chapters_metadata(points=points, metadata_path=metadata_path, fps=25)
+
+        assert "title=point 1" not in metadata_path.read_text()
+
 
 class TestFilterOverlay:
     """Still overlays, each painted only over its own window."""
@@ -265,7 +467,7 @@ class TestFilterOverlay:
     def test_one_overlay_is_bounded_by_its_window(self, builder):
         builder.filter_overlay([(3, 1.5, 4.25)])
 
-        assert "enable='between(t,1.500,4.250)'" in builder.filter_complex[0]
+        assert "enable='gte(t,1.500)*lt(t,4.250)'" in builder.filter_complex[0]
         assert "[3:v]" in builder.filter_complex[0]
 
     def test_overlays_chain_onto_one_another(self, builder):
@@ -423,3 +625,77 @@ class TestSilenceInput:
         )
 
         assert not any("anullsrc" in argument for argument in cmd)
+
+
+class TestMovingIntroGraph:
+    """The footage before the first point, blurred behind the card."""
+
+    @staticmethod
+    def _graph(fade=1.0):
+        builder = FilterComplexBuilder(1)
+        builder.filter_concat(builder.inputs_v, builder.inputs_a)
+        spare = builder.filter_branch()
+        builder.filter_cut(25, [{"in": 250, "out": 500, "point": None}])
+        builder.filter_intro_video(
+            spare,
+            card_index=3,
+            start_frame=175,
+            duration=4.0,
+            fade=fade,
+            fps=25,
+            size=(1280, 720),
+        )
+        return builder, builder.get_filter_complex()
+
+    def test_the_rushes_are_split_before_the_points_are_cut(self):
+        _, graph = self._graph()
+        chains = graph.split(";")
+        split = next(i for i, chain in enumerate(chains) if "split=2[main_v" in chain)
+        trim = next(
+            i for i, chain in enumerate(chains) if "trim=start=9.980000" in chain
+        )
+
+        assert split < trim
+
+    def test_the_footage_is_taken_from_before_the_point(self):
+        _, graph = self._graph()
+
+        # 175 frames at 25 fps, half a frame back; 100 frames of footage.
+        assert "trim=start=6.980000:end=10.980000" in graph
+
+    def test_it_is_blurred_and_shaded(self):
+        _, graph = self._graph()
+
+        # 16 at 1080 lines is 10.67 at 720.
+        assert "gblur=sigma=10.67" in graph
+        # Dimmed on brightness only: a dark veil greyed the colours out.
+        assert "lutyuv=y=val*0.62" in graph
+        assert "drawbox" not in graph
+
+    def test_the_card_is_laid_over_it(self):
+        _, graph = self._graph()
+
+        assert "[3:v]overlay=0:0" in graph
+
+    def test_its_sound_is_brought_down(self):
+        _, graph = self._graph()
+
+        assert "atrim=start=7.000000:end=11.000000" in graph
+        assert "volume=0.25" in graph
+
+    def test_it_dissolves_into_the_first_point_as_it_begins(self):
+        _, graph = self._graph()
+
+        assert "duration=1.000:offset=3.000" in graph
+        assert "acrossfade=d=1.000" in graph
+
+    def test_no_silence_is_needed(self):
+        _, graph = self._graph()
+
+        assert ":a]atrim=duration" not in graph
+
+    def test_without_a_fade_it_is_concatenated(self):
+        _, graph = self._graph(fade=0.0)
+
+        assert "xfade" not in graph.split("[intro_v")[-1]
+        assert "concat=n=2" in graph

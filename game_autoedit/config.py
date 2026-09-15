@@ -27,6 +27,13 @@ CHANNELS = 2
 # only rendition rendered with a consistent audio profile.
 AUDIO_QUALITY = "archive"
 
+# What the pipeline reads when a game has no archive yet: the rushes it would
+# have been built from. The archive is a straight concatenation of them, so the
+# two share one timeline and a cut decoded from the rushes lands on the same
+# frames. The audio profile differs (camera AAC rather than the archive's
+# encode), which is why this is a fallback and never what training reads.
+RUSH_QUALITY = "rush"
+
 # A game's archive master has been filed under two different quality names over
 # the years: older renders sit under "high", newer ones under "archive". Both
 # live in the tournament's archive directory and carry the same audio profile

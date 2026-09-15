@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from jugger_video_manipulation.overlay_pipeline import (
     build_plan,
 )
 from jugger_video_manipulation.overlay_render import Team
+from jugger_video_manipulation.scoreboard import Timing
 
 FPS = 60.0
 SMALL = (480, 270)
@@ -45,6 +47,21 @@ class TestScoreboardWindows:
         )
 
         assert plan.windows == []
+
+    def test_a_starting_score_is_enough(self, tmp_path):
+        plan = build_plan(
+            CutContent(
+                points=[point(0, 60), point(600, 660)],
+                start_score={"team1": [3], "team2": [2]},
+                display={"intro": False},
+            ),
+            TEAMS,
+            FPS,
+            tmp_path,
+            context=CONTEXT,
+        )
+
+        assert len(plan.windows) == 1
 
     def test_one_scored_point_is_enough(self, tmp_path):
         plan = build_plan(
@@ -114,25 +131,10 @@ class TestWarnings:
 
         assert plan.windows[0].duration == pytest.approx(5.0)
 
-    def test_a_team_introduction_is_not_a_warning(self, tmp_path):
-        content = CutContent(points=[point(0, 600)], overlays=[{"type": "GameInfo"}])
-
-        plan = build_plan(content, TEAMS, FPS, tmp_path, context=CONTEXT)
-
-        assert plan.windows == []
-
 
 class TestIntro:
-    def test_no_card_unless_the_file_asks(self, tmp_path):
-        plan = build_plan(
-            CutContent(points=[point(0, 60)]), TEAMS, FPS, tmp_path, context=CONTEXT
-        )
-
-        assert plan.intro is None
-        assert plan.offset == 0.0
-
-    def test_a_team_introduction_produces_a_card(self, tmp_path):
-        content = CutContent(points=[point(0, 60)], overlays=[{"type": "GameInfo"}])
+    def test_two_teams_are_enough_for_a_card(self, tmp_path):
+        content = CutContent(points=[point(0, 60)])
 
         plan = build_plan(content, TEAMS, FPS, tmp_path, context=CONTEXT)
 
@@ -142,7 +144,6 @@ class TestIntro:
     def test_its_length_is_read_in_frames(self, tmp_path):
         content = CutContent(
             points=[point(0, 60)],
-            overlays=[{"type": "GameInfo"}],
             display={"title_card": {"length": 180}},
         )
 
@@ -151,11 +152,65 @@ class TestIntro:
         assert plan.intro.duration == pytest.approx(3.0)
 
     def test_one_team_missing_means_no_card(self, tmp_path):
-        content = CutContent(points=[point(0, 60)], overlays=[{"type": "GameInfo"}])
+        content = CutContent(points=[point(0, 60)])
 
         plan = build_plan(content, {"team1": Team("A")}, FPS, tmp_path, context=CONTEXT)
 
         assert plan.intro is None
+
+
+class TestCardDissolvesIntoTheMatch:
+    """The card does not vanish: the match comes up through it."""
+
+    def test_the_card_carries_the_transition_asked_for(self, tmp_path):
+        content = CutContent(points=[point(0, 600)])
+
+        plan = build_plan(
+            content, TEAMS, FPS, tmp_path, context=CONTEXT, timing=Timing(crossfade=1.0)
+        )
+
+        assert plan.intro.fade == pytest.approx(1.0)
+
+    def test_a_short_card_dissolves_for_half_of_itself(self, tmp_path):
+        content = CutContent(
+            points=[point(0, 600)],
+            display={"title_card": {"length": 60}},
+        )
+
+        plan = build_plan(
+            content, TEAMS, FPS, tmp_path, context=CONTEXT, timing=Timing(crossfade=1.0)
+        )
+
+        assert plan.intro.duration == pytest.approx(1.0)
+        assert plan.intro.fade == pytest.approx(0.5)
+
+    def test_the_match_starts_when_the_dissolve_starts(self):
+        plan = OverlayPlan(intro=Intro(Path("/card.png"), 4.0, fade=1.0))
+
+        assert plan.offset == pytest.approx(3.0)
+
+    def test_the_boards_are_placed_on_the_shortened_timeline(self, tmp_path):
+        content = CutContent(points=[point(0, 600, "left"), point(1200, 1800, "right")])
+
+        plan = build_plan(
+            content, TEAMS, FPS, tmp_path, context=CONTEXT, timing=Timing(crossfade=1.0)
+        )
+
+        # The second point starts at 9 s, one second into the dissolve; its
+        # board takes over halfway, so the two never show together.
+        assert plan.windows[1].start == pytest.approx(9.5)
+
+    def test_a_warning_follows_the_same_timeline(self, tmp_path):
+        content = CutContent(
+            points=[point(0, 600), point(1200, 1800)],
+            overlays=[warning(1200)],
+        )
+
+        plan = build_plan(
+            content, TEAMS, FPS, tmp_path, context=CONTEXT, timing=Timing(crossfade=1.0)
+        )
+
+        assert plan.windows[0].start == pytest.approx(9.0)
 
 
 class TestPlanArguments:
@@ -188,3 +243,147 @@ class TestPlanArguments:
         )
 
         assert [index for index, _, _ in plan.overlay_arguments(5)] == [5, 6]
+
+
+class TestTail:
+    """The video runs on after the last point, with its result on the board."""
+
+    def test_the_final_score_stays_up_over_the_tail(self, tmp_path):
+        content = CutContent(points=[point(0, 600, "left"), point(1200, 1800, "left")])
+
+        plan = build_plan(
+            content,
+            TEAMS,
+            FPS,
+            tmp_path,
+            context=CONTEXT,
+            timing=Timing(tail_frames=1500),
+        )
+
+        # Ten seconds, ten seconds, then the 25 s tail on a board of its own.
+        assert [round(window.start, 3) for window in plan.windows] == [0.0, 10.0, 20.0]
+        assert plan.windows[-1].end == pytest.approx(45.0)
+
+    def test_a_warning_during_the_tail_is_shown(self, tmp_path):
+        # Without a tail it would fall past the last point and be dropped.
+        content = CutContent(points=[point(0, 600)], overlays=[warning(900)])
+
+        plan = build_plan(
+            content,
+            TEAMS,
+            FPS,
+            tmp_path,
+            context=CONTEXT,
+            timing=Timing(tail_frames=1500),
+        )
+
+        assert plan.windows[0].start == pytest.approx(15.0)
+
+
+class TestIntroSwitch:
+    """The editor can turn the opening card off."""
+
+    def test_the_card_is_on_by_default(self, tmp_path):
+        content = CutContent(points=[point(0, 60)])
+
+        assert build_plan(content, TEAMS, FPS, tmp_path, context=CONTEXT).intro
+
+    def test_an_explicit_no_drops_it(self, tmp_path):
+        content = CutContent(
+            points=[point(0, 60)],
+            display={"intro": False},
+        )
+
+        plan = build_plan(content, TEAMS, FPS, tmp_path, context=CONTEXT)
+
+        assert plan.intro is None
+        assert plan.offset == 0.0
+
+
+class TestBoardsAcrossTheMatch:
+    def test_every_board_of_a_match_is_the_same_size(self, tmp_path):
+        points = [point(i * 600, i * 600 + 300, "left") for i in range(12)]
+        content = CutContent(points=points, overlays=[{"type": "SetEnd", "tc": 3050}])
+
+        plan = build_plan(content, TEAMS, FPS, tmp_path, context=CONTEXT)
+
+        boxes = {
+            Image.open(window.path).getchannel("A").getbbox() for window in plan.windows
+        }
+        assert len(plan.windows) > 3
+        assert len(boxes) == 1
+
+    def test_boards_never_overlap_across_a_dissolve(self, tmp_path):
+        points = [point(i * 900, i * 900 + 600, "left") for i in range(4)]
+
+        plan = build_plan(
+            CutContent(points=points),
+            TEAMS,
+            FPS,
+            tmp_path,
+            context=CONTEXT,
+            timing=Timing(crossfade=1.0),
+        )
+
+        windows = sorted(plan.windows, key=lambda window: window.start)
+        for current, following in pairwise(windows):
+            assert following.start >= current.end
+
+
+class TestMovingIntro:
+    """Behind the card, the seconds before the first point, dissolving into it."""
+
+    @staticmethod
+    def _plan(tmp_path, points, **display):
+        content = CutContent(
+            points=points,
+            display={"title_card": display} if display else {},
+        )
+        return build_plan(
+            content, TEAMS, FPS, tmp_path, context=CONTEXT, timing=Timing(crossfade=1.0)
+        )
+
+    def test_the_footage_starts_before_the_first_point(self, tmp_path):
+        plan = self._plan(tmp_path, [point(6000, 6600, "left")])
+
+        # Four seconds of card, the last of which is the dissolve: three
+        # seconds of footage before the point, 180 frames at 60 fps.
+        assert plan.intro.source_start == 6000 - 180
+        assert plan.intro.duration == pytest.approx(4.0)
+
+    def test_the_dissolve_starts_on_the_first_point(self, tmp_path):
+        plan = self._plan(tmp_path, [point(6000, 6600, "left")])
+
+        # The match, and every overlay on it, starts when the dissolve does.
+        assert plan.offset == pytest.approx((6000 - plan.intro.source_start) / FPS)
+
+    def test_a_point_close_to_the_start_shortens_the_card(self, tmp_path):
+        plan = self._plan(tmp_path, [point(90, 600, "left")])
+
+        # Only a second and a half before the point: that, plus the dissolve.
+        assert plan.intro.source_start == 0
+        assert plan.intro.duration == pytest.approx(1.5 + 1.0)
+
+    def test_too_little_footage_keeps_a_still_card(self, tmp_path):
+        plan = self._plan(tmp_path, [point(30, 600, "left")])
+
+        assert plan.intro.source_start is None
+        assert plan.intro.duration == pytest.approx(4.0)
+
+    def test_a_flat_card_stays_still(self, tmp_path):
+        plan = self._plan(tmp_path, [point(6000, 6600, "left")], background="flat")
+
+        assert plan.intro.source_start is None
+
+    def test_the_first_kept_point_is_the_one_that_counts(self, tmp_path):
+        plan = self._plan(tmp_path, [point(500, 500), point(6000, 6600, "left")])
+
+        assert plan.intro.source_start == 6000 - 180
+
+    def test_the_card_over_footage_is_see_through(self, tmp_path):
+        moving = self._plan(tmp_path, [point(6000, 6600, "left")])
+        still_dir = tmp_path / "still"
+        still = self._plan(still_dir, [point(6000, 6600, "left")], background="flat")
+
+        assert Image.open(moving.intro.path).getpixel((0, 0))[3] == 0
+        assert Image.open(still.intro.path).getpixel((0, 0))[3] == 255

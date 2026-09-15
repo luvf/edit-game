@@ -2,7 +2,6 @@
   <div class="cut-error">JSON invalide: {{ message }}</div>
 } @else if (payload()) {
   <div class="cut-detail" [class.is-compact]="compact()">
-    <ng-container [ngTemplateOutlet]="gameInfoPanel"></ng-container>
     <ng-container [ngTemplateOutlet]="timeline"></ng-container>
   </div>
 } @else {
@@ -151,56 +150,6 @@
   </button>
 </div>
 
-<ng-template #gameInfoPanel>
-  @if (gameInfo(); as info) {
-    <section class="game-info">
-      <div class="game-info-fields">
-        <label>
-          <span>équipe 1 — à gauche</span>
-          <input
-            type="text"
-            [ngModel]="info.team1"
-            (ngModelChange)="setGameInfo('team1', $event)"
-          />
-        </label>
-        <label>
-          <span>équipe 2 — à droite</span>
-          <input
-            type="text"
-            [ngModel]="info.team2"
-            (ngModelChange)="setGameInfo('team2', $event)"
-          />
-        </label>
-        <label class="narrow">
-          <span>sets à gagner</span>
-          <input
-            type="number"
-            min="1"
-            [ngModel]="info.sets_to_win"
-            (ngModelChange)="setGameInfo('sets_to_win', $event)"
-          />
-        </label>
-        <label class="wide">
-          <span>condition</span>
-          <input
-            type="text"
-            placeholder="texte libre, affiché sur la carte d'ouverture"
-            [ngModel]="info.condition"
-            (ngModelChange)="setGameInfo('condition', $event)"
-          />
-        </label>
-      </div>
-    </section>
-  } @else {
-    <section class="game-info is-missing">
-      <span>Ce cut n'a pas encore ses infos de match.</span>
-      <button mat-stroked-button type="button" (click)="addGameInfo()">
-        Ajouter les infos du match
-      </button>
-    </section>
-  }
-</ng-template>
-
 <ng-template #timeline>
   <section class="column">
     <div class="list-header">
@@ -224,6 +173,8 @@
           @if (row.kind === "point") {
             <div
               class="form-row is-point"
+              [class.is-current]="currentPointIndex() === row.index"
+              [class.is-scored]="isScored(row.point)"
               [class.is-hovered]="hoveredPoint() === row.index"
               (pointerenter)="setHoveredPoint(row.index)"
               (pointerleave)="setHoveredPoint(null)"
@@ -304,6 +255,7 @@
                 @for (option of pointOptions; track option.value) {
                   <label
                     class="point-switch-option"
+                    [class]="'point-switch-option is-' + option.value"
                     [class.is-active]="
                       (row.point.point ?? 'nopoint') === option.value
                     "
@@ -426,5 +378,19 @@
     } @else {
       <div class="cut-empty">Aucun point ni événement.</div>
     }
+
+    <div class="cut-options" role="group" aria-label="Options du rendu">
+      @for (option of renderOptions; track option.key) {
+        <label class="cut-option" [title]="option.hint">
+          <input
+            type="checkbox"
+            [checked]="renderOption(option)"
+            [disabled]="!payload()"
+            (change)="onRenderOptionChange(option, $any($event.target).checked)"
+          />
+          <span>{{ option.label }}</span>
+        </label>
+      }
+    </div>
   </section>
 </ng-template>

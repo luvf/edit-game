@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from game_autoedit.config import Paths
-    from game_autoedit.data.catalog import Catalog
+    from game_autoedit.data.catalog import Catalog, LabeledGame
     from game_autoedit.data.labels import GameLabels, Segment
     from game_autoedit.datasets.dataset import DatasetSpec
     from game_autoedit.datasets.splits import Split
@@ -127,12 +127,24 @@ class _LabelStats:
             )
 
 
+def _source_duration(game: LabeledGame) -> float | None:
+    """Return how long a game's sources last in total, or None if any is unreadable.
+
+    A game read from its rushes carries several files; the labels are expressed
+    against their concatenation, so the durations add up.
+    """
+    durations = [probe_duration(path) for path in game.audio_sources]
+    if not durations or any(duration is None for duration in durations):
+        return None
+    return sum(duration for duration in durations if duration is not None)
+
+
 def _collect_label_stats(catalog: Catalog, paths: Paths) -> _LabelStats:
     """Read every cut file of the catalog and fold it into the totals."""
     stats = _LabelStats()
     for game in catalog.games:
         cached = audio_info(paths.audio_path(game.game_id))
-        duration = cached.duration if cached else probe_duration(game.audio_source)
+        duration = cached.duration if cached else _source_duration(game)
         labels = load_labels(
             game.cut_json_path,
             game_id=game.game_id,

@@ -19,7 +19,7 @@ def game(game_id, tournament):
         cut_id=game_id,
         cut_type="VID",
         cut_json_path=Path(f"/tmp/cut_{game_id}.json"),
-        audio_source=Path(f"/tmp/game_{game_id}.mp4"),
+        audio_sources=(Path(f"/tmp/game_{game_id}.mp4"),),
         fps=59.94,
     )
 

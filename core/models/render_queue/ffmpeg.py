@@ -5,12 +5,13 @@ from __future__ import annotations
 import contextlib
 import functools
 import json
+import logging
 import shutil
 import subprocess
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.db import models
 
@@ -25,9 +26,31 @@ from jugger_video_manipulation.ffmpeg_utils import (
     ffmpeg_command_builder,
     get_fps,
     input_indices,
+    probe_frame_counts,
     write_chapters_metadata,
 )
 from jugger_video_manipulation.overlay_pipeline import OverlayPlan
+from jugger_video_manipulation.scoreboard import (
+    CROSSFADE_SECONDS,
+    TAIL_SECONDS,
+    Timing,
+    extend_last,
+)
+from jugger_video_manipulation.stabilise import (
+    detect_command,
+    gyro_source,
+    kept_points,
+    transform_filters,
+    write_gyro_paths,
+    wrote_from_gyro,
+)
+
+if TYPE_CHECKING:
+    from jugger_video_manipulation.cut_json_parser import Display, Point
+    from jugger_video_manipulation.stabilise import GyroSource
+
+
+logger = logging.getLogger(__name__)
 
 
 @functools.cache
@@ -280,12 +303,24 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
         """
         raise NotImplementedError("Use a concrete ffmpeg queue item type.")
 
+    def _before_render(self, work_dir: Path) -> None:
+        """Do what the render needs done before its command can run.
+
+        Nothing by default. `work_dir` is the directory `build_command` then
+        receives as `overlay_dir`, so what is written here is found there.
+
+        Not `_prepare`: Django's model metaclass already calls a classmethod
+        of that name while it builds the class.
+        """
+        _ = work_dir
+
     def _execute(self) -> None:
         """Build the ffmpeg command, persist it, then run it."""
         tmp_dir = Path(Path(settings.BASE_DIR) / "tmp")
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
         tmp_output_path = tmp_dir / f"{uuid.uuid4()}.mp4"
+        work_dir = tmp_dir / f"overlays-{uuid.uuid4().hex}"
 
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".txt", delete=False
@@ -293,10 +328,11 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
             metadata_path = Path(template_file.name)
 
         try:
+            self._before_render(work_dir)
             command = self.build_command(
                 chapter_metadata_tmp_path=metadata_path,
                 output_file=tmp_output_path,
-                overlay_dir=tmp_dir / f"overlays-{uuid.uuid4().hex}",
+                overlay_dir=work_dir,
             )
 
             update_fields: list[str] = ["command"]
@@ -325,6 +361,9 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
         finally:
             metadata_path.unlink(missing_ok=True)
             tmp_output_path.unlink(missing_ok=True)
+            # The overlay images and the camera paths are only read by this
+            # render, and the paths run to megabytes per minute of footage.
+            shutil.rmtree(work_dir, ignore_errors=True)
 
     @staticmethod
     def _move_into_place(tmp_path: Path, final_path: Path) -> None:
@@ -436,6 +475,15 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
 class RenderQueueItemCut(RenderQueueItemFFMPEG):
     """Queue item for cut renders."""
 
+    #: How long one point dissolves into the next, and the opening card into
+    #: the match. The picture, the scoreboard and the chapters are all placed
+    #: from this one number, so it is read from a single place.
+    CROSSFADE_SECONDS: ClassVar[float] = CROSSFADE_SECONDS
+
+    #: How long the render keeps running once the last point is over: the
+    #: video goes on, the overlay stays, and the board shows the result.
+    TAIL_SECONDS: ClassVar[float] = TAIL_SECONDS
+
     cut = models.ForeignKey("core.Cut", on_delete=models.CASCADE)
 
     class Meta:
@@ -488,7 +536,7 @@ class RenderQueueItemCut(RenderQueueItemFFMPEG):
         out_file = output_file or self.final_output_path
         out_file.parent.mkdir(parents=True, exist_ok=True)
 
-        points, _ = CutJsonParser(self.cut.json_file.path).parse()
+        points, _, display = CutJsonParser(self.cut.json_file.path).parse_all()
 
         preset_args = self._preset_args()
 
@@ -497,37 +545,84 @@ class RenderQueueItemCut(RenderQueueItemFFMPEG):
 
         fps = get_fps(source_files[0])
 
-        filter_complex = FilterComplexBuilder(nb_files)
-        filter_complex.filter_concat(filter_complex.inputs_v, filter_complex.inputs_a)
-        filter_complex.filter_cut(fps, points)
+        timing = self._timing(points, fps, source_files, display)
+        # The picture plays the tail as part of the last point's shot; the
+        # overlays get the points as edited, and place the tail themselves.
+        video_points = extend_last(points, timing.tail_frames)
+
+        # A preview writes nothing, so it has no camera paths to read: it
+        # shows the command without the correction, as it does the overlays.
+        video_filters = None
+        if display.get("stabilise") is True and overlay_dir is not None:
+            directory = self._stabilise_dir(overlay_dir)
+            video_filters = transform_filters(
+                video_points,
+                directory,
+                fps=fps,
+                from_gyro=wrote_from_gyro(directory),
+            )
 
         scale = preset_args.get("scale")
+        plan = self._overlay_plan(overlay_dir, source_files, scale, fps, timing)
+        intro = plan.intro
+        intro_start = intro.source_start if intro is not None else None
+
+        filter_complex = FilterComplexBuilder(nb_files)
+        filter_complex.filter_concat(filter_complex.inputs_v, filter_complex.inputs_a)
+        # The footage behind the opening card comes from before the first
+        # point: it needs its own copy of the rushes, taken before the points
+        # are cut out of them.
+        intro_streams = (
+            filter_complex.filter_branch() if intro_start is not None else None
+        )
+        filter_complex.filter_cut(
+            fps, video_points, timing.crossfade, video_filters=video_filters
+        )
+
         if scale:
             w, h = scale
             filter_complex.filter_scale(w, h)
 
         if chapter_metadata_tmp_path:
             write_chapters_metadata(
-                points=points,
+                points=video_points,
                 metadata_path=chapter_metadata_tmp_path,
                 fps=fps,
+                crossfade=timing.crossfade,
+                offset=plan.offset,
             )
 
-        plan = self._overlay_plan(overlay_dir, source_files[0], scale, fps)
+        # A still card needs silence to stand in for its sound; footage
+        # brings its own.
+        still_intro = intro is not None and intro_start is None
         indices = input_indices(
             nb_files,
             has_metadata=chapter_metadata_tmp_path is not None,
-            has_silence=plan.intro is not None,
+            has_silence=still_intro,
         )
-        if plan.intro is not None and indices.silence is not None:
-            filter_complex.filter_intro(
+        if intro is not None and intro_streams is not None and intro_start is not None:
+            filter_complex.filter_intro_video(
+                intro_streams,
                 card_index=indices.first_overlay,
-                silence_index=indices.silence,
-                duration=plan.intro.duration,
+                start_frame=intro_start,
+                duration=intro.duration,
+                fade=intro.fade,
                 fps=fps,
                 size=self._render_size(source_files[0], scale),
             )
+        elif intro is not None and indices.silence is not None:
+            filter_complex.filter_intro(
+                card_index=indices.first_overlay,
+                silence_index=indices.silence,
+                duration=intro.duration,
+                fps=fps,
+                size=self._render_size(source_files[0], scale),
+                fade=intro.fade,
+            )
         filter_complex.filter_overlay(plan.overlay_arguments(indices.first_overlay))
+        # Toujours en dernier : c'est la sortie du graphe qui doit porter le
+        # frame rate, sinon l'encodeur ne sait pas a quel debit viser.
+        filter_complex.filter_fps(fps)
 
         cmd = ffmpeg_command_builder(
             filter_complex=filter_complex,
@@ -537,9 +632,7 @@ class RenderQueueItemCut(RenderQueueItemFFMPEG):
             preset_args=preset_args,
             extras=ExtraInputs(
                 overlays=plan.files(),
-                silence_seconds=(
-                    plan.total_seconds() if plan.intro is not None else None
-                ),
+                silence_seconds=plan.total_seconds() if still_intro else None,
             ),
             cuda=CudaUse(
                 decode=self._can_use_cuda_for_decode(source_files),
@@ -548,6 +641,109 @@ class RenderQueueItemCut(RenderQueueItemFFMPEG):
         )
         self.command = " ".join(cmd)
         return cmd
+
+    def _timing(
+        self,
+        points: list[Point],
+        fps: float,
+        source_files: list[Path],
+        display: Display,
+    ) -> Timing:
+        """Return the transitions and the tail this render plays.
+
+        The tail is what the rushes hold after the last point, up to
+        `TAIL_SECONDS`: a match filmed to its last second has less to give.
+        When the rushes do not say how long they are, the whole tail is asked
+        for — a trim past the end of the footage simply stops there. The tail
+        is on unless the cut says `"tail": false`.
+        """
+        kept = kept_points(points)
+        wants_tail = display.get("tail", True) is not False
+        wanted = round(self.TAIL_SECONDS * fps) if kept and wants_tail else 0
+        if wanted <= 0:
+            return Timing(crossfade=self.CROSSFADE_SECONDS)
+        try:
+            remaining = sum(probe_frame_counts(source_files)) - int(kept[-1]["out"])
+        except ValueError:
+            remaining = wanted
+        return Timing(
+            crossfade=self.CROSSFADE_SECONDS,
+            tail_frames=max(min(wanted, remaining), 0),
+        )
+
+    def _gyro_source(
+        self, source_files: list[Path], frame_counts: list[int], fps: float
+    ) -> GyroSource | None:
+        """Return the camera's recorded orientation for this render, if any.
+
+        The rushes carry it; an archive, rendered by ffmpeg, does not. For an
+        archived game the rushes are read instead, as long as they are all on
+        disk and hold exactly the frames the archive does — the same frames,
+        so the same numbering for the points.
+        """
+        height = self._source_video_height(source_files[0]) or 1080
+        gyro = gyro_source(source_files, frame_counts, height, fps)
+        if gyro is not None:
+            return gyro
+
+        rushes = self.cut.game.get_source_files(force_rush=True)
+        if rushes == source_files or not all(path.exists() for path in rushes):
+            return None
+        try:
+            rush_counts = probe_frame_counts(rushes)
+        except ValueError:
+            return None
+        if sum(rush_counts) != sum(frame_counts):
+            return None
+        return gyro_source(rushes, rush_counts, height, fps)
+
+    @staticmethod
+    def _stabilise_dir(work_dir: Path) -> Path:
+        """Return where a render's camera paths are written and read."""
+        return work_dir / "stabilise"
+
+    def _before_render(self, work_dir: Path) -> None:
+        """Measure the camera path of each kept point, when the cut asks.
+
+        A pass of its own, run before the render: `vidstabtransform` needs the
+        whole path of a point before it corrects its first frame. Only the
+        kept points are read, each on its own and straight from the rush that
+        holds it — never the whole game, never the rushes from their start.
+        """
+        points, _, display = CutJsonParser(self.cut.json_file.path).parse_all()
+        if display.get("stabilise") is not True or not kept_points(points):
+            return
+
+        source_files = self.cut.game.get_source_files()
+        fps = get_fps(source_files[0])
+        directory = self._stabilise_dir(work_dir)
+        directory.mkdir(parents=True, exist_ok=True)
+        # The tail belongs to the last point's shot, so it is steadied with it.
+        tail_frames = self._timing(points, fps, source_files, display).tail_frames
+        video_points = extend_last(points, tail_frames)
+        frame_counts = probe_frame_counts(source_files)
+
+        gyro = self._gyro_source(source_files, frame_counts, fps)
+        if gyro is not None:
+            # The camera recorded where it pointed: nothing to analyse.
+            logger.info(
+                "Stabilisation du cut %s : orientation enregistrée", self.cut_id
+            )
+            write_gyro_paths(video_points, directory, gyro)
+            return
+
+        logger.info("Stabilisation du cut %s : analyse de l'image", self.cut_id)
+        command = detect_command(
+            input_files=source_files,
+            frame_counts=frame_counts,
+            fps=fps,
+            points=video_points,
+            directory=directory,
+            cuda_decode=self._can_use_cuda_for_decode(source_files),
+        )
+        self.command = " ".join(command)
+        self.save(update_fields=["command"])
+        self._run_subprocess(command)
 
     def _render_size(self, source: Path, scale: list[str] | None) -> tuple[int, int]:
         """Return the size this render comes out at."""
@@ -558,9 +754,10 @@ class RenderQueueItemCut(RenderQueueItemFFMPEG):
     def _overlay_plan(
         self,
         overlay_dir: Path | None,
-        source: Path,
+        source_files: list[Path],
         scale: list[str] | None,
         fps: float,
+        timing: Timing | None = None,
     ) -> OverlayPlan:
         """Draw the overlays this cut asks for, or none at all.
 
@@ -576,9 +773,9 @@ class RenderQueueItemCut(RenderQueueItemFFMPEG):
         return plan_for(
             self.cut,
             directory=overlay_dir,
-            source=source,
-            size=self._render_size(source, scale),
+            size=self._render_size(source_files[0], scale),
             fps=fps,
+            timing=timing,
         )
 
 

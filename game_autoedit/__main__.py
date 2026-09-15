@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from game_autoedit.config import AUDIO_QUALITY, SAMPLE_RATE, Paths
+from game_autoedit.config import AUDIO_QUALITY, RUSH_QUALITY, SAMPLE_RATE, Paths
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -190,7 +190,8 @@ def _register_train_commands(subparsers: argparse._SubParsersAction) -> None:  #
     propose.add_argument(
         "--quality",
         default=AUDIO_QUALITY,
-        help=f"qualité de la source audio (défaut: {AUDIO_QUALITY})",
+        help=f"qualité de la source audio (défaut: {AUDIO_QUALITY}, "
+        f"avec repli sur les rushs ; '{RUSH_QUALITY}' pour les forcer)",
     )
     propose.add_argument("--device")
 

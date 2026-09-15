@@ -41,7 +41,8 @@ class ProposalOptions:
         device: cuda, cpu… ; the best available when left out.
         quality: which VideoFile quality to read audio from. The archive is
             the only rendition with a consistent audio profile, which is what
-            the model was trained on.
+            the model was trained on; a game that has none is read from its
+            rushes instead, which share the archive's timeline.
         snap: place the starts on the drum grid.
     """
 
@@ -79,7 +80,7 @@ def _ensure_audio(game: LabeledGame, paths: Paths) -> float:
         The track duration in seconds.
 
     Raises:
-        UnusableGameError: the archive could not be read.
+        UnusableGameError: the sources could not be read.
     """
     paths.ensure()
     for _game, cached, error in build_audio_cache(
@@ -90,6 +91,20 @@ def _ensure_audio(game: LabeledGame, paths: Paths) -> float:
         if cached is not None:
             return cached.duration
     raise UnusableGameError("extraction audio impossible : aucune sortie")
+
+
+def _derived_from(cached: Path, audio_path: Path) -> bool:
+    """Tell whether `cached` was computed from the audio track now on disk.
+
+    The comparison is on mtime, which covers every reason the track may have
+    been extracted again -- a forced rebuild, or a game first proposed from its
+    rushes and re-extracted from its archive once that exists. Anything derived
+    from a track that no longer exists would otherwise be reused forever.
+    """
+    try:
+        return cached.stat().st_mtime >= audio_path.stat().st_mtime
+    except OSError:
+        return False
 
 
 def _ensure_embeddings(game_id: int, paths: Paths, encoder: str, device: Any) -> Any:
@@ -110,7 +125,11 @@ def _ensure_embeddings(game_id: int, paths: Paths, encoder: str, device: Any) ->
     spec = EncoderSpec(name=encoder.removesuffix("_ms"), stereo=encoder.endswith("_ms"))
     root = paths.embeddings(encoder)
     store = EmbeddingStore.open(root)
-    if store is not None and store.has(game_id):
+    if (
+        store is not None
+        and store.has(game_id)
+        and _derived_from(store.path(game_id), paths.audio_path(game_id))
+    ):
         return store
 
     built = build_encoder(spec, device)
@@ -129,13 +148,19 @@ def _ensure_envelope(game_id: int, paths: Paths) -> np.ndarray | None:
     """Return this game's onset envelope, computing it if it is not cached."""
     import soundfile as sf
 
-    from game_autoedit.data.beats import load_envelope, onset_envelope, save_envelope
-
-    envelope = load_envelope(paths.beats, game_id)
-    if envelope is not None:
-        return envelope
+    from game_autoedit.data.beats import (
+        envelope_path,
+        load_envelope,
+        onset_envelope,
+        save_envelope,
+    )
 
     audio_path = paths.audio_path(game_id)
+    if _derived_from(envelope_path(paths.beats, game_id), audio_path):
+        envelope = load_envelope(paths.beats, game_id)
+        if envelope is not None:
+            return envelope
+
     if not audio_path.exists():
         return None
     waveform, rate = sf.read(str(audio_path), dtype="float32", always_2d=False)

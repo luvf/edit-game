@@ -9,6 +9,7 @@
           (durationFramesChange)="rushDurationFrames.set($event)"
           (currentFrameChange)="rushFrame.set($event)"
         >
+          <app-game-video-menu player-tools [game]="game"></app-game-video-menu>
           <!-- Projete a cote du compteur de frames : c'est le seul endroit ou
                l'on regarde deja pour savoir ou l'on est dans le rush. -->
           <span player-status class="player-badges">
@@ -141,10 +142,11 @@
             </div>
             @if (selectedCutType() === "ML") {
               <p class="cut-ml-hint">
-                Le modèle propose un montage à partir de l'audio de l'archive.
-                Il tourne dans la file de rendu : quelques minutes, davantage la
-                première fois pour cette game. Le cut s'ouvre vide et se
-                remplira quand le job sera passé.
+                Le modèle propose un montage à partir de l'audio de l'archive,
+                ou des rushs quand l'archive n'existe pas encore. Il tourne dans
+                la file de rendu : quelques minutes, davantage la première fois
+                pour cette game. Le cut s'ouvre vide et se remplira quand le job
+                sera passé.
               </p>
             }
             @if (selectedCutType() === "OTIO") {

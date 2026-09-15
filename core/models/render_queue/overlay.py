@@ -5,15 +5,16 @@ knows where a Django render gets its teams, its frame size and the picture to
 blur behind the opening card. Kept apart from the queue item so that
 `build_command` stays readable and this can be tested on its own.
 
-A cut file with no `match` block and no overlays produces no plan at all, so
-every cut that exists today renders exactly as it does today.
+What the match is — its teams, its condition, the score its recording starts
+at — comes from the game, shared by all its cuts. A cut file with no points
+produces no plan at all.
 """
 
 from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from jugger_video_manipulation.overlay_pipeline import (
     CutContent,
@@ -22,14 +23,12 @@ from jugger_video_manipulation.overlay_pipeline import (
     build_plan,
 )
 from jugger_video_manipulation.overlay_render import CardText, Team
+from jugger_video_manipulation.scoreboard import start_score
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
-    from PIL import Image
-
     from core.models.cut import Cut
-    from jugger_video_manipulation.cut_json_parser import GameInfoOverlay, Overlay
+    from core.models.tournament import Team as TeamModel
+    from jugger_video_manipulation.scoreboard import StartScore, Timing
 
 #: A video dimension must stay even for the encoders in use.
 EVEN = 2
@@ -100,106 +99,73 @@ def render_size(
     return measured
 
 
-def first_frame(
-    source: Path, at_frame: int, fps: float, target: Path
-) -> Image.Image | None:
-    """Grab one frame of the rushes, to blur behind the opening card.
+#: Images that stand in for a logo a team does not have: the model's default,
+#: and the placeholder several teams were given while waiting for theirs. A
+#: team showing one of these gets a generated logo instead.
+PLACEHOLDER_LOGOS = frozenset({"default.png", "NOPICTURE.png"})
 
-    Returns None rather than raising when the grab fails: a missing background
-    costs a flat card, not a failed render.
-    """
-    from PIL import Image
 
-    target.parent.mkdir(parents=True, exist_ok=True)
-    result = subprocess.run(
-        [
-            "ffmpeg",
-            "-nostdin",
-            "-v",
-            "error",
-            "-ss",
-            f"{at_frame / fps:.3f}",
-            "-i",
-            str(source),
-            "-frames:v",
-            "1",
-            str(target),
-            "-y",
-        ],
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-    if result.returncode != 0 or not target.exists():
+def _logo(team: TeamModel) -> Path | None:
+    """Return a team's own logo when it has one on disk, None otherwise."""
+    if not team.image or Path(team.image.name).name in PLACEHOLDER_LOGOS:
         return None
-    return Image.open(target)
+    candidate = Path(team.image.path)
+    return candidate if candidate.exists() else None
 
 
 def teams_for(cut: Cut) -> dict[str, Team]:
-    """Return the game's two teams, keyed as the match block names them.
+    """Return the game's two teams as the overlay draws them, keyed by side.
 
-    A team without a logo on disk still gets its name drawn; the overlay
-    simply leaves the logo out rather than failing.
+    `team1` is the team on the left at kick-off: the game page orders them that
+    way and swaps them with a button. A team without a logo on disk still gets
+    its name drawn, over a generated logo.
     """
     game = cut.game
     teams: dict[str, Team] = {}
     for key, team in (("team1", game.team1), ("team2", game.team2)):
-        if team is None:
+        if team is None or not team.name:
             continue
-        logo: Path | None = None
-        if team.image:
-            candidate = Path(team.image.path)
-            logo = candidate if candidate.exists() else None
-        teams[key] = Team(name=team.name, logo=logo)
+        teams[key] = Team(name=team.name, logo=_logo(team), short_name=team.short_name)
     return teams
 
 
-def card_text_for(cut: Cut, info: GameInfoOverlay | None = None) -> CardText:
+def card_text_for(cut: Cut) -> CardText:
     """Return the words on the opening card.
 
-    The condition is the free text the editor wrote, with the number of sets
-    spelled out in front of it when there is one — both come from the cut's
-    own GameInfo, so the card says what the editor said.
+    The tournament, and the winning condition written on the game — nothing
+    else. The number of sets is not spelled out next to it: it is what the
+    condition already says. The cut's name is not on the card either, it is an
+    internal label.
     """
-    parts: list[str] = []
-    if info is None:
-        return CardText(tournament=cut.game.tournament.name, stage=cut.name)
-    sets_to_win = info.get("sets_to_win")
-    if sets_to_win:
-        parts.append(f"{sets_to_win} sets gagnants")
-    if info.get("condition"):
-        parts.append(str(info["condition"]))
-    return CardText(
-        tournament=cut.game.tournament.name,
-        stage=cut.name,
-        condition=" · ".join(parts),
-    )
+    game = cut.game
+    return CardText(tournament=game.tournament.name, condition=game.condition or "")
 
 
-def _game_info(overlays: Sequence[Overlay]) -> GameInfoOverlay | None:
-    """Return the cut's GameInfo block, or None when it has none."""
-    for item in overlays:
-        if item.get("type") == "GameInfo":
-            return cast("GameInfoOverlay", item)
-    return None
+def start_score_for(cut: Cut) -> StartScore | None:
+    """Return the score the game's recording starts at, cleaned, or None."""
+    raw = cut.game.start_score
+    if not isinstance(raw, dict):
+        return None
+    return start_score(raw.get("team1"), raw.get("team2"))
 
 
 def plan_for(
     cut: Cut,
     *,
     directory: Path,
-    source: Path,
     size: tuple[int, int],
     fps: float,
+    timing: Timing | None = None,
 ) -> OverlayPlan:
     """Draw everything a cut file asks for, and say when each is shown.
 
     Args:
         cut: the cut being rendered.
         directory: where the overlay images are written.
-        source: a rush, used to grab the picture behind the opening card.
         size: the size the render comes out at.
         fps: the frame rate the cut file counts in.
+        timing: the transitions and the tail the render plays, which the
+            overlays are placed on.
 
     Returns:
         The plan, empty when the file asks for nothing.
@@ -207,23 +173,19 @@ def plan_for(
     from jugger_video_manipulation.cut_json_parser import CutJsonParser
 
     points, overlays, display = CutJsonParser(cut.json_file.path).parse_all()
-    scored = any(point.get("point") in ("left", "right") for point in points)
-    if not overlays and not scored:
+    if not points:
         return OverlayPlan()
 
-    background = None
-    if any(item.get("type") == "GameInfo" for item in overlays):
-        at_frame = points[0]["in"] if points else 0
-        background = first_frame(source, at_frame, fps, directory / "background.png")
-
     return build_plan(
-        CutContent(points=points, overlays=overlays, display=display),
+        CutContent(
+            points=points,
+            overlays=overlays,
+            display=display,
+            start_score=start_score_for(cut),
+        ),
         teams_for(cut),
         fps,
         directory,
-        context=RenderContext(
-            background=background,
-            card_text=card_text_for(cut, _game_info(overlays)),
-            size=size,
-        ),
+        context=RenderContext(card_text=card_text_for(cut), size=size),
+        timing=timing,
     )

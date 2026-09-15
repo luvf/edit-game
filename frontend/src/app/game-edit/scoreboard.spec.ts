@@ -1,4 +1,14 @@
-import { buildStates, closingState, stateAt } from './scoreboard';
+import {
+  buildStates,
+  closingState,
+  pairStartScore,
+  parseSetScores,
+  readSetScores,
+  scorers,
+  scoringEvents,
+  stateAt,
+  stateAtFrame,
+} from './scoreboard';
 
 /**
  * Ces cas sont ceux de `scratchpad`/`test_scoreboard.py` cote Python : la
@@ -106,6 +116,55 @@ describe('closingState', () => {
   });
 });
 
+describe('scorers', () => {
+  it('attribue le point a l equipe qui se trouve de ce cote', () => {
+    expect(scorers([point(0, 'left'), point(600, 'right')], [])).toEqual([
+      'team1',
+      'team2',
+    ]);
+  });
+
+  it('un changement de cote change l equipe qui marque a gauche', () => {
+    const found = scorers(
+      [point(0, 'left'), point(600, 'left')],
+      [{ type: 'SideSwitch', tc: 300 }],
+    );
+
+    // Les deux points sont marques a gauche du terrain, par deux equipes.
+    expect(found).toEqual(['team1', 'team2']);
+  });
+
+  it('un point sans cote n appartient a personne', () => {
+    expect(scorers([point(0), point(600, 'nopoint')], [])).toEqual([
+      null,
+      null,
+    ]);
+  });
+
+  it('rend une entree par point, dans l ordre', () => {
+    expect(scorers([point(0), point(60), point(120)], []).length).toBe(3);
+  });
+
+  it('sans point, rien', () => {
+    expect(scorers([], [])).toEqual([]);
+  });
+});
+
+describe('scoringEvents', () => {
+  it('laisse tomber les warnings, qui ne changent ni cote ni set', () => {
+    const kept = scoringEvents([
+      { type: 'Warning', tc: 10 },
+      { type: 'SideSwitch', tc: 20 },
+      { type: 'SetEnd', tc: 30 },
+    ]);
+
+    expect(kept).toEqual([
+      { type: 'SideSwitch', tc: 20 },
+      { type: 'SetEnd', tc: 30 },
+    ]);
+  });
+});
+
 describe('stateAt', () => {
   it("borne l'index aux deux bouts", () => {
     const states = buildStates([point(0, 'left'), point(600)], []);
@@ -117,5 +176,49 @@ describe('stateAt', () => {
   it('sans etat, rend le depart', () => {
     expect(stateAt([], 0).left).toBe('team1');
     expect(stateAt([], 0).leftScore).toBe(0);
+  });
+});
+
+describe('score de depart', () => {
+  it('le tiret separe les sets', () => {
+    expect(parseSetScores('10-3')).toEqual([10, 3]);
+    expect(parseSetScores('')).toEqual([]);
+  });
+
+  it('complete la plus courte par des zeros a droite', () => {
+    expect(pairStartScore([10, 3], [8])).toEqual({
+      team1: [10, 3],
+      team2: [8, 0],
+    });
+    expect(pairStartScore([], [])).toBeUndefined();
+  });
+
+  it('relit une liste comme du texte', () => {
+    expect(readSetScores([10, 3])).toEqual([10, 3]);
+    expect(readSetScores('4-x')).toEqual([4, 0]);
+  });
+
+  it('le tableau part du score donne', () => {
+    const start = { team1: [3], team2: [2] };
+    const states = buildStates([point(0, 'left'), point(600)], [], start);
+
+    expect(states[0].leftScore).toBe(3);
+    expect(states[0].rightScore).toBe(2);
+    expect(states[1].leftScore).toBe(4);
+  });
+
+  it('les nombres avant le dernier sont des sets finis', () => {
+    const start = { team1: [10, 3], team2: [8, 0] };
+    const state = buildStates([point(0)], [], start)[0];
+
+    expect(state.finishedSets).toEqual([{ team1: 10, team2: 8 }]);
+    expect(state.setNumber).toBe(2);
+    expect(state.leftScore).toBe(3);
+  });
+
+  it('sans point, le lecteur montre deja le score de depart', () => {
+    const start = { team1: [3], team2: [2] };
+
+    expect(stateAtFrame([], [], 0, start).leftScore).toBe(3);
   });
 });

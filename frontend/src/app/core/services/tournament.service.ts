@@ -43,7 +43,7 @@ export class TournamentService extends HateoasService<Tournament> {
     if (link && 'href' in link) {
       const url = this.withQuery(link.href, {
         no_embed: '1',
-        fields: 'pk,name,files,source_proxy',
+        fields: 'pk,name,files,source_proxy,high_renders',
       });
       return this.http.get<Game[]>(url);
     }

@@ -36,17 +36,39 @@
   width: 100%;
 }
 
-.quality-select {
+.video-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-left: auto;
+}
+
+.video-tools:empty {
+  display: none;
+}
+
+.video-tools:empty + .quality-select {
+  margin-left: auto;
+}
+
+.quality-select {
+  margin-left: 8px;
   margin-top: 1em;
   width: 140px;
 }
 
 .video-metrics {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 16px;
   font-family:
     ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   font-size: 13px;
+}
+
+/* L'attenuation porte sur les compteurs, pas sur le conteneur : ce que le
+   parent projette a cote garde ses propres couleurs. */
+.video-metrics .metric {
   opacity: 0.75;
 }

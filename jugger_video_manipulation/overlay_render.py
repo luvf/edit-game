@@ -13,7 +13,11 @@ numbers a viewer is actually watching never move.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import colorsys
+import hashlib
+import math
+import re
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -26,15 +30,22 @@ if TYPE_CHECKING:
 
 FRAME = (1920, 1080)
 
+#: How much larger than the theme's own sizes the scoreboard and warnings
+#: are drawn. The opening card keeps its size.
+OVERLAY_SCALE = 1.2
+
 INK = (255, 255, 255, 255)
-PANEL = (12, 14, 18, 216)
+#: Grey rather than black, and see-through: the bar sits on the match
+#: instead of covering it.
+PANEL = (40, 43, 48, 200)
 EDGE = (255, 255, 255, 38)
 #: Finished sets sit back from the current score: they are context, not the
 #: number being watched. The winner of each set is the brighter of its pair.
 SET_WON = (255, 255, 255, 190)
 SET_LOST = (255, 255, 255, 105)
 RULE = (255, 255, 255, 78)
-WARNING_BG = (150, 32, 32, 226)
+#: Still red enough to read as a warning, greyed and see-through like the bar.
+WARNING_BG = (128, 62, 62, 160)
 WARNING_INK = (255, 214, 214, 255)
 
 #: A team name on the title card is shrunk until it fits its half of the card,
@@ -42,13 +53,24 @@ WARNING_INK = (255, 214, 214, 255)
 CARD_NAME_WIDTH = 640
 CARD_NAME_MIN = 40
 
+#: Below this, a scale factor is not worth redrawing the whole theme for.
+SCALE_EPSILON = 0.01
+
 
 @dataclass(frozen=True)
 class Team:
-    """What the overlay needs to know about one team."""
+    """What the overlay needs to know about one team.
+
+    Attributes:
+        name: what is written.
+        logo: the team's own logo; None draws a generated one instead.
+        short_name: what the generated logo takes its initials from, when
+            the team has one.
+    """
 
     name: str
     logo: Path | None = None
+    short_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -58,20 +80,61 @@ class Style:
     display_font: Path = Path("jugger_video_manipulation/impact.ttf")
     text_font: Path = Path("/usr/share/fonts/liberation/LiberationSans-Bold.ttf")
     plain_font: Path = Path("/usr/share/fonts/liberation/LiberationSans-Regular.ttf")
-    score_size: int = 44
-    name_size: int = 24
-    logo_size: int = 52
+    score_size: int = 36
+    name_size: int = 20
+    logo_size: int = 42
     #: Set numbers shrink as they pile up; a five-set match is rare but must
     #: not push the bar out of shape when it happens.
-    set_sizes: tuple[int, ...] = (19, 19, 17, 16, 15)
-    name_max_width: int = 260
-    margin: int = 46
-    radius: int = 12
-    padding: int = 22
-    gap: int = 18
+    set_sizes: tuple[int, ...] = (16, 16, 15, 14, 13)
+    name_max_width: int = 210
+    margin: int = 38
+    radius: int = 10
+    padding: int = 18
+    gap: int = 15
+    #: Half the gutter the centre rule sits in, and the floor under the bar's
+    #: height: a one-set bar is as tall as this whatever the type does.
+    centre_gap: int = 18
+    bar_height: int = 60
+    warning_kind_size: int = 16
+    warning_text_size: int = 22
+    warning_height: int = 42
     cache: dict[tuple[str, int], ImageFont.FreeTypeFont] = field(
         default_factory=dict, compare=False, repr=False
     )
+
+    def scaled(self, factor: float) -> Style:
+        """Return the same theme, drawn for a frame `factor` times 1080p high.
+
+        Every measurement here is in pixels of a 1080p frame. A proxy render is
+        smaller, and a bar drawn at full size on it would swallow the picture:
+        the overlay has to shrink with the frame it lands on, exactly as the
+        opening card already does.
+        """
+        if abs(factor - 1.0) < SCALE_EPSILON:
+            return self
+
+        def at(value: int) -> int:
+            return max(1, round(value * factor))
+
+        return replace(
+            self,
+            score_size=at(self.score_size),
+            name_size=at(self.name_size),
+            logo_size=at(self.logo_size),
+            set_sizes=tuple(at(size) for size in self.set_sizes),
+            name_max_width=at(self.name_max_width),
+            margin=at(self.margin),
+            radius=at(self.radius),
+            padding=at(self.padding),
+            gap=at(self.gap),
+            centre_gap=at(self.centre_gap),
+            bar_height=at(self.bar_height),
+            warning_kind_size=at(self.warning_kind_size),
+            warning_text_size=at(self.warning_text_size),
+            warning_height=at(self.warning_height),
+            # Les tailles changent : le cache de polices ne se transporte pas.
+            cache={},
+        )
 
     def font(self, path: Path, size: int) -> ImageFont.FreeTypeFont:
         """Return a font, loading each size only once."""
@@ -132,6 +195,74 @@ def load_logo(path: Path | None, height: int) -> Image.Image | None:
     return image.resize((width, height), Image.Resampling.LANCZOS)
 
 
+#: A short name this long or shorter is already an abbreviation, drawn whole.
+KEEP_WHOLE = 3
+
+
+def _initials(name: str) -> str:
+    """Return up to two letters that stand for a name."""
+    words = [word for word in re.split(r"[\s\-_'\u2019.!]+", name) if word]
+    if not words:
+        return "?"
+    if len(words) == 1:
+        # A short name of three letters is already the abbreviation: keep it.
+        word = words[0]
+        return word.upper() if len(word) <= KEEP_WHOLE else word[:2].upper()
+    return (words[0][0] + words[1][0]).upper()
+
+
+def _name_colour(name: str) -> tuple[int, int, int]:
+    """Pick a colour from a name: the same name always gets the same one."""
+    digest = hashlib.sha1(name.strip().casefold().encode("utf-8")).digest()
+    red, green, blue = colorsys.hls_to_rgb(digest[0] / 255, 0.42, 0.55)
+    return round(red * 255), round(green * 255), round(blue * 255)
+
+
+def generated_logo(name: str, height: int, style: Style | None = None) -> Image.Image:
+    """Draw a logo for a team that has none: its initials on a coloured disc.
+
+    Drawn four times larger and scaled down, so the edge of the disc and the
+    letters come out smooth at the few dozen pixels a scoreboard gives them.
+    The colour comes from the name, so a team keeps its colour from one
+    render to the next.
+    """
+    style = style or Style()
+    size = max(height, 8)
+    big = size * 4
+    image = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.ellipse(
+        [0, 0, big - 1, big - 1],
+        fill=(*_name_colour(name), 255),
+        outline=(255, 255, 255, 235),
+        width=max(big // 24, 1),
+    )
+    label = _initials(name)
+    # Two letters fill the disc at 46 % of its size; three are shrunk until
+    # they fit inside it with a margin.
+    point_size = max(int(big * 0.46), 8)
+    font = style.font(style.display_font, point_size)
+    left, top, right, bottom = draw.textbbox((0, 0), label, font=font)
+    while right - left > big * 0.7 and point_size > 8:  # noqa: PLR2004
+        point_size -= max(big // 50, 1)
+        font = style.font(style.display_font, point_size)
+        left, top, right, bottom = draw.textbbox((0, 0), label, font=font)
+    draw.text(
+        ((big - (right - left)) / 2 - left, (big - (bottom - top)) / 2 - top),
+        label,
+        font=font,
+        fill=INK,
+    )
+    return image.resize((size, size), Image.Resampling.LANCZOS)
+
+
+def team_logo(team: Team, height: int, style: Style | None = None) -> Image.Image:
+    """Return the team's own logo at `height`, or a generated one if it has none."""
+    return load_logo(team.logo, height) or generated_logo(
+        team.short_name or team.name, height, style
+    )
+
+
 @dataclass
 class _Side:
     """One half of the bar, measured before anything is drawn."""
@@ -159,7 +290,7 @@ def _measure_side(
     set_font = style.font(style.text_font, style.set_size(len(sets)))
 
     name = truncate(draw, team.name, name_font, style.name_max_width)
-    logo = load_logo(team.logo, style.logo_size) if show_logos else None
+    logo = team_logo(team, style.logo_size, style) if show_logos else None
 
     sets_width = 0
     if sets:
@@ -196,7 +327,99 @@ def _sets_for(state: BoardState, side: str) -> list[tuple[int, bool]]:
     return out
 
 
-def draw_scoreboard(
+@dataclass(frozen=True)
+class BarLayout:
+    """The bar's measurements, fixed for a whole match.
+
+    Measured once over every state the board will show, so the bar keeps one
+    size from the first point to the last: a score going from 9 to 10, a set
+    closing, the teams changing ends — nothing makes it grow, shrink or shift
+    its names. The room a two-digit score or the set history will need is
+    kept from the start.
+
+    Attributes:
+        half: width of each half of the bar, the widest either side needs.
+        rows: set rows the history column is sized for.
+        score_width: the widest score of the match.
+        sets_width: the widest finished-set score; 0 when no set closes.
+    """
+
+    half: int
+    rows: int
+    score_width: int
+    sets_width: int
+
+
+def scoreboard_layout(
+    states: Sequence[BoardState],
+    teams: dict[str, Team],
+    *,
+    style: Style | None = None,
+    show_logos: bool = True,
+    show_history: bool = True,
+    size: tuple[int, int] = FRAME,
+) -> BarLayout:
+    """Measure the bar for every state of a match at once.
+
+    Args:
+        states: every state the board will show.
+        teams: the two teams, keyed by the names used in the states.
+        style: fonts and sizes, as `draw_scoreboard` receives them.
+        show_logos: whether logos take room.
+        show_history: whether finished sets take room.
+        size: the frame the bar is drawn on.
+
+    Returns:
+        The measurements to draw every state with.
+    """
+    style = (style or Style()).scaled(OVERLAY_SCALE * size[1] / FRAME[1])
+    draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    score_font = style.font(style.display_font, style.score_size)
+    name_font = style.font(style.text_font, style.name_size)
+
+    rows = 1
+    if show_history:
+        rows = max([len(state.finished_sets) for state in states] + [1])
+    set_font = style.font(style.text_font, style.set_size(rows))
+
+    score_width = max(
+        (
+            math.ceil(_text_width(draw, str(score), score_font))
+            for state in states
+            for score in (state.left_score, state.right_score)
+        ),
+        default=0,
+    )
+    sets_width = 0
+    if show_history:
+        sets_width = max(
+            (
+                math.ceil(_text_width(draw, str(value), set_font))
+                for state in states
+                for finished in state.finished_sets
+                for value in (finished.team1, finished.team2)
+            ),
+            default=0,
+        )
+
+    team_width = 0
+    for key in {key for state in states for key in (state.left, state.right)}:
+        team = teams.get(key, Team(key))
+        name = truncate(draw, team.name, name_font, style.name_max_width)
+        width = math.ceil(_text_width(draw, name, name_font))
+        if show_logos:
+            width += style.gap + team_logo(team, style.logo_size, style).width
+        team_width = max(team_width, width)
+
+    half = score_width + style.gap + team_width
+    if sets_width:
+        half += sets_width + style.gap
+    return BarLayout(
+        half=half, rows=rows, score_width=score_width, sets_width=sets_width
+    )
+
+
+def draw_scoreboard(  # noqa: PLR0913 — display options, all keyword-only
     state: BoardState,
     teams: dict[str, Team],
     *,
@@ -205,6 +428,7 @@ def draw_scoreboard(
     show_logos: bool = True,
     show_history: bool = True,
     size: tuple[int, int] = FRAME,
+    layout: BarLayout | None = None,
 ) -> Image.Image:
     """Draw the bar for one board state, on a transparent frame.
 
@@ -216,11 +440,23 @@ def draw_scoreboard(
         show_logos: draw the team logos on the outside.
         show_history: draw the finished sets.
         size: the frame to draw on.
+        layout: the match's measurements, from `scoreboard_layout`. Every
+            state of a match must be drawn with the same one, or the bar
+            changes size between points; left out, it is measured on this
+            state alone.
 
     Returns:
         An RGBA image of `size`, transparent outside the bar.
     """
-    style = style or Style()
+    layout = layout or scoreboard_layout(
+        [state],
+        teams,
+        style=style,
+        show_logos=show_logos,
+        show_history=show_history,
+        size=size,
+    )
+    style = (style or Style()).scaled(OVERLAY_SCALE * size[1] / FRAME[1])
     width, height = size
     layer = Image.new("RGBA", size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
@@ -244,14 +480,14 @@ def draw_scoreboard(
         ),
     }
 
-    rows = max(len(sides["left"].sets), len(sides["right"].sets), 1)
+    rows = layout.rows
     set_font = style.font(style.text_font, style.set_size(rows))
     plain_font = style.font(style.plain_font, style.set_size(rows))
-    line = style.set_size(rows) + 3
+    line = round(style.set_size(rows) * 1.16)
 
-    bar_height = max(74, rows * line + 20)
-    half = max(sides["left"].width, sides["right"].width)
-    bar_width = half * 2 + style.padding * 2 + 44
+    bar_height = max(style.bar_height, rows * line + style.gap)
+    half = layout.half
+    bar_width = half * 2 + style.padding * 2 + style.centre_gap * 2
 
     x0 = (width - bar_width) // 2
     y0 = (height - bar_height - style.margin) if position == "bottom" else style.margin
@@ -265,28 +501,35 @@ def draw_scoreboard(
         outline=EDGE,
         width=2,
     )
-    draw.line([centre_x, y0 + 14, centre_x, y0 + bar_height - 14], fill=RULE, width=2)
+    inset = bar_height // 5
+    draw.line(
+        [centre_x, y0 + inset, centre_x, y0 + bar_height - inset], fill=RULE, width=2
+    )
 
     score_font = style.font(style.display_font, style.score_size)
     name_font = style.font(style.text_font, style.name_size)
 
     for key, direction in (("left", -1), ("right", 1)):
         side = sides[key]
-        cursor = centre_x + direction * 22
+        cursor = centre_x + direction * style.centre_gap
 
         score_width = _text_width(draw, side.score, score_font)
         draw.text(
             (
                 cursor - score_width if direction < 0 else cursor,
-                middle_y - _text_height(draw, side.score, score_font) / 2 - 8,
+                middle_y
+                - _text_height(draw, side.score, score_font) / 2
+                - style.score_size / 5,
             ),
             side.score,
             font=score_font,
             fill=INK,
         )
-        cursor += direction * (score_width + style.gap)
+        # The slot of the widest score of the match: a second digit takes
+        # room kept for it, and nothing further out moves.
+        cursor += direction * (layout.score_width + style.gap)
 
-        if side.sets:
+        if layout.sets_width:
             top = middle_y - (len(side.sets) * line) / 2
             for index, (value, won) in enumerate(side.sets):
                 font = set_font if won else plain_font
@@ -296,7 +539,7 @@ def draw_scoreboard(
                 x = (
                     cursor - value_width
                     if direction < 0
-                    else cursor + (side.sets_width - value_width)
+                    else cursor + (layout.sets_width - value_width)
                 )
                 draw.text(
                     (x, top + index * line),
@@ -304,27 +547,33 @@ def draw_scoreboard(
                     font=font,
                     fill=SET_WON if won else SET_LOST,
                 )
-            cursor += direction * (side.sets_width + style.gap)
+            cursor += direction * (layout.sets_width + style.gap)
 
         name_width = _text_width(draw, side.name, name_font)
         draw.text(
             (
                 cursor - name_width if direction < 0 else cursor,
-                middle_y - _text_height(draw, side.name, name_font) / 2 - 3,
+                middle_y
+                - _text_height(draw, side.name, name_font) / 2
+                - style.name_size / 7,
             ),
             side.name,
             font=name_font,
             fill=INK,
         )
-        cursor += direction * (name_width + style.gap)
 
         if side.logo is not None:
+            # Against the end of the bar rather than after the name: the two
+            # logos then sit at the same distance from the middle whatever the
+            # names measure, and the bar reads as two symmetrical halves.
+            edge = (
+                x0 + style.padding
+                if direction < 0
+                else x0 + bar_width - style.padding - side.logo.width
+            )
             layer.paste(
                 side.logo,
-                (
-                    int(cursor - side.logo.width) if direction < 0 else int(cursor),
-                    middle_y - side.logo.height // 2,
-                ),
+                (int(edge), middle_y - side.logo.height // 2),
                 side.logo,
             )
 
@@ -337,7 +586,7 @@ def draw_warning(
     *,
     style: Style | None = None,
     position: str = "bottom",
-    bar_height: int = 74,
+    bar_height: int | None = None,
     size: tuple[int, int] = FRAME,
 ) -> Image.Image:
     """Draw the warning strip, on a transparent frame.
@@ -350,54 +599,73 @@ def draw_warning(
         text: the free text, shown large.
         style: fonts and sizes.
         position: where the scoreboard is, so the strip can tuck against it.
-        bar_height: how tall the scoreboard is, for the same reason.
+        bar_height: how tall the scoreboard is, for the same reason; the
+            theme's own bar height when omitted.
         size: the frame to draw on.
 
     Returns:
         An RGBA image of `size`, transparent outside the strip.
     """
-    style = style or Style()
+    style = (style or Style()).scaled(OVERLAY_SCALE * size[1] / FRAME[1])
     width, height = size
     layer = Image.new("RGBA", size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
 
-    kind_font = style.font(style.text_font, 20)
-    text_font = style.font(style.text_font, 27)
+    kind_font = style.font(style.text_font, style.warning_kind_size)
+    text_font = style.font(style.text_font, style.warning_text_size)
     label = kind.upper()
 
+    bar = style.bar_height if bar_height is None else bar_height
     kind_width = _text_width(draw, label, kind_font)
     text_width = _text_width(draw, text, text_font)
-    strip_width = kind_width + text_width + 88
-    strip_height = 50
+    strip_width = kind_width + text_width + style.padding * 4
+    strip_height = style.warning_height
+    stack_gap = style.gap - 3
 
     x0 = (width - strip_width) // 2
     if position == "bottom":
-        y0 = height - style.margin - bar_height - 14 - strip_height
+        y0 = height - style.margin - bar - stack_gap - strip_height
     else:
-        y0 = style.margin + bar_height + 14
+        y0 = style.margin + bar + stack_gap
 
     draw.rounded_rectangle(
         [x0, y0, x0 + strip_width, y0 + strip_height],
-        radius=9,
+        radius=style.radius - 1,
         fill=WARNING_BG,
         outline=EDGE,
         width=2,
     )
+    pad = style.padding + 2
     draw.text(
-        (x0 + 24, y0 + strip_height / 2 - 12), label, font=kind_font, fill=WARNING_INK
+        (x0 + pad, y0 + strip_height / 2 - style.warning_kind_size * 0.62),
+        label,
+        font=kind_font,
+        fill=WARNING_INK,
     )
-    rule_x = x0 + 24 + kind_width + 20
-    draw.line([rule_x, y0 + 13, rule_x, y0 + strip_height - 13], fill=RULE, width=2)
-    draw.text((rule_x + 20, y0 + strip_height / 2 - 16), text, font=text_font, fill=INK)
+    rule_x = x0 + pad + kind_width + style.gap
+    inset = strip_height // 4
+    draw.line(
+        [rule_x, y0 + inset, rule_x, y0 + strip_height - inset], fill=RULE, width=2
+    )
+    draw.text(
+        (rule_x + style.gap, y0 + strip_height / 2 - style.warning_text_size * 0.72),
+        text,
+        font=text_font,
+        fill=INK,
+    )
     return layer
 
 
 @dataclass(frozen=True)
 class CardText:
-    """The words on the opening card, beyond the team names."""
+    """The words on the opening card, beyond the team names.
+
+    Two lines only, both meant for a viewer: where the match is played, and
+    what it takes to win it. The cut's own name never appears — it is an
+    internal label, chosen to find the file again, not to be read on screen.
+    """
 
     tournament: str = ""
-    stage: str = ""
     condition: str = ""
 
 
@@ -409,6 +677,7 @@ def draw_title_card(
     background: Image.Image | None = None,
     style: Style | None = None,
     size: tuple[int, int] = FRAME,
+    transparent: bool = False,
 ) -> Image.Image:
     """Draw the card that opens the match.
 
@@ -419,13 +688,15 @@ def draw_title_card(
     Args:
         team1: the team drawn on the left.
         team2: the team drawn on the right.
-        text: tournament, stage and winning condition.
+        text: tournament and winning condition.
         background: a frame to blur behind the card; a flat ground when None.
         style: fonts and sizes.
         size: the frame to draw on.
+        transparent: draw the words and logos alone, on nothing, for the
+            render to lay over the blurred match itself.
 
     Returns:
-        An opaque RGB-over-RGBA image of `size`.
+        An RGBA image of `size`: opaque, or transparent around the words.
     """
     style = style or Style()
     text = text or CardText()
@@ -463,18 +734,10 @@ def draw_title_card(
             font=tournament_font,
             fill=(255, 255, 255, 205),
         )
-    if text.stage:
-        label = text.stage.upper()
-        draw.text(
-            ((width - _text_width(draw, label, meta_font)) / 2, 224 * k),
-            label,
-            font=meta_font,
-            fill=SET_LOST,
-        )
 
     for direction, team in ((-1, team1), (1, team2)):
         centre = width // 2 + int(direction * 390 * k)
-        logo = load_logo(team.logo, max(int(250 * k), 16))
+        logo = team_logo(team, max(int(250 * k), 16), style)
         if logo is not None:
             layer.paste(logo, (centre - logo.width // 2, int(350 * k)), logo)
 
@@ -516,4 +779,6 @@ def draw_title_card(
             fill=(255, 255, 255, 190),
         )
 
+    if transparent:
+        return layer
     return Image.alpha_composite(card, layer)

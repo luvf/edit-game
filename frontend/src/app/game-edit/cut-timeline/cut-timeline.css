@@ -1,7 +1,7 @@
 :host {
   display: block;
-  --segment-left: #2563eb;
-  --segment-right: #d97706;
+  --segment-team1: #2563eb;
+  --segment-team2: #d97706;
   --segment-nopoint: #9ca3af;
   --marker-side-switch: #7c3aed;
   --marker-set-end: #0f766e;
@@ -53,12 +53,12 @@
   z-index: 1;
 }
 
-.segment.is-left {
-  background: var(--segment-left);
+.segment.is-team1 {
+  background: var(--segment-team1);
 }
 
-.segment.is-right {
-  background: var(--segment-right);
+.segment.is-team2 {
+  background: var(--segment-team2);
 }
 
 .segment.is-nopoint {
@@ -283,12 +283,12 @@
   border-radius: 2px;
 }
 
-.swatch.is-left {
-  background: var(--segment-left);
+.swatch.is-team1 {
+  background: var(--segment-team1);
 }
 
-.swatch.is-right {
-  background: var(--segment-right);
+.swatch.is-team2 {
+  background: var(--segment-team2);
 }
 
 .swatch.is-nopoint {

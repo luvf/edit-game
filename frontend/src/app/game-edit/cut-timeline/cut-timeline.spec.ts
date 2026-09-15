@@ -116,6 +116,46 @@ describe('CutTimelineComponent', () => {
     ).toBe(1);
   });
 
+  it('colore les bandes par equipe, pas par cote du terrain', () => {
+    fixture.componentRef.setInput('durationFrames', 1200);
+    fixture.componentRef.setInput('points', [
+      { in: 0, out: 60, point: 'left' },
+      { in: 600, out: 660, point: 'left' },
+    ]);
+    fixture.componentRef.setInput('events', [
+      { type: 'SideSwitch', tc: 300, label: 'côté' },
+    ]);
+    fixture.detectChanges();
+
+    // Les deux points sont marques a gauche, de part et d'autre du
+    // changement de cote : ce sont deux equipes differentes.
+    expect(component.segments().map((s) => s.scorer)).toEqual([
+      'team1',
+      'team2',
+    ]);
+    const bands = fixture.nativeElement.querySelectorAll('.track .segment');
+    expect(bands[0].classList).toContain('is-team1');
+    expect(bands[1].classList).toContain('is-team2');
+  });
+
+  it("nomme l'equipe dans l'infobulle d'une bande", () => {
+    fixture.componentRef.setInput('durationFrames', 1200);
+    fixture.componentRef.setInput('points', [
+      { in: 0, out: 60, point: 'right' },
+    ]);
+    fixture.detectChanges();
+
+    expect(component.segments()[0].title).toContain('équipe 2');
+  });
+
+  it('un point sans cote ne porte aucune equipe', () => {
+    fixture.componentRef.setInput('durationFrames', 1200);
+    fixture.componentRef.setInput('points', [{ in: 0, out: 60 }]);
+    fixture.detectChanges();
+
+    expect(component.segments()[0].scorer).toBe('nopoint');
+  });
+
   it("ne montre aucune voie d'apercu par defaut", () => {
     fixture.componentRef.setInput('durationFrames', 300);
     fixture.componentRef.setInput('points', [{ in: 0, out: 60 }]);

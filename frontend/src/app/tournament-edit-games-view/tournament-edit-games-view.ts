@@ -1,24 +1,38 @@
 // TypeScript
-import {AfterViewInit, Component, inject, OnDestroy, OnInit, signal, ViewChild,} from '@angular/core';
-import {ActivatedRoute, Router} from '@angular/router';
+import {
+  AfterViewInit,
+  Component,
+  inject,
+  OnDestroy,
+  OnInit,
+  signal,
+  ViewChild,
+} from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 
-import {MatTableDataSource, MatTableModule} from '@angular/material/table';
-import {MatSort, MatSortModule} from '@angular/material/sort';
+import { MatTableDataSource, MatTableModule } from '@angular/material/table';
+import { MatSort, MatSortModule } from '@angular/material/sort';
 import {
   ArchiveAllGamesResult,
   TournamentService,
 } from '../core/services/tournament.service';
-import {Game, Team, Tournament, Video, VideoMetadata,} from '../core/models/models';
-import {of} from 'rxjs';
-import {MatButtonModule} from '@angular/material/button';
-import {MatInputModule} from '@angular/material/input';
-import {MatFormFieldModule} from '@angular/material/form-field';
-import {MatCheckboxModule} from '@angular/material/checkbox';
-import {MatSelectModule} from '@angular/material/select';
-import {FormsModule} from '@angular/forms';
-import {GamesService} from '../core/services/misc-hateoas-models.service';
-import {NavService} from '../core/services/nav.service';
-import {renderPresets} from '../core/services/preset-service';
+import {
+  Game,
+  Team,
+  Tournament,
+  Video,
+  VideoMetadata,
+} from '../core/models/models';
+import { of } from 'rxjs';
+import { MatButtonModule } from '@angular/material/button';
+import { MatInputModule } from '@angular/material/input';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatSelectModule } from '@angular/material/select';
+import { FormsModule } from '@angular/forms';
+import { GamesService } from '../core/services/misc-hateoas-models.service';
+import { NavService } from '../core/services/nav.service';
+import { renderPresets } from '../core/services/preset-service';
 
 @Component({
   selector: 'app-tournament-edit-games-view',
@@ -116,6 +130,8 @@ export class TournamentEditGamesView
           return item.name?.toLowerCase() ?? '';
         case 'cuts':
           return this.cuts_count()[item.pk] ?? 0;
+        case 'high_renders':
+          return item.high_renders ?? 0;
         default:
           return (
             (item as unknown as Record<string, string | number>)[property] ?? ''

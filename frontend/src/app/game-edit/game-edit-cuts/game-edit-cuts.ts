@@ -1,3 +1,4 @@
+import { pairStartScore, readSetScores } from '../scoreboard';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -39,6 +40,7 @@ import {
 import { CutDetailComponent } from '../cut-detail/cut-detail';
 import { CutTimelineComponent } from '../cut-timeline/cut-timeline';
 import { VideoPlayer } from '../video-player/video-player';
+import { GameVideoMenuComponent } from '../game-video-menu/game-video-menu';
 import { GameEditCutsStateService } from './game-edit-cuts-state';
 
 type CutTemplate = {
@@ -85,6 +87,7 @@ function pickArchiveFile(files: VideoFiles): VideoFile | null {
     CutDetailComponent,
     CutTimelineComponent,
     VideoPlayer,
+    GameVideoMenuComponent,
   ],
   templateUrl: './game-edit-cuts.html',
   styleUrl: './game-edit-cuts.css',
@@ -189,6 +192,12 @@ export class GameEditCutsComponent
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['game']) {
+      this.state.startScore.set(
+        pairStartScore(
+          readSetScores(this.game?.start_score?.team1),
+          readSetScores(this.game?.start_score?.team2),
+        ),
+      );
       this.loadCuts();
       this.loadRenderedFiles();
       this.loadGameVideo();
@@ -284,7 +293,8 @@ export class GameEditCutsComponent
    *
    * Le cut revient vide et son onglet s'ouvre tout de suite : le modele
    * tourne dans la file de rendu et peut prendre quelques minutes, le temps
-   * d'extraire l'audio de l'archive la premiere fois.
+   * d'extraire l'audio la premiere fois -- de l'archive, ou des rushs quand
+   * la game n'en a pas encore.
    */
   onProposeMlCut(name: string): void {
     if (!this.game) return;

@@ -18,7 +18,8 @@ from core.models.render_queue.base import (
     RenderQueueItemBase as RenderQueueItem,
 )
 from core.models.tournament import Team, Tournament
-from core.models.video import Video
+from core.models.video import Video, VideoFile, file_exists
+from jugger_video_manipulation.scoreboard import StartScore, start_score
 
 Model = (
     Cut
@@ -377,8 +378,14 @@ class TournamentSerializer(
         return new_tournament
 
 
+#: The render qualities counted as a finished, publishable render of a cut.
+HIGH_RENDER_QUALITIES = (VideoFile.Quality.HIGH, VideoFile.Quality.HIGH_AV1)
+
+
 class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game]):
     """Game serializer."""
+
+    high_renders = serializers.SerializerMethodField()
 
     cuts = serializers.HyperlinkedIdentityField(view_name="game-cuts")
     create_cut = serializers.HyperlinkedIdentityField(view_name="game-create-cut")
@@ -389,6 +396,31 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
         view_name="game-create-archive"
     )
     ml_cut = serializers.HyperlinkedIdentityField(view_name="game-ml-cut")
+
+    def get_high_renders(self, game: Game) -> int:
+        """Count this game's cut renders in High h265 or High AV1, on disk.
+
+        A render's file row is created as soon as its output path is worked
+        out, before ffmpeg has written anything: a queued or failed render has
+        a row and no file. Only the files that exist are counted.
+        """
+        paths = VideoFile.objects.filter(
+            video__cut__game=game, quality__in=HIGH_RENDER_QUALITIES
+        ).values_list("path", flat=True)
+        return sum(1 for path in paths if path and file_exists(path))
+
+    def validate_start_score(self, value: Any) -> StartScore | None:
+        """Pair the two teams' per-set scores, the shorter padded with zeros.
+
+        Each team may be sent as a list or as text like `10-3`. Nothing on
+        either side clears the starting score.
+        """
+        if value in (None, ""):
+            return None
+        if not isinstance(value, dict):
+            msg = 'Expected {"team1": [...], "team2": [...]}.'
+            raise serializers.ValidationError(msg)
+        return start_score(value.get("team1"), value.get("team2"))
 
     default_hal_embedded: ClassVar[dict[str, str]] = {
         "tournament": "TournamentSerializer",
@@ -410,8 +442,12 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
             "tournament",
             "team1",
             "team2",
+            "condition",
+            "sets_to_win",
+            "start_score",
             "json_file",
             "cuts",
+            "high_renders",
             "create_cut",
             "generate_proxy",
             "create_archive",

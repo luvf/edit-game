@@ -8,8 +8,10 @@ Subprocess/ffmpeg/ffprobe calls are always mocked here: `_execute()` and
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
+import numpy as np
 import pytest
 from model_bakery import baker
 
@@ -21,6 +23,8 @@ from core.models.render_queue.ffmpeg import (
     RenderQueueItemFFMPEG,
     RenderQueueItemProxy,
 )
+from jugger_video_manipulation.gopro_telemetry import Settings, Telemetry
+from jugger_video_manipulation.stabilise import GYRO_MARKER, GyroSource
 
 VALID_METADATA = {
     "format": {"format_name": "mov,mp4,m4a,3gp,3g2,mj2", "duration": "10.5"},
@@ -321,6 +325,425 @@ class TestExecute:
         assert not item.final_output_path.exists()
 
 
+class TestStabilise:
+    """A cut can ask for each kept point to be steadied."""
+
+    @pytest.fixture()
+    def sources(self, game, monkeypatch, tmp_path):
+        files = [tmp_path / "a.mp4"]
+        monkeypatch.setattr(
+            Game, "get_source_files", lambda self, force_rush=False: files
+        )
+        monkeypatch.setattr(
+            RenderQueueItemFFMPEG, "_is_cuda_available", staticmethod(lambda: False)
+        )
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.get_fps", lambda video_file: 25.0
+        )
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.probe_frame_counts",
+            lambda sources: [100_000 for _ in sources],
+        )
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.gyro_source", lambda *args: None
+        )
+        monkeypatch.setattr(
+            RenderQueueItemFFMPEG,
+            "_source_video_height",
+            classmethod(lambda cls, path: 1080),
+        )
+        return files
+
+    @staticmethod
+    def _item(game, *, stabilise):
+        cut = Cut.objects.create(game=game, name="c", type_cut="MAN")
+        cut.set_json(
+            {
+                "points": [{"in": 0, "out": 250}, {"in": 1000, "out": 1250}],
+                "overlays": [],
+                "display": {"stabilise": stabilise},
+            }
+        )
+        return baker.make("core.RenderQueueItemCut", cut=cut, preset="medium")
+
+    def test_each_kept_point_is_corrected_in_the_render(self, game, sources, tmp_path):
+        item = self._item(game, stabilise=True)
+
+        cmd = item.build_command(
+            output_file=tmp_path / "out.mp4", overlay_dir=tmp_path / "work"
+        )
+
+        graph = cmd[cmd.index("-filter_complex") + 1]
+        assert graph.count("vidstabtransform=") == 2
+        assert str(tmp_path / "work" / "stabilise" / "point_001.trf") in graph
+
+    def test_paths_measured_in_the_picture_are_smoothed(self, game, sources, tmp_path):
+        item = self._item(game, stabilise=True)
+
+        cmd = item.build_command(
+            output_file=tmp_path / "out.mp4", overlay_dir=tmp_path / "work"
+        )
+
+        graph = cmd[cmd.index("-filter_complex") + 1]
+        assert graph.count(":relative=1:") == 2
+        assert ":tripod=1:" not in graph
+
+    def test_the_gyroscope_s_corrections_are_applied_as_a_tripod(
+        self, game, sources, tmp_path
+    ):
+        item = self._item(game, stabilise=True)
+        directory = tmp_path / "work" / "stabilise"
+        directory.mkdir(parents=True)
+        (directory / GYRO_MARKER).write_text("orientation enregistrée\n")
+
+        cmd = item.build_command(
+            output_file=tmp_path / "out.mp4", overlay_dir=tmp_path / "work"
+        )
+
+        graph = cmd[cmd.index("-filter_complex") + 1]
+        assert graph.count(":tripod=1:") == 2
+        assert ":relative=1:" not in graph
+
+    def test_the_correction_comes_before_the_crossfade(self, game, sources, tmp_path):
+        # Steadying the dissolve instead would read a camera path the blend
+        # of two shots does not have.
+        item = self._item(game, stabilise=True)
+
+        cmd = item.build_command(
+            output_file=tmp_path / "out.mp4", overlay_dir=tmp_path / "work"
+        )
+
+        graph = cmd[cmd.index("-filter_complex") + 1]
+        assert graph.index("vidstabtransform") < graph.index("xfade")
+
+    def test_nothing_is_corrected_unless_the_cut_asks(self, game, sources, tmp_path):
+        item = self._item(game, stabilise=False)
+
+        cmd = item.build_command(
+            output_file=tmp_path / "out.mp4", overlay_dir=tmp_path / "work"
+        )
+
+        assert "vidstab" not in cmd[cmd.index("-filter_complex") + 1]
+
+    def test_a_preview_shows_the_command_without_it(self, game, sources, tmp_path):
+        # A preview writes nothing, so there is no camera path to read.
+        item = self._item(game, stabilise=True)
+
+        cmd = item.build_command(output_file=tmp_path / "out.mp4")
+
+        assert "vidstab" not in cmd[cmd.index("-filter_complex") + 1]
+
+    def test_the_analysis_runs_before_the_render(
+        self, game, sources, tmp_path, monkeypatch
+    ):
+        item = self._item(game, stabilise=True)
+        ran = []
+        monkeypatch.setattr(item, "_run_subprocess", ran.append)
+
+        item._before_render(tmp_path / "work")
+
+        assert len(ran) == 1
+        graph = ran[0][ran[0].index("-filter_complex") + 1]
+        assert graph.count("vidstabdetect=") == 2
+        assert ran[0][-3:] == ["-f", "null", "-"]
+        assert (tmp_path / "work" / "stabilise").is_dir()
+
+    def test_the_recorded_orientation_replaces_the_analysis(
+        self, game, sources, tmp_path, monkeypatch
+    ):
+        item = self._item(game, stabilise=True)
+        still = Telemetry(
+            camera="HERO10 Black",
+            orientations=np.tile([1.0, 0.0, 0.0, 0.0], (100_000, 1)),
+            settings=Settings(lens="S"),
+        )
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.gyro_source",
+            lambda files, counts, height, fps: GyroSource(
+                [still.orientations], counts, 600.0
+            ),
+        )
+        ran = []
+        monkeypatch.setattr(item, "_run_subprocess", ran.append)
+
+        item._before_render(tmp_path / "work")
+
+        assert ran == []
+        directory = tmp_path / "work" / "stabilise"
+        written = sorted(directory.glob("*.trf"))
+        assert [path.name for path in written] == ["point_000.trf", "point_001.trf"]
+        # The render will apply these as a tripod, not smooth them.
+        assert (directory / GYRO_MARKER).exists()
+
+    def test_an_archived_game_reads_the_orientation_from_its_rushes(
+        self, game, sources, tmp_path, monkeypatch
+    ):
+        rushes = [tmp_path / "GX01.MP4", tmp_path / "GX02.MP4"]
+        for rush in rushes:
+            rush.write_bytes(b"rush")
+        archive = sources
+        monkeypatch.setattr(
+            Game,
+            "get_source_files",
+            lambda self, force_rush=False: rushes if force_rush else archive,
+        )
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.probe_frame_counts",
+            lambda files: [60_000, 40_000] if files == rushes else [100_000],
+        )
+        asked = []
+
+        def recorded_only_in_rushes(files, counts, height, fps):
+            asked.append(files)
+            return GyroSource([], counts, 600.0) if files == rushes else None
+
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.gyro_source", recorded_only_in_rushes
+        )
+
+        gyro = self._item(game, stabilise=True)._gyro_source(archive, [100_000], 25.0)
+
+        assert asked == [archive, rushes]
+        assert gyro.frame_counts == [60_000, 40_000]
+
+    def test_rushes_that_do_not_match_the_archive_are_not_trusted(
+        self, game, sources, tmp_path, monkeypatch
+    ):
+        # Other frames than the archive's would put every correction on the
+        # wrong frame: the picture is analysed instead.
+        rushes = [tmp_path / "GX01.MP4"]
+        rushes[0].write_bytes(b"rush")
+        archive = sources
+        monkeypatch.setattr(
+            Game,
+            "get_source_files",
+            lambda self, force_rush=False: rushes if force_rush else archive,
+        )
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.probe_frame_counts",
+            lambda files: [99_000] if files == rushes else [100_000],
+        )
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.gyro_source",
+            lambda files, counts, height, fps: (
+                GyroSource([], counts, 600.0) if files == rushes else None
+            ),
+        )
+
+        item = self._item(game, stabilise=True)
+
+        assert item._gyro_source(archive, [100_000], 25.0) is None
+
+    def test_no_analysis_unless_the_cut_asks(
+        self, game, sources, tmp_path, monkeypatch
+    ):
+        item = self._item(game, stabilise=False)
+        ran = []
+        monkeypatch.setattr(item, "_run_subprocess", ran.append)
+
+        item._before_render(tmp_path / "work")
+
+        assert ran == []
+
+    def test_the_work_directory_is_removed_after_the_render(
+        self, game, monkeypatch, tmp_path
+    ):
+        # Camera paths run to megabytes per minute of footage.
+        item = baker.make("core.RenderQueueItemProxy", game=game, preset="low")
+        seen = []
+
+        def fake_build_command(
+            self, chapter_metadata_tmp_path=None, output_file=None, overlay_dir=None
+        ):
+            overlay_dir.mkdir(parents=True)
+            (overlay_dir / "point_000.trf").write_bytes(b"path")
+            seen.append(overlay_dir)
+            output_file.write_bytes(b"rendered")
+            return ["true"]
+
+        monkeypatch.setattr(RenderQueueItemProxy, "build_command", fake_build_command)
+        monkeypatch.setattr(item, "_run_subprocess", lambda command: None)
+        monkeypatch.setattr(item, "_probe_file", lambda path: VALID_METADATA)
+
+        item._execute()
+
+        assert seen
+        assert not seen[0].exists()
+
+
+class TestTail:
+    """A cut render keeps running for 25 s once the last point is over."""
+
+    @pytest.fixture()
+    def item(self, game, monkeypatch):
+        files = [Path("/rushes/a.mp4")]
+        monkeypatch.setattr(
+            Game, "get_source_files", lambda self, force_rush=False: files
+        )
+        monkeypatch.setattr(
+            RenderQueueItemFFMPEG, "_is_cuda_available", staticmethod(lambda: False)
+        )
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.get_fps", lambda video_file: 25.0
+        )
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.gyro_source", lambda *args: None
+        )
+        monkeypatch.setattr(
+            RenderQueueItemFFMPEG,
+            "_source_video_height",
+            classmethod(lambda cls, path: 1080),
+        )
+        cut = Cut.objects.create(game=game, name="c", type_cut="MAN")
+        cut.set_json(
+            {
+                "points": [{"in": 0, "out": 250}, {"in": 1000, "out": 1250}],
+                "overlays": [],
+            }
+        )
+        return baker.make("core.RenderQueueItemCut", cut=cut, preset="medium")
+
+    @staticmethod
+    def _rushes_hold(monkeypatch, frames):
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.probe_frame_counts",
+            lambda sources: [frames],
+        )
+
+    @staticmethod
+    def _graph(item, tmp_path):
+        cmd = item.build_command(output_file=tmp_path / "out.mp4")
+        return cmd[cmd.index("-filter_complex") + 1]
+
+    def test_the_last_point_runs_on_for_25_seconds(self, item, monkeypatch, tmp_path):
+        self._rushes_hold(monkeypatch, 100_000)
+
+        # 1250 + 25 s at 25 fps = 1875, bounds half a frame back.
+        assert "trim=start=39.980000:end=74.980000" in self._graph(item, tmp_path)
+
+    def test_a_match_filmed_to_its_end_gives_what_is_left(
+        self, item, monkeypatch, tmp_path
+    ):
+        self._rushes_hold(monkeypatch, 1400)
+
+        assert "trim=start=39.980000:end=55.980000" in self._graph(item, tmp_path)
+
+    def test_unreadable_rushes_still_ask_for_the_whole_tail(
+        self, item, monkeypatch, tmp_path
+    ):
+        def unreadable(sources):
+            raise ValueError("illisible")
+
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.probe_frame_counts", unreadable
+        )
+
+        assert "end=74.980000" in self._graph(item, tmp_path)
+
+    def test_the_end_screen_can_be_turned_off(self, item, monkeypatch, tmp_path):
+        self._rushes_hold(monkeypatch, 100_000)
+        item.cut.set_json(
+            {
+                "points": [{"in": 0, "out": 250}, {"in": 1000, "out": 1250}],
+                "overlays": [],
+                "display": {"tail": False},
+            }
+        )
+
+        assert "trim=start=39.980000:end=49.980000" in self._graph(item, tmp_path)
+
+    def test_only_the_last_point_is_extended(self, item, monkeypatch, tmp_path):
+        self._rushes_hold(monkeypatch, 100_000)
+
+        assert "trim=start=0.000000:end=9.980000" in self._graph(item, tmp_path)
+
+    def test_the_last_chapter_runs_to_the_end_of_the_tail(
+        self, item, monkeypatch, tmp_path
+    ):
+        self._rushes_hold(monkeypatch, 100_000)
+        metadata = tmp_path / "chapters.txt"
+
+        item.build_command(
+            chapter_metadata_tmp_path=metadata, output_file=tmp_path / "out.mp4"
+        )
+
+        # 10 s, then 35 s starting one crossfade early: 9 + 35 = 44 s.
+        assert "START=9000\nEND=44000" in metadata.read_text()
+
+    def test_the_tail_is_stabilised_with_its_point(self, item, monkeypatch, tmp_path):
+        self._rushes_hold(monkeypatch, 100_000)
+        item.cut.set_json(
+            {
+                "points": [{"in": 0, "out": 250}, {"in": 1000, "out": 1250}],
+                "overlays": [],
+                "display": {"stabilise": True},
+            }
+        )
+        ran = []
+        monkeypatch.setattr(item, "_run_subprocess", ran.append)
+
+        item._before_render(tmp_path / "work")
+
+        graph = ran[0][ran[0].index("-filter_complex") + 1]
+        assert re.findall(r"end_frame=(\d+)", graph) == ["250", "875"]
+
+
+class TestIntroInTheRender:
+    """A cut with a card plays the footage before its first point behind it."""
+
+    @pytest.fixture()
+    def item(self, game, monkeypatch):
+        files = [Path("/rushes/a.mp4")]
+        monkeypatch.setattr(
+            Game, "get_source_files", lambda self, force_rush=False: files
+        )
+        monkeypatch.setattr(
+            RenderQueueItemFFMPEG, "_is_cuda_available", staticmethod(lambda: False)
+        )
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.get_fps", lambda video_file: 25.0
+        )
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.probe_frame_counts",
+            lambda sources: [100_000 for _ in sources],
+        )
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.RenderQueueItemCut._render_size",
+            lambda self, source, scale: (640, 360),
+        )
+        cut = Cut.objects.create(game=game, name="c", type_cut="MAN")
+        return baker.make("core.RenderQueueItemCut", cut=cut, preset="medium")
+
+    @staticmethod
+    def _command(item, tmp_path, **card):
+        item.cut.set_json(
+            {
+                "points": [{"in": 1000, "out": 1250, "point": "left"}],
+                "overlays": [{"type": "GameInfo", "team1": "A", "team2": "B"}],
+                "display": {"title_card": card} if card else {},
+            }
+        )
+        return item.build_command(
+            output_file=tmp_path / "out.mp4", overlay_dir=tmp_path / "work"
+        )
+
+    def test_the_card_plays_over_the_footage_with_its_sound(self, item, tmp_path):
+        cmd = self._command(item, tmp_path)
+        graph = cmd[cmd.index("-filter_complex") + 1]
+
+        assert "gblur=" in graph
+        assert "volume=0.25" in graph
+        # The footage brings its own sound: no silent input any more.
+        assert not any("anullsrc" in arg for arg in cmd)
+
+    def test_a_flat_card_still_stands_on_silence(self, item, tmp_path):
+        cmd = self._command(item, tmp_path, background="flat")
+        graph = cmd[cmd.index("-filter_complex") + 1]
+
+        assert "gblur=" not in graph
+        assert any("anullsrc" in arg for arg in cmd)
+
+
 class TestBuildCommandProxy:
     def test_includes_preset_codec_and_all_inputs(self, game, monkeypatch, tmp_path):
         source_files = [tmp_path / "a.mp4", tmp_path / "b.mp4"]
@@ -354,6 +777,10 @@ class TestBuildCommandCut:
         monkeypatch.setattr(
             "core.models.render_queue.ffmpeg.get_fps", lambda video_file: 25.0
         )
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.probe_frame_counts",
+            lambda sources: [100_000 for _ in sources],
+        )
 
         cut = Cut.objects.create(game=game, name="c", type_cut="MAN")
         cut.set_json({"points": [{"in": 0, "out": 25}], "overlays": []})
@@ -366,6 +793,45 @@ class TestBuildCommandCut:
         assert cmd[0] == "ffmpeg"
         assert "-filter_complex" in cmd
         assert str(output_file.absolute()) in cmd
+
+    def test_maps_a_video_output_pinned_to_the_frame_rate(
+        self, game, monkeypatch, tmp_path
+    ):
+        """The mapped video pad must be the graph's `fps` node.
+
+        Without it the output stream carries no frame rate, and NVENC sizes
+        its constant-quality target from that rate: a `-cq 18` render then
+        comes out around 2 Mbit/s, artefacts and all, whatever the preset
+        asks for.
+        """
+        source_files = [tmp_path / "a.mp4"]
+        monkeypatch.setattr(
+            Game, "get_source_files", lambda self, force_rush=False: source_files
+        )
+        monkeypatch.setattr(
+            RenderQueueItemFFMPEG, "_is_cuda_available", staticmethod(lambda: False)
+        )
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.get_fps", lambda video_file: 25.0
+        )
+        monkeypatch.setattr(
+            "core.models.render_queue.ffmpeg.probe_frame_counts",
+            lambda sources: [100_000 for _ in sources],
+        )
+
+        cut = Cut.objects.create(game=game, name="c", type_cut="MAN")
+        cut.set_json({"points": [{"in": 0, "out": 25}], "overlays": []})
+
+        item = baker.make("core.RenderQueueItemCut", cut=cut, preset="medium")
+
+        cmd = item.build_command(output_file=tmp_path / "out.mp4")
+
+        graph = cmd[cmd.index("-filter_complex") + 1]
+        mapped = cmd[cmd.index("-map") + 1]
+
+        assert "fps=25" in graph
+        assert graph.endswith(mapped)
+        assert mapped.startswith("[fps_v")
 
 
 class TestArchiveGetSourceFiles:

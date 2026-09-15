@@ -1,7 +1,7 @@
 import { computed, Injectable, signal } from '@angular/core';
 import { Cut } from '../../core/models/models';
 import { FALLBACK_FPS } from '../video-player/video-player';
-import { ScoringEvent, stateAtFrame } from '../scoreboard';
+import { scoringEvents, StartScore, stateAtFrame } from '../scoreboard';
 
 /** Une section du cut, en frames du rush. */
 export type CutPoint = {
@@ -61,6 +61,11 @@ export class GameEditCutsStateService {
    * cote entre deux points precis.
    */
   readonly activeCutEvents = signal<CutEvent[]>([]);
+  /**
+   * Le score quand l'enregistrement du match commence, s'il etait deja en
+   * cours. C'est une info de la game, commune a tous ses cuts.
+   */
+  readonly startScore = signal<StartScore | undefined>(undefined);
   /** Rang du point sous la tete de lecture, `null` entre deux points. */
   readonly activePointIndex = computed(() => {
     const frame = this.rushFrame();
@@ -82,14 +87,12 @@ export class GameEditCutsStateService {
     const points = this.activeCutPoints();
     if (!points.length) return '';
 
-    const events: ScoringEvent[] = this.activeCutEvents()
-      .filter((event) => event.type !== 'Warning')
-      .map((event) => ({
-        type: event.type as ScoringEvent['type'],
-        tc: event.tc,
-      }));
-
-    const state = stateAtFrame(points, events, this.rushFrame());
+    const state = stateAtFrame(
+      points,
+      scoringEvents(this.activeCutEvents()),
+      this.rushFrame(),
+      this.startScore(),
+    );
     return `${state.leftScore} – ${state.rightScore}`;
   });
   /**

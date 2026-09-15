@@ -69,6 +69,41 @@ class TestListAndRetrieve:
         )
 
 
+class TestMatchInfo:
+    """What the match is lives on the game, shared by all of its cuts."""
+
+    def test_the_match_info_is_saved_on_the_game(self, api_client, game):
+        response = api_client.patch(
+            reverse("game-detail", args=[game.pk]),
+            {
+                "condition": "2 sets gagnants",
+                "sets_to_win": 2,
+                "start_score": {"team1": "10-3", "team2": [8]},
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200
+        game.refresh_from_db()
+        assert game.condition == "2 sets gagnants"
+        assert game.sets_to_win == 2
+        assert game.start_score == {"team1": [10, 3], "team2": [8, 0]}
+
+    def test_an_empty_start_score_clears_it(self, api_client, game):
+        game.start_score = {"team1": [1], "team2": [0]}
+        game.save()
+
+        response = api_client.patch(
+            reverse("game-detail", args=[game.pk]),
+            {"start_score": {"team1": "", "team2": ""}},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        game.refresh_from_db()
+        assert game.start_score is None
+
+
 class TestCuts:
     def test_returns_cuts_for_game(self, api_client, game):
         Cut.objects.create(game=game, name="c1", type_cut="MAN")

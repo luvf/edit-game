@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
 
-from game_autoedit.config import ARCHIVE_QUALITIES, AUDIO_QUALITY, DEFAULT_FPS
-from game_autoedit.data.catalog import _audio_source, pick_cut
+from game_autoedit.config import (
+    ARCHIVE_QUALITIES,
+    AUDIO_QUALITY,
+    DEFAULT_FPS,
+    RUSH_QUALITY,
+)
+from game_autoedit.data.catalog import _audio_source, _rush_source, pick_cut
 
 
 @dataclass
@@ -32,6 +37,11 @@ class FakeVideo:
 class FakeGame:
     archive_video: FakeVideo | None = None
     video_proxy: FakeVideo | None = None
+    rushes: list[Path] = field(default_factory=list)
+
+    def get_source_files(self, *, force_rush: bool = False) -> list[Path]:
+        assert force_rush, "the rush fallback must never resolve to the archive"
+        return self.rushes
 
 
 @dataclass
@@ -138,6 +148,48 @@ class TestAudioSource:
         )
 
         assert _audio_source(game, "low").path is None
+
+
+class TestRushSource:
+    """The fallback for a game filmed before anything was encoded."""
+
+    def test_reads_the_rushes_in_order(self, tmp_path):
+        first, second = tmp_path / "GH010001.MP4", tmp_path / "GH020001.MP4"
+        for rush in (first, second):
+            rush.write_bytes(b"fake")
+
+        source = _rush_source(FakeGame(rushes=[first, second]))
+
+        assert source.paths == (first, second)
+        assert source.quality == RUSH_QUALITY
+
+    def test_refuses_an_incomplete_set(self):
+        # The archive concatenates every rush; one missing file shifts every
+        # timestamp after the hole, which is worse than proposing nothing.
+        game = FakeGame(rushes=[Path("/a/there.MP4"), Path("/a/gone.MP4")])
+
+        source = _rush_source(game)
+
+        assert source.path is None
+        assert "gone.MP4" in (source.reason or "")
+
+    def test_reports_a_game_with_no_rush_at_all(self):
+        source = _rush_source(FakeGame())
+
+        assert source.path is None
+        assert "aucun rush" in (source.reason or "")
+
+    def test_defaults_the_fps_when_the_file_is_not_readable(self, tmp_path):
+        rush = tmp_path / "GH010001.MP4"
+        rush.write_bytes(b"not a video")
+
+        assert _rush_source(FakeGame(rushes=[rush])).fps == pytest.approx(DEFAULT_FPS)
+
+    def test_the_rush_quality_is_served_by_the_fallback(self, tmp_path):
+        rush = tmp_path / "GH010001.MP4"
+        rush.write_bytes(b"fake")
+
+        assert _audio_source(FakeGame(rushes=[rush]), RUSH_QUALITY).paths == (rush,)
 
 
 class TestPickCut:

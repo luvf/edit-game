@@ -65,6 +65,18 @@
         <td *matCellDef="let game" mat-cell>{{ cuts_count()[game.pk] }}</td>
       </ng-container>
 
+      <!-- Colonne renders de qualite haute : ce qui est pret a publier. -->
+      <ng-container matColumnDef="high_renders">
+        <th
+          *matHeaderCellDef
+          mat-header-cell
+          mat-sort-header
+          title="Rendus de cuts en High h265 ou High AV1, présents sur le disque"
+        >
+          Renders HQ
+        </th>
+        <td *matCellDef="let game" mat-cell>{{ game.high_renders ?? 0 }}</td>
+      </ng-container>
 
       <!-- Nouvelle colonne proxy (binaire) -->
       <ng-container matColumnDef="proxy">
@@ -98,6 +110,7 @@
           'file_name',
           'teams',
           'cuts',
+          'high_renders',
           'proxy',
           'archive',
         ]"
@@ -106,7 +119,15 @@
         mat-row
         *matRowDef="
           let row;
-          columns: ['name', 'file_name', 'teams', 'cuts', 'proxy', 'archive']
+          columns: [
+            'name',
+            'file_name',
+            'teams',
+            'cuts',
+            'high_renders',
+            'proxy',
+            'archive',
+          ]
         "
         class="clickable-row"
         (click)="openGameEdit(row)"
@@ -124,7 +145,7 @@
     <div class="create-game-fields">
       <mat-form-field appearance="outline" class="team-field">
         <mat-label>Game Name</mat-label>
-        <input matInput [(ngModel)]="newGameName"/>
+        <input matInput [(ngModel)]="newGameName" />
       </mat-form-field>
 
       <mat-form-field appearance="outline" class="source-field">
@@ -164,6 +185,7 @@
           <video
             class="source-preview"
             controls
+            crossorigin="anonymous"
             preload="metadata"
             [attr.src]="sourceFilePreviewUrl"
           ></video>

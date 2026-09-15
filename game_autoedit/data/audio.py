@@ -3,6 +3,10 @@
 Archives live on a network share and are several hundred megabytes each. They
 are decoded once into 16 kHz mono WAV in the local cache; training then reads
 windows out of those with a seek, never touching the share again.
+
+A game with no archive yet is decoded from its rushes instead, which is why
+extraction takes a list of sources and concatenates them: the archive is that
+same concatenation, so both give one timeline.
 """
 
 from __future__ import annotations
@@ -10,7 +14,8 @@ from __future__ import annotations
 import json
 import subprocess
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from pathlib import PurePath
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import soundfile as sf
@@ -18,7 +23,7 @@ import soundfile as sf
 from game_autoedit.config import CHANNELS, SAMPLE_RATE
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Iterable, Iterator, Sequence
     from pathlib import Path
 
     from game_autoedit.data.catalog import LabeledGame
@@ -72,46 +77,154 @@ def probe_duration(path: Path) -> float | None:
         return None
 
 
+def probe_fps(path: Path) -> float | None:
+    """Return the frame rate of a media file's first video stream, or None.
+
+    Rushes carry no VideoFile row, so their rate is read off the file itself.
+    """
+    result = subprocess.run(
+        [
+            FFPROBE,
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=r_frame_rate",
+            "-of",
+            "json",
+            str(path),
+        ],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        rate = json.loads(result.stdout)["streams"][0]["r_frame_rate"]
+        numerator, denominator = (float(part) for part in rate.split("/"))
+    except (KeyError, IndexError, ValueError, json.JSONDecodeError):
+        return None
+    return numerator / denominator if denominator else None
+
+
+def _extract_command(
+    sources: Sequence[Path],
+    destination: Path,
+    *,
+    sample_rate: int,
+    channels: int,
+) -> list[str]:
+    """Build the ffmpeg call that decodes `sources` into one WAV.
+
+    Several sources are concatenated, each normalised to the target format
+    first: the concat filter refuses segments that disagree on rate or channel
+    layout, and rushes from two different cameras regularly do.
+    """
+    command = [FFMPEG, "-nostdin", "-v", "error", "-y"]
+    for source in sources:
+        command += ["-i", str(source)]
+
+    if len(sources) > 1:
+        layout = "mono" if channels == 1 else "stereo"
+        normalised = "".join(
+            f"[{index}:a:0]aformat=sample_rates={sample_rate}:"
+            f"channel_layouts={layout}[a{index}];"
+            for index in range(len(sources))
+        )
+        labels = "".join(f"[a{index}]" for index in range(len(sources)))
+        command += [
+            "-filter_complex",
+            f"{normalised}{labels}concat=n={len(sources)}:v=0:a=1[out]",
+            "-map",
+            "[out]",
+        ]
+
+    return [
+        *command,
+        "-vn",
+        "-ac",
+        str(channels),
+        "-ar",
+        str(sample_rate),
+        "-c:a",
+        "pcm_s16le",
+        str(destination),
+    ]
+
+
 def extract_audio(
-    source: Path,
+    sources: Sequence[Path] | Path,
     destination: Path,
     *,
     sample_rate: int = SAMPLE_RATE,
     channels: int = CHANNELS,
 ) -> None:
-    """Decode a media file to PCM16 WAV at `sample_rate`.
+    """Decode one or more media files to a single PCM16 WAV at `sample_rate`.
 
     Writes to a temporary neighbour first, so an interrupted run never leaves a
     truncated file that a later run would take for valid.
+
+    Args:
+        sources: the file to decode, or the files to concatenate in order.
+        destination: where the WAV is written.
+        sample_rate: the cache's sample rate.
+        channels: how many channels to keep.
+
+    Raises:
+        AudioExtractionError: ffmpeg failed, or wrote nothing.
     """
+    files = [sources] if isinstance(sources, PurePath) else list(sources)
+    if not files:
+        raise AudioExtractionError("aucune source audio à extraire")
+
     destination.parent.mkdir(parents=True, exist_ok=True)
     tmp = destination.with_suffix(".partial.wav")
     result = subprocess.run(
-        [
-            FFMPEG,
-            "-nostdin",
-            "-v",
-            "error",
-            "-y",
-            "-i",
-            str(source),
-            "-vn",
-            "-ac",
-            str(channels),
-            "-ar",
-            str(sample_rate),
-            "-c:a",
-            "pcm_s16le",
-            str(tmp),
-        ],
+        _extract_command(files, tmp, sample_rate=sample_rate, channels=channels),
         capture_output=True,
         check=False,
         text=True,
     )
     if result.returncode != 0 or not tmp.exists():
         tmp.unlink(missing_ok=True)
-        raise AudioExtractionError(f"ffmpeg a échoué sur {source}: {result.stderr}")
+        named = ", ".join(str(file) for file in files)
+        raise AudioExtractionError(f"ffmpeg a échoué sur {named}: {result.stderr}")
     tmp.replace(destination)
+
+
+def _marker_path(destination: Path) -> Path:
+    """Return the sidecar recording which files a cached track was made of."""
+    return destination.with_suffix(".sources.json")
+
+
+def _marker(game: LabeledGame) -> dict[str, Any]:
+    """Return the provenance to record next to an extracted track."""
+    return {
+        "quality": game.quality,
+        "sources": [str(source) for source in game.audio_sources],
+    }
+
+
+def _cache_matches(destination: Path, game: LabeledGame) -> bool:
+    """Tell whether the cached track was extracted from this game's sources.
+
+    A cache with no sidecar is trusted: the 268 tracks extracted before the
+    sidecar existed all came from archives, and re-extracting them to learn
+    what is already known would cost a night.
+
+    What this guards is the other direction: a game proposed from its rushes
+    and archived afterwards must not hand its rush audio to training, which
+    was measured on one audio profile only.
+    """
+    marker = _marker_path(destination)
+    if not marker.exists():
+        return True
+    try:
+        return bool(json.loads(marker.read_text()) == _marker(game))
+    except (OSError, json.JSONDecodeError):
+        return False
 
 
 def audio_info(path: Path) -> CachedAudio | None:
@@ -154,13 +267,14 @@ def build_audio_cache(
             existing is not None
             and existing.sample_rate == sample_rate
             and existing.channels == channels
+            and _cache_matches(destination, game)
         ):
             yield game, existing, None
             continue
 
         try:
             extract_audio(
-                game.audio_source,
+                game.audio_sources,
                 destination,
                 sample_rate=sample_rate,
                 channels=channels,
@@ -168,6 +282,7 @@ def build_audio_cache(
         except AudioExtractionError as error:
             yield game, None, str(error)
             continue
+        _marker_path(destination).write_text(json.dumps(_marker(game), indent=2))
 
         cached = audio_info(destination)
         if cached is None:

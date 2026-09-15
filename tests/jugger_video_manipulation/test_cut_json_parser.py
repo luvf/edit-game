@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+import pytest
+
 from jugger_video_manipulation.cut_json_parser import CutJsonParser
 
 if TYPE_CHECKING:
@@ -54,26 +56,6 @@ class TestParsePoints:
 class TestParseOverlays:
     def setup_method(self):
         self.parser = CutJsonParser("unused.json")
-
-    def test_parses_team_introduction_overlay(self):
-        raw = {
-            "overlays": [
-                {
-                    "type": "GameInfo",
-                    "team1": "Alpha",
-                    "team2": "Beta",
-                    "condition": "start",
-                }
-            ]
-        }
-        assert self.parser.parse_overlays(raw) == [
-            {
-                "type": "GameInfo",
-                "team1": "Alpha",
-                "team2": "Beta",
-                "condition": "start",
-            }
-        ]
 
     def test_parses_warning_overlay_with_length(self):
         raw = {
@@ -168,6 +150,29 @@ class TestParseDisplay:
 
         assert parsed["title_card"] == {"background": "blur", "length": 180}
 
+    def test_it_reads_the_stabilise_switch(self, tmp_path):
+        raw = {"display": {"stabilise": True}}
+
+        assert CutJsonParser(tmp_path / "c").parse_display(raw) == {"stabilise": True}
+
+    def test_it_reads_the_intro_and_end_screen_switches(self, tmp_path):
+        raw = {"display": {"intro": False, "tail": True}}
+
+        parsed = CutJsonParser(tmp_path / "c").parse_display(raw)
+
+        assert parsed == {"intro": False, "tail": True}
+
+    def test_a_switch_left_out_is_left_out(self, tmp_path):
+        # Absent means "the default", decided by the render: not written here.
+        assert CutJsonParser(tmp_path / "c").parse_display({"display": {}}) == {}
+
+    def test_a_stabilise_that_is_not_a_boolean_is_dropped(self, tmp_path):
+        # "false" as a string is truthy: taking it would stabilise a cut the
+        # editor asked not to.
+        raw = {"display": {"stabilise": "false"}}
+
+        assert CutJsonParser(tmp_path / "c").parse_display(raw) == {}
+
 
 class TestParseAll:
     def test_it_returns_every_block(self, tmp_path):
@@ -205,64 +210,20 @@ class TestParseAll:
 
 
 class TestGameInfo:
-    """The block every cut is expected to carry."""
+    """What the match is belongs to the game now, not to the cut file."""
 
-    def test_it_reads_the_number_of_sets(self, tmp_path):
+    @pytest.mark.parametrize("kind", ["GameInfo", "TeamIntroduction"])
+    def test_an_old_match_block_is_skipped(self, tmp_path, kind):
         raw = {
             "overlays": [
-                {
-                    "type": "GameInfo",
-                    "team1": "A",
-                    "team2": "B",
-                    "condition": "au temps",
-                    "sets_to_win": 3,
-                }
+                {"type": kind, "team1": "A", "team2": "B", "sets_to_win": 3},
+                {"type": "SideSwitch", "tc": 10},
             ]
         }
 
         parsed = CutJsonParser(tmp_path / "c").parse_overlays(raw)
 
-        assert parsed[0]["sets_to_win"] == 3
-
-    def test_the_condition_stays_free_text(self, tmp_path):
-        raw = {
-            "overlays": [
-                {
-                    "type": "GameInfo",
-                    "team1": "A",
-                    "team2": "B",
-                    "condition": "n'importe",
-                }
-            ]
-        }
-
-        parsed = CutJsonParser(tmp_path / "c").parse_overlays(raw)
-
-        assert parsed[0]["condition"] == "n'importe"
-
-    def test_the_old_name_still_parses(self, tmp_path):
-        # Files written before the rename must not have to be migrated.
-        raw = {
-            "overlays": [
-                {
-                    "type": "TeamIntroduction",
-                    "team1": "A",
-                    "team2": "B",
-                    "condition": "",
-                }
-            ]
-        }
-
-        parsed = CutJsonParser(tmp_path / "c").parse_overlays(raw)
-
-        assert parsed[0]["type"] == "GameInfo"
-
-    def test_no_sets_leaves_the_key_out(self, tmp_path):
-        raw = {"overlays": [{"type": "GameInfo", "team1": "A", "team2": "B"}]}
-
-        parsed = CutJsonParser(tmp_path / "c").parse_overlays(raw)
-
-        assert "sets_to_win" not in parsed[0]
+        assert parsed == [{"type": "SideSwitch", "tc": 10}]
 
 
 class TestScoreEventOverlays:

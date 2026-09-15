@@ -47,24 +47,14 @@ class Display(TypedDict):
 
     scoreboard: NotRequired[ScoreboardDisplay]
     title_card: NotRequired[TitleCardDisplay]
-
-
-class GameInfoOverlay(TypedDict):
-    """What the match is, and the card that opens it.
-
-    Expected on every cut. `team1` is the team on the left at kick-off, which
-    is what tells the scoreboard whose point a `left` is — the ordering is not
-    cosmetic, and the editor flips it with one button.
-
-    `sets_to_win` decides how the board reads and when the match is over;
-    `condition` stays free text for everything the number does not capture.
-    """
-
-    type: Literal["GameInfo"]
-    team1: str
-    team2: str
-    condition: str
-    sets_to_win: NotRequired[int]
+    #: Steady each kept point against the camera shaking in the wind. Off
+    #: unless the editor asks.
+    stabilise: NotRequired[bool]
+    #: Open the render on the title card. On unless the editor says no.
+    intro: NotRequired[bool]
+    #: Keep the video running past the last point, its result on the board.
+    #: On unless the editor says no.
+    tail: NotRequired[bool]
 
 
 class SideSwitchOverlay(TypedDict):
@@ -98,10 +88,11 @@ class WarningOverlay(TypedDict):
     length: NotRequired[int]
 
 
-Overlay = GameInfoOverlay | WarningOverlay | SideSwitchOverlay | SetEndOverlay
+Overlay = WarningOverlay | SideSwitchOverlay | SetEndOverlay
 
-#: What `GameInfo` used to be called. Files written before the rename still
-#: parse, so nothing has to be migrated by hand.
+#: The match block older cut files carry, under both of its names. What it
+#: said — the teams, the condition, the sets, the starting score — now belongs
+#: to the game, so the block is skipped when a file still has it.
 GAME_INFO_TYPES = ("GameInfo", "TeamIntroduction")
 
 #: The events that change how the score reads, as opposed to what is drawn.
@@ -177,20 +168,6 @@ class CutJsonParser:
             overlay["length"] = length
         return overlay
 
-    @staticmethod
-    def _parse_game_info(item: dict[str, Any]) -> GameInfoOverlay:
-        """Parse the match's own block, under either of its names."""
-        info: GameInfoOverlay = {
-            "type": "GameInfo",
-            "team1": str(item.get("team1", "")),
-            "team2": str(item.get("team2", "")),
-            "condition": str(item.get("condition", "")),
-        }
-        sets_to_win = _as_int(item.get("sets_to_win"))
-        if sets_to_win is not None:
-            info["sets_to_win"] = sets_to_win
-        return info
-
     def parse_overlays(self, raw: dict[str, Any]) -> list[Overlay]:
         """Parse overlay entries from raw JSON data.
 
@@ -208,8 +185,6 @@ class CutJsonParser:
                 tc = _as_int(item.get("tc"))
                 if tc is not None:
                     parsed.append({"type": kind, "tc": tc})
-            elif kind in GAME_INFO_TYPES:
-                parsed.append(self._parse_game_info(item))
             elif kind == "Warning":
                 parsed.append(self._parse_warning(item))
         return parsed
@@ -259,6 +234,12 @@ class CutJsonParser:
         card = self._parse_title_card(block.get("title_card"))
         if card:
             display["title_card"] = card
+        if isinstance(block.get("stabilise"), bool):
+            display["stabilise"] = block["stabilise"]
+        if isinstance(block.get("intro"), bool):
+            display["intro"] = block["intro"]
+        if isinstance(block.get("tail"), bool):
+            display["tail"] = block["tail"]
         return display
 
     def parse(self) -> tuple[list[Point], list[Overlay]]:

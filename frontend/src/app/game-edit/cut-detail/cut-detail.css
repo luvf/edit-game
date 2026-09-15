@@ -5,6 +5,23 @@
   margin-top: 12px;
 }
 
+.cut-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.cut-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
 .cut-queue-label {
   display: flex;
   align-items: center;
@@ -37,66 +54,6 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-/* Les infos du match restent en tete : elles n'ont pas de timecode. Deux
-   lignes, pas plus : c'est un en-tete, la liste est le sujet du panneau. */
-.game-info {
-  display: flex;
-  flex-direction: column;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-}
-
-.game-info.is-missing {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 13px;
-  opacity: 0.8;
-}
-
-.game-info-fields {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 84px;
-  gap: 6px 10px;
-  align-items: end;
-}
-
-.cut-detail.is-compact .game-info-fields {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.game-info-fields label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-  font-size: 11px;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  opacity: 0.85;
-}
-
-.game-info-fields label.wide {
-  grid-column: 1 / -1;
-}
-
-.cut-detail.is-compact .game-info-fields label.wide {
-  grid-column: auto;
-}
-
-.game-info-fields input {
-  min-width: 0;
-  padding: 4px 6px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  font: inherit;
-  font-size: 13px;
-  text-transform: none;
 }
 
 .section-title {
@@ -145,10 +102,30 @@
   background: #f9fafb;
 }
 
+/* Un point deja attribue a un cote est traite : il s'efface un peu, et
+   redevient net des qu'on s'en approche. */
+.form-row.is-scored {
+  background: #f3f4f6;
+  opacity: 0.7;
+}
+
+.form-row.is-scored:hover,
+.form-row.is-scored.is-hovered,
+.form-row.is-scored.is-current {
+  opacity: 1;
+}
+
 /* Survol venu d'ici ou du segment correspondant dans la timeline. */
 .form-row.is-hovered {
   background: #eef2ff;
   box-shadow: inset 3px 0 0 #2563eb;
+}
+
+/* Le point sous la tete de lecture, ou le plus proche d'elle. Declare apres
+   le survol : c'est lui qui reste visible quand les deux tombent ensemble. */
+.form-row.is-current {
+  background: #fef9c3;
+  box-shadow: inset 3px 0 0 #ca8a04;
 }
 
 .form-row label {
@@ -331,9 +308,11 @@
     background-color 140ms ease;
 }
 
-/* Memes couleurs que les segments de la timeline. */
+/* Vert a gauche, rouge a droite : les deux cotes doivent se distinguer d'un
+   coup d'oeil dans une liste de points, ce qu'un bleu et un ambre pales ne
+   faisaient pas sur le fond clair de l'application. */
 .point-switch[data-position="0"] .point-switch-thumb {
-  background: #dbeafe;
+  background: #dcfce7;
 }
 
 .point-switch[data-position="1"] .point-switch-thumb {
@@ -342,7 +321,7 @@
 
 .point-switch[data-position="2"] .point-switch-thumb {
   transform: translateX(200%);
-  background: #fde68a;
+  background: #fee2e2;
 }
 
 .form-row label.point-switch-option {
@@ -365,6 +344,16 @@
 .point-switch-option.is-active {
   opacity: 1;
   font-weight: 600;
+}
+
+/* La lettre porte la couleur de son cote, active ou non : c'est elle qu'on
+   lit, et l'option inactive reste lisible grace a son opacite. */
+.point-switch-option.is-left {
+  color: #15803d;
+}
+
+.point-switch-option.is-right {
+  color: #991b1b;
 }
 
 .point-switch-option input {

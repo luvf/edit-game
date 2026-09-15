@@ -130,6 +130,30 @@ class TestGames:
         assert len(response.data) == 1
         assert response.data[0]["name"] == game.name
 
+    def test_counts_the_high_quality_renders_on_disk(self, api_client, game, tmp_path):
+        def render(quality, *, on_disk=True):
+            cut = baker.make("core.Cut", game=game, type_cut="MAN")
+            cut.rendered_video = baker.make("core.Video", name=f"cut{cut.pk}")
+            cut.save(update_fields=["rendered_video"])
+            path = tmp_path / f"cut{cut.pk}_{quality}.mp4"
+            if on_disk:
+                path.write_bytes(b"mp4")
+            VideoFile.objects.create(
+                video=cut.rendered_video, quality=quality, path=str(path)
+            )
+
+        render("high")
+        render("high_av1")
+        render("medium")
+        # Queued or failed: the row exists, the file does not.
+        render("high", on_disk=False)
+
+        response = api_client.get(
+            reverse("tournament-games", args=[game.tournament.pk])
+        )
+
+        assert response.data[0]["high_renders"] == 2
+
 
 class TestArchiveRefreshesVideoFiles:
     def test_repoints_video_files_at_the_archive_drive(
@@ -193,3 +217,4 @@ class TestArchiveRefreshesVideoFiles:
         )
 
         assert response.data["video_files"] == {"missing": 1}
+
