@@ -405,3 +405,76 @@ class TestYoutubeUpdate:
 
         yt = YTVideo.objects.get(video_id="vid1")
         assert yt.linked_video == vm
+
+
+class TestGameSource:
+    @staticmethod
+    def _proxy_on_disk(game, tmp_path):
+        game.video_proxy = baker.make("core.Video", name="proxy")
+        game.save(update_fields=["video_proxy"])
+        path = tmp_path / "proxy_low.mp4"
+        path.write_bytes(b"mp4")
+        baker.make(
+            "core.VideoFile", video=game.video_proxy, quality="low", path=str(path)
+        )
+        return path
+
+    def test_create_links_the_metadata_to_the_game(self, game, tmp_path, monkeypatch):
+        source = self._proxy_on_disk(game, tmp_path)
+        read = []
+        monkeypatch.setattr(
+            "core.models.media.get_chapters",
+            lambda video_file: read.append(video_file) or [],
+        )
+
+        vm = VideoMetadata.objects.create(
+            name=game.name,
+            tournament=game.tournament,
+            game=game,
+            team1=game.team1,
+            team2=game.team2,
+            time_code=0.5,
+        )
+
+        game.refresh_from_db()
+        assert game.video_metadata == vm
+        assert vm.linked_game == game
+        assert read == [source]
+
+    def test_orphan_has_no_linked_game(self, tournament):
+        vm = VideoMetadata(name="match.mp4", tournament=tournament)
+        vm.save()
+
+        assert vm.linked_game is None
+
+    def test_generate_miniature_takes_its_frame_from_the_game(
+        self, game, tmp_path, monkeypatch
+    ):
+        source = self._proxy_on_disk(game, tmp_path)
+        vm = VideoMetadata(
+            name=game.name,
+            tournament=game.tournament,
+            team1=game.team1,
+            team2=game.team2,
+            time_code=0.5,
+        )
+        vm.save()
+        game.video_metadata = vm
+        game.save(update_fields=["video_metadata"])
+        vm.refresh_from_db()
+        read = []
+
+        def fake_frame(path, tc):
+            read.append(path)
+            return Image.new("RGB", (20, 10))
+
+        monkeypatch.setattr("core.models.media.get_frame", fake_frame)
+        monkeypatch.setattr(
+            "core.models.media.generate_miniature",
+            lambda **kwargs: Image.new("RGB", (20, 10)),
+        )
+
+        vm.generate_miniature()
+
+        assert read == [source]
+        assert vm.miniature_image is not None

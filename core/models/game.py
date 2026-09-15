@@ -27,6 +27,17 @@ class ArchiveAlreadyExistsError(ValidationError):
         self.archive_video_id = archive_video_id
 
 
+# The render qualities a thumbnail is best taken from, best first.
+MINIATURE_QUALITIES = (
+    "high",
+    "high_av1",
+    "medium",
+    "medium_av1",
+    "low",
+    "low_av1",
+)
+
+
 class Game(models.Model):
     """Game model."""
 
@@ -76,6 +87,16 @@ class Game(models.Model):
         related_name="game_archive",
         help_text="Vidéo haute qualité utilisée comme archive/master pour les encodages de ce match.",
     )
+    # The thumbnail and YouTube metadata of this match. A VideoMetadata no game
+    # points at still works: it reads its video from the rendered dir.
+    video_metadata = OneToOneField(
+        "core.VideoMetadata",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="game",
+    )
+
     class Meta:
         """Model metadata."""
 
@@ -126,6 +147,38 @@ class Game(models.Model):
                 pass
 
         return rush_files
+
+    def get_miniature_source(self) -> Path:
+        """Return the video a thumbnail frame and its chapters are read from.
+
+        A cut render comes first: it is what gets published, so its frames and
+        chapters are those of the video on YouTube. The latest cut wins, and in
+        it the best quality on disk. Without any render, the archive then the
+        proxy still give a frame of the match, without chapters.
+
+        Raises:
+        - FileNotFoundError if none of the game's videos has a file on disk.
+        """
+        from core.models.video import VideoFile, file_exists
+
+        quality_rank = {
+            quality: rank for rank, quality in enumerate(MINIATURE_QUALITIES)
+        }
+        renders = sorted(
+            VideoFile.objects.filter(video__cut__game=self).values_list(
+                "video__cut__pk", "quality", "path"
+            ),
+            key=lambda row: (-row[0], quality_rank.get(row[1], len(quality_rank))),
+        )
+        candidates = [path for _, _, path in renders]
+        for video in (self.archive_video, self.video_proxy):
+            if video is not None:
+                candidates += [video_file.path for video_file in video.files.all()]
+
+        for path in candidates:
+            if path and file_exists(path):
+                return Path(path)
+        raise FileNotFoundError(f"Game {self.pk} has no video file on disk.")
 
     def has_archive_on_disk(self) -> bool:
         """Tell whether this game already has an archive file on disk.

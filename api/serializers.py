@@ -454,6 +454,7 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
             "ml_cut",
             "video_proxy",
             "archive_video",
+            "video_metadata",
         ]
 
 

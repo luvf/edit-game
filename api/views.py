@@ -376,33 +376,54 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
 
     @action(detail=True, methods=[HTTPMethod.POST], url_path="sync_videos")
     def sync_videos(self, request: Request, pk: str | None = None) -> Response:
-        """Synchronize videos in  'rendered' dir with VideoMetadata.
+        """Synchronize the tournament's games with VideoMetadata.
 
-        il:
-        - creates missing VideoMetadata
-        - generates default miniature
-        - actualize linked YT video
+        It:
+        - creates the missing VideoMetadata, one per game
+        - generates its default miniature from the game's video
+        - actualizes the linked YT videos
+
+        A game is skipped while its teams are not both set or while none of
+        its videos is on disk; `skipped` tells which and why. The orphan
+        VideoMetadata, made from the rendered dir, are left as they are.
         """
         _ = pk, request
         tournament: Tournament = self.get_object()
 
-        videos = get_video_file_names(tournament.get_rendered_path().absolute())
         created_names = []
-        for video in videos:
-            # Creates missing video metadata and default miniature
-            if not VideoMetadata.objects.filter(
-                name=video.name, tournament=tournament
-            ).exists():
-                teams = Team.identify_team(str(video.name))
-                new_vid = VideoMetadata.objects.create(
-                    name=video.absolute().name,
-                    tournament=tournament,
-                    team1=teams[0],
-                    team2=teams[1],
-                    time_code=random.random(),
-                )
-                new_vid.generate_miniature()
-                created_names.append(video)
+        skipped = []
+        games = Game.objects.filter(
+            tournament=tournament, video_metadata__isnull=True
+        ).select_related("team1", "team2")
+        for game in games.order_by("pk"):
+            if game.team1 is None or game.team2 is None:
+                skipped.append({"game": game.name, "reason": "teams not set"})
+                continue
+            try:
+                game.get_miniature_source()
+            except FileNotFoundError:
+                skipped.append({"game": game.name, "reason": "no video on disk"})
+                continue
+
+            # An orphan of that name, made before games had one: adopt it.
+            orphan = VideoMetadata.objects.filter(
+                tournament=tournament, name=game.name, game__isnull=True
+            ).first()
+            if orphan is not None:
+                game.video_metadata = orphan
+                game.save(update_fields=["video_metadata"])
+                continue
+
+            new_vid = VideoMetadata.objects.create(
+                name=game.name,
+                tournament=tournament,
+                game=game,
+                team1=game.team1,
+                team2=game.team2,
+                time_code=random.random(),
+            )
+            new_vid.generate_miniature()
+            created_names.append(game.name)
 
         # Mets à jour les liens YT vers les VideoMetadata du tournoi
         YTVideo.objects.update_linked_video(tournament)
@@ -417,6 +438,7 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         return Response(
             {
                 "created": created_names,
+                "skipped": skipped,
                 "videos": vids_ser.data,
             }
         )

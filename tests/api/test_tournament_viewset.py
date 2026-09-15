@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
 from django.urls import reverse
 from django.utils.text import slugify
 from model_bakery import baker
+from PIL import Image
 
+from core.models.media import VideoMetadata
 from core.models.render_queue.ffmpeg import RenderQueueItemArchive
 from core.models.tournament import Tournament
 from core.models.video import VideoFile
@@ -218,3 +221,97 @@ class TestArchiveRefreshesVideoFiles:
 
         assert response.data["video_files"] == {"missing": 1}
 
+
+class TestSyncVideos:
+    @pytest.fixture(autouse=True)
+    def _no_media_io(self, monkeypatch):
+        monkeypatch.setattr("core.models.media.get_chapters", lambda video_file: [])
+        monkeypatch.setattr(
+            "core.models.media.get_frame", lambda path, tc: Image.new("RGB", (20, 10))
+        )
+        monkeypatch.setattr(
+            "core.models.media.generate_miniature",
+            lambda **kwargs: Image.new("RGB", (20, 10)),
+        )
+
+    @staticmethod
+    def _put_proxy_on_disk(game, tmp_path):
+        game.video_proxy = baker.make("core.Video", name=f"proxy{game.pk}")
+        game.save(update_fields=["video_proxy"])
+        path = tmp_path / f"proxy{game.pk}_low.mp4"
+        path.write_bytes(b"mp4")
+        VideoFile.objects.create(video=game.video_proxy, quality="low", path=str(path))
+
+    @staticmethod
+    def _sync(api_client, tournament):
+        return api_client.post(reverse("tournament-sync-videos", args=[tournament.pk]))
+
+    def test_creates_the_metadata_of_a_game_with_a_video(
+        self, api_client, game, tmp_path
+    ):
+        self._put_proxy_on_disk(game, tmp_path)
+
+        response = self._sync(api_client, game.tournament)
+
+        assert response.status_code == 200
+        assert response.data["created"] == [game.name]
+        game.refresh_from_db()
+        vm = game.video_metadata
+        assert (vm.team1, vm.team2) == (game.team1, game.team2)
+        assert vm.miniature_image is not None
+
+    def test_does_not_duplicate_on_a_second_sync(self, api_client, game, tmp_path):
+        self._put_proxy_on_disk(game, tmp_path)
+
+        self._sync(api_client, game.tournament)
+        response = self._sync(api_client, game.tournament)
+
+        assert response.data["created"] == []
+        assert VideoMetadata.objects.count() == 1
+
+    def test_skips_games_without_video_or_teams(
+        self, api_client, game, tournament, tmp_path
+    ):
+        no_teams = baker.make(
+            "core.Game", tournament=tournament, team1=None, team2=None, files=[]
+        )
+        self._put_proxy_on_disk(no_teams, tmp_path)
+
+        response = self._sync(api_client, tournament)
+
+        assert response.data["created"] == []
+        assert response.data["skipped"] == [
+            {"game": game.name, "reason": "no video on disk"},
+            {"game": no_teams.name, "reason": "teams not set"},
+        ]
+        assert not VideoMetadata.objects.exists()
+
+    def test_adopts_an_orphan_of_the_same_name(self, api_client, game, tmp_path):
+        self._put_proxy_on_disk(game, tmp_path)
+        orphan = VideoMetadata(
+            name=game.name,
+            tournament=game.tournament,
+            team1=game.team1,
+            team2=game.team2,
+        )
+        orphan.save()
+
+        response = self._sync(api_client, game.tournament)
+
+        assert response.data["created"] == []
+        game.refresh_from_db()
+        assert game.video_metadata == orphan
+
+    def test_leaves_other_orphans_alone(self, api_client, game, tournament):
+        orphan = VideoMetadata(
+            name="old_render.mp4",
+            tournament=tournament,
+            team1=game.team1,
+            team2=game.team2,
+        )
+        orphan.save()
+
+        response = self._sync(api_client, tournament)
+
+        assert response.status_code == 200
+        assert [video["pk"] for video in response.data["videos"]] == [orphan.pk]

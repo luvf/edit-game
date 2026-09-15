@@ -22,6 +22,19 @@ if TYPE_CHECKING:
     from django.db.models.fields.related_descriptors import RelatedManager
     from PIL.Image import Image
 
+    from core.models.game import Game
+
+
+def source_video_path(tournament: Tournament, name: str, game: Game | None) -> Path:
+    """Return the video a thumbnail and its description are built from.
+
+    A metadata a game points at reads that game's videos. An orphan one, made
+    before games carried their metadata, still reads the rendered dir.
+    """
+    if game is not None:
+        return game.get_miniature_source()
+    return tournament.get_rendered_path() / name
+
 
 class TmpImage(models.Model):
     """Model For a simple image in database."""
@@ -68,7 +81,11 @@ class VideoMetadataManager(models.Manager["VideoMetadata"]):
     """Manager for video medatada."""
 
     def create(self, **obj_data: Any) -> VideoMetadata:
-        """Create a new VideoMetadata object."""
+        """Create a new VideoMetadata object.
+
+        A `game` given here gets the new metadata as its own.
+        """
+        game = cast("Game | None", obj_data.pop("game", None))
         tournament = cast(Tournament, obj_data["tournament"])
         team1, team2 = (
             cast(Team, obj_data["team1"]),
@@ -77,7 +94,9 @@ class VideoMetadataManager(models.Manager["VideoMetadata"]):
         name = cast(str, obj_data["name"])
         _ = cast(float, obj_data["time_code"])
 
-        obj_data["description"] = self.description(tournament, name, team1, team2)
+        obj_data["description"] = self.description(
+            tournament, name, team1, team2, game=game
+        )
         obj_data["video_name"] = (
             f"{name} vs {team1.name} vs {team2.name} | {tournament.name.upper()} [JUGGER]"
         )
@@ -86,7 +105,11 @@ class VideoMetadataManager(models.Manager["VideoMetadata"]):
             date=datetime.now(tz=UTC).date() - timedelta(days=1), time=time(hour=18)
         )
 
-        return super().create(**obj_data)
+        video_metadata = super().create(**obj_data)
+        if game is not None:
+            game.video_metadata = video_metadata
+            game.save(update_fields=["video_metadata"])
+        return video_metadata
 
     @staticmethod
     def description(
@@ -94,6 +117,7 @@ class VideoMetadataManager(models.Manager["VideoMetadata"]):
         name: str,
         team1: Team,
         team2: Team,
+        game: Game | None = None,
     ) -> str:
         """Generate the description."""
         description = [
@@ -107,7 +131,7 @@ class VideoMetadataManager(models.Manager["VideoMetadata"]):
         ]
         timecodes: list[str] = []
         for i, (start, _) in enumerate(
-            get_chapters(tournament.get_rendered_path() / Path(name))
+            get_chapters(source_video_path(tournament, name, game))
         ):
             timecodes.append(f"{get_ms_time(start) } Point {i + 1}")
         description += timecodes
@@ -155,6 +179,11 @@ class VideoMetadata(models.Model):
         db_table = "miniatures_videometadata"
         unique_together = ("name", "tournament")
 
+    @property
+    def linked_game(self) -> Game | None:
+        """Return the game pointing at this metadata, None for an orphan."""
+        return cast("Game | None", getattr(self, "game", None))
+
     def reset_metadata(self) -> None:
         """Reset all metadata."""
         self.reset_teams()
@@ -173,7 +202,7 @@ class VideoMetadata(models.Model):
         if self.tournament is None or self.team1 is None or self.team2 is None:
             raise ValueError("Tournament, team1 and team2 are not set")
         self.description = VideoMetadata.objects.description(
-            self.tournament, self.name, self.team1, self.team2
+            self.tournament, self.name, self.team1, self.team2, game=self.linked_game
         )
 
     def reset_vid_name(self) -> None:
@@ -219,7 +248,7 @@ class VideoMetadata(models.Model):
             raise ValueError("Tournament is not set")
 
         base_file_name = "_".join(
-            (self.tournament.slug, slugify(self.name[:-4]), str(self.time_code))
+            (self.tournament.slug, slugify(Path(self.name).stem), str(self.time_code))
         )
 
         if (
@@ -233,7 +262,8 @@ class VideoMetadata(models.Model):
             or base_file_name + "_base.jpeg" != self.base_image.image.file
         ):
             base_image = get_frame(
-                self.tournament.get_rendered_path() / self.name, self.time_code
+                source_video_path(self.tournament, self.name, self.linked_game),
+                self.time_code,
             )
             self.base_image = TmpImage(name=base_file_name + "_base.jpeg")
             self.base_image.from_pil(base_image)

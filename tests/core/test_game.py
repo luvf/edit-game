@@ -289,3 +289,54 @@ class TestArchivePresetLabelling:
 
         assert game.has_archive_on_disk() is False
         assert game.enqueue_archive_render().pk is not None
+
+
+class TestGetMiniatureSource:
+    @staticmethod
+    def _file(video, tmp_path, quality, *, on_disk=True):
+        path = tmp_path / f"{video.name}_{quality}.mp4"
+        if on_disk:
+            path.write_bytes(b"mp4")
+        VideoFile.objects.create(video=video, quality=quality, path=str(path))
+        return path
+
+    @staticmethod
+    def _cut_video(game):
+        cut = baker.make("core.Cut", game=game, type_cut="MAN")
+        cut.rendered_video = baker.make("core.Video", name=f"cut{cut.pk}")
+        cut.save(update_fields=["rendered_video"])
+        return cut.rendered_video
+
+    def test_prefers_the_latest_cut_in_its_best_quality(self, game, tmp_path):
+        self._file(self._cut_video(game), tmp_path, "high")
+        latest = self._cut_video(game)
+        self._file(latest, tmp_path, "medium")
+        best = self._file(latest, tmp_path, "high")
+
+        assert game.get_miniature_source() == best
+
+    def test_skips_renders_not_on_disk(self, game, tmp_path):
+        video = self._cut_video(game)
+        self._file(video, tmp_path, "high", on_disk=False)
+        medium = self._file(video, tmp_path, "medium")
+
+        assert game.get_miniature_source() == medium
+
+    def test_falls_back_to_the_archive_then_the_proxy(self, game, tmp_path):
+        game.video_proxy = baker.make("core.Video", name="proxy")
+        game.save(update_fields=["video_proxy"])
+        proxy = self._file(game.video_proxy, tmp_path, "low")
+
+        assert game.get_miniature_source() == proxy
+
+        game.archive_video = baker.make("core.Video", name="archive")
+        game.save(update_fields=["archive_video"])
+        archive = self._file(game.archive_video, tmp_path, "archive")
+
+        assert game.get_miniature_source() == archive
+
+    def test_raises_without_any_video_on_disk(self, game, tmp_path):
+        self._file(self._cut_video(game), tmp_path, "high", on_disk=False)
+
+        with pytest.raises(FileNotFoundError):
+            game.get_miniature_source()
