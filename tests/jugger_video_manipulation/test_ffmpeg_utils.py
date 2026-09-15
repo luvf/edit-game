@@ -337,6 +337,33 @@ class TestFfmpegCommandBuilder:
         assert "-map_metadata" in cmd
         assert cmd[cmd.index("-map_metadata") + 1] == str(len(inputs))
 
+    def test_chapters_come_from_the_metadata_not_a_rush(self, tmp_path: Path):
+        # A GoPro rush can carry a chapter of its own; ffmpeg would take it
+        # over ours, being the first input that has any.
+        inputs = [tmp_path / "GX011167.MP4", tmp_path / "GX021167.MP4"]
+        metadata_path = tmp_path / "chapters.txt"
+        metadata_path.write_text(";FFMETADATA1")
+
+        cmd = ffmpeg_command_builder(
+            filter_complex=self._builder(2),
+            input_files=inputs,
+            output_file=tmp_path / "out.mp4",
+            preset_args={"video": [], "audio": []},
+            chapter_metadata_path=metadata_path,
+        )
+
+        assert cmd[cmd.index("-map_chapters") + 1] == str(len(inputs))
+
+    def test_no_chapter_mapping_without_metadata(self, tmp_path: Path):
+        cmd = ffmpeg_command_builder(
+            filter_complex=self._builder(1),
+            input_files=[tmp_path / "a.mp4"],
+            output_file=tmp_path / "out.mp4",
+            preset_args={"video": [], "audio": []},
+        )
+
+        assert "-map_chapters" not in cmd
+
     def test_rejects_nvenc_without_cuda(self, tmp_path: Path):
         with pytest.raises(ValueError):
             ffmpeg_command_builder(

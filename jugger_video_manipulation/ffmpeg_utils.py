@@ -555,7 +555,10 @@ def ffmpeg_command_builder(
     cmd += preset_args["audio"]
     cmd += ["-movflags", "+faststart"]
     if chapter_metadata_path:
-        cmd += ["-map_metadata", str(len(input_files))]
+        # Chapters are mapped explicitly too: left alone, ffmpeg copies them
+        # from the first input that has any, and a GoPro rush can carry one.
+        metadata_index = str(len(input_files))
+        cmd += ["-map_metadata", metadata_index, "-map_chapters", metadata_index]
     cmd += [str(output_file.absolute()), "-y"]
     return cmd
 
