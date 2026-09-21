@@ -141,6 +141,13 @@ class TestEnqueueCutRender:
         cut.refresh_from_db()
         assert cut.rendered_video is not None
 
+    def test_accepts_the_youtube_preset(self, game):
+        cut = Cut.objects.create(game=game, name="c", type_cut="MAN")
+
+        item = cut.enqueue_cut_render(preset="youtube")
+
+        assert item.preset == "youtube"
+
     def test_run_now_executes_immediately(self, game, monkeypatch):
         from core.models.render_queue.ffmpeg import RenderQueueItemCut
 

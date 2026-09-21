@@ -195,8 +195,16 @@ class Cut(models.Model):
         self, *, preset: str = "medium", run_now: bool = False
     ) -> RenderQueueItemCut:
         """Create a queue item for this cut render."""
-        if preset not in ["low", "medium", "high", "low_av1", "medium_av1", "high_av1"]:
-            raise ValueError("Preset must be low, medium or high")
+        if preset not in [
+            "low",
+            "medium",
+            "high",
+            "low_av1",
+            "medium_av1",
+            "high_av1",
+            "youtube",
+        ]:
+            raise ValueError("Preset must be low, medium, high or youtube")
         self.ensure_video()
 
         render_queue_item = RenderQueueItemCut.objects.create(

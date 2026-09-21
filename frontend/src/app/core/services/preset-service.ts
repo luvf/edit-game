@@ -4,7 +4,8 @@ export type RenderPresetValue =
   | 'high'
   | 'low_av1'
   | 'medium_av1'
-  | 'high_av1';
+  | 'high_av1'
+  | 'youtube';
 
 interface RenderPresetOption {
   value: RenderPresetValue;
@@ -42,5 +43,15 @@ export const renderPresets: RenderPresetOption[] = [
     value: 'high_av1',
     label: 'High AV1',
     description: 'AV1 CPU, qualité élevée',
+  },
+];
+
+/** A cut can also be rendered for a YouTube upload; a proxy never is. */
+export const cutRenderPresets: RenderPresetOption[] = [
+  ...renderPresets,
+  {
+    value: 'youtube',
+    label: 'YouTube',
+    description: 'Master 4K pour upload, fichier très lourd',
   },
 ];

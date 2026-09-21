@@ -30,6 +30,7 @@ class ArchiveAlreadyExistsError(ValidationError):
 
 # The render qualities a thumbnail is best taken from, best first.
 MINIATURE_QUALITIES = (
+    "youtube",
     "high",
     "high_av1",
     "medium",

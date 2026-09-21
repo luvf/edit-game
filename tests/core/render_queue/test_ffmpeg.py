@@ -129,6 +129,106 @@ class TestPresetArgs:
         assert item._preset_args() == RenderQueueItemArchive.PRESET_ARGS_CPU["archive"]
 
 
+class TestNvencRateControl:
+    """`-cq` is only honoured under VBR with a ceiling it cannot reach."""
+
+    @pytest.mark.parametrize("preset", ["low", "medium", "high"])
+    def test_every_nvenc_preset_lifts_the_default_ceiling(self, preset):
+        video = RenderQueueItemFFMPEG.PRESET_ARGS_GPU[preset]["video"]
+
+        assert video[video.index("-rc") + 1] == "vbr"
+        assert video[video.index("-b:v") + 1] == "0"
+        assert video[video.index("-maxrate") + 1] == "200M"
+
+
+class TestYoutubePreset:
+    @pytest.fixture()
+    def heights(self, monkeypatch):
+        """Stub ffprobe: map a source path to the height it reports."""
+        by_path: dict[str, int | None] = {}
+        monkeypatch.setattr(
+            RenderQueueItemFFMPEG,
+            "_source_video_height",
+            classmethod(lambda cls, path: by_path.get(str(path))),
+        )
+        return by_path
+
+    @pytest.mark.parametrize("cuda", [True, False], ids=["gpu", "cpu"])
+    @pytest.mark.parametrize("height", [1080, 1440], ids=str)
+    def test_a_source_below_4k_is_brought_up_to_4k_with_lanczos(
+        self, heights, monkeypatch, cuda, height
+    ):
+        monkeypatch.setattr(
+            RenderQueueItemFFMPEG, "_is_cuda_available", staticmethod(lambda: cuda)
+        )
+        heights["/rush.mp4"] = height
+        args = RenderQueueItemFFMPEG(preset="youtube")._preset_args([Path("/rush.mp4")])
+
+        assert args["scale"] == ["-2", "2160"]
+        assert args["scale_flags"] == ["lanczos"]
+
+    @pytest.mark.parametrize("height", [2160, 2880], ids=str)
+    def test_a_4k_source_or_taller_keeps_its_resolution(
+        self, heights, monkeypatch, height
+    ):
+        monkeypatch.setattr(
+            RenderQueueItemFFMPEG, "_is_cuda_available", staticmethod(lambda: True)
+        )
+        heights["/rush.mp4"] = height
+        args = RenderQueueItemFFMPEG(preset="youtube")._preset_args([Path("/rush.mp4")])
+
+        assert "scale" not in args
+        assert "scale" in RenderQueueItemFFMPEG.PRESET_ARGS_CPU["youtube"]
+
+    @pytest.mark.parametrize("cuda", [True, False], ids=["gpu", "cpu"])
+    def test_it_is_always_encoded_with_x264_medium_crf_16(self, monkeypatch, cuda):
+        monkeypatch.setattr(
+            RenderQueueItemFFMPEG, "_is_cuda_available", staticmethod(lambda: cuda)
+        )
+        video = RenderQueueItemFFMPEG(preset="youtube")._preset_args()["video"]
+
+        assert video[video.index("-c:v") + 1] == "libx264"
+        assert video[video.index("-preset") + 1] == "medium"
+        assert video[video.index("-crf") + 1] == "16"
+
+    def test_it_follows_youtube_upload_recommendations(self):
+        args = RenderQueueItemFFMPEG.PRESET_ARGS_CPU["youtube"]
+
+        assert args["video"][args["video"].index("-bf") + 1] == "2"
+        assert "expr:gte(t,n_forced*0.5)" in args["video"]
+        assert args["audio"] == ["-c:a", "aac", "-b:a", "384k", "-ar", "48000"]
+
+
+def test_every_audio_bitrate_carries_a_unit():
+    """A bare `-b:a 96` is 96 bits per second, not 96k."""
+    tables = [
+        RenderQueueItemFFMPEG.PRESET_ARGS_GPU,
+        RenderQueueItemFFMPEG.PRESET_ARGS_CPU,
+    ]
+    for table in tables:
+        for args in table.values():
+            audio = args["audio"]
+            assert audio[audio.index("-b:a") + 1].endswith("k")
+
+
+def test_a_proxy_is_brought_to_the_tv_range(game, monkeypatch):
+    monkeypatch.setattr(
+        RenderQueueItemProxy, "get_source_files", lambda self: [Path("/rush.mp4")]
+    )
+    monkeypatch.setattr(
+        RenderQueueItemProxy, "_is_cuda_available", staticmethod(lambda: False)
+    )
+    item = baker.make("core.RenderQueueItemProxy", game=game, preset="high")
+
+    cmd = item.build_command(output_file=Path("/tmp/out.mp4"))
+    filter_complex = cmd[cmd.index("-filter_complex") + 1]
+
+    last = filter_complex.split(";")[-1]
+    out_v = cmd[cmd.index("-map") + 1]
+
+    assert last.endswith(f"scale=out_range=tv{out_v}")
+
+
 class TestArchiveDownscale:
     """Archives are normalised to 1080p; taller sources are downscaled."""
 

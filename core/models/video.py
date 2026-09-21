@@ -243,6 +243,7 @@ class VideoFile(models.Model):
         LOW_AV1 = "low_av1", "low_av1"
         MEDIUM_AV1 = "medium_av1", "medium_av1"
         HIGH_AV1 = "high_av1", "high_av1"
+        YOUTUBE = "youtube", "youtube"
 
         ARCHIVE = "archive", "archive"
 

@@ -74,12 +74,29 @@ class TestFilterComplexBuilder:
         builder.filter_scale("1280", "-2")
         assert builder.filter_complex[-1] == f"{src}scale=1280:-2{builder.out_v}"
 
+    def test_filter_scale_with_an_algorithm(self):
+        builder = FilterComplexBuilder(1)
+        builder.filter_concat(builder.inputs_v, builder.inputs_a)
+        src = builder.out_v
+        builder.filter_scale("-2", "2160", "lanczos")
+        assert (
+            builder.filter_complex[-1]
+            == f"{src}scale=-2:2160:flags=lanczos{builder.out_v}"
+        )
+
     def test_filter_scale_without_width_uses_copy(self):
         builder = FilterComplexBuilder(1)
         builder.filter_concat(builder.inputs_v, builder.inputs_a)
         src = builder.out_v
         builder.filter_scale()
         assert builder.filter_complex[-1] == f"{src}copy{builder.out_v}"
+
+    def test_filter_tv_range_converts_the_range_in_the_graph(self):
+        builder = FilterComplexBuilder(1)
+        builder.filter_concat(builder.inputs_v, builder.inputs_a)
+        src = builder.out_v
+        builder.filter_tv_range()
+        assert builder.filter_complex[-1] == f"{src}scale=out_range=tv{builder.out_v}"
 
     def test_get_filter_complex_joins_with_semicolons(self):
         builder = FilterComplexBuilder(1)

@@ -434,21 +434,38 @@ class FilterComplexBuilder:
         self.out_v = f"[fps_v{self.index}]"
         self.filter_complex.append(f"{src_v}fps={fps:f}{self.out_v}")
 
-    def filter_scale(self, w: str | None = None, h: str | None = None) -> None:
+    def filter_scale(
+        self, w: str | None = None, h: str | None = None, flags: str | None = None
+    ) -> None:
         """Scale the video input.
 
         Args:
             w: width
             h: height use -2 to keep the aspect ratio
+            flags: the scaling algorithm, `lanczos` for instance; ffmpeg's
+                default when None.
         """
         src_v = self.out_v
         self.out_v = f"[scale_v{self.index}]"
         if not h:
             h = "-2"
         if w:
-            self.filter_complex.append(f"{src_v}scale={w}:{h}{self.out_v}")
+            algorithm = f":flags={flags}" if flags else ""
+            self.filter_complex.append(f"{src_v}scale={w}:{h}{algorithm}{self.out_v}")
         else:
             self.filter_complex.append(f"{src_v}copy{self.out_v}")
+
+    def filter_tv_range(self) -> None:
+        """Bring the picture to the limited ("tv") range.
+
+        GoPro rushes are full range (`yuvj420p`), and asking the encoder for
+        `-pix_fmt yuv420p` does not convert them: the file only comes out
+        tagged full range, which players and YouTube may show washed out or
+        crushed. The conversion has to happen in the graph.
+        """
+        src_v = self.out_v
+        self.out_v = f"[range_v{self.index}]"
+        self.filter_complex.append(f"{src_v}scale=out_range=tv{self.out_v}")
 
     def get_filter_complex(self) -> str:
         """Write the filter complex comand as a str."""

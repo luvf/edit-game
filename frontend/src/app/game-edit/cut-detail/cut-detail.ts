@@ -29,7 +29,7 @@ import {
   GameEditCutsStateService,
   ReviewMarker,
 } from '../game-edit-cuts/game-edit-cuts-state';
-import { renderPresets } from '../../core/services/preset-service';
+import { cutRenderPresets } from '../../core/services/preset-service';
 import { buildStates, stateAt } from '../scoreboard';
 import { MatOption, MatSelect } from '@angular/material/select';
 
@@ -218,7 +218,7 @@ export class CutDetailComponent implements OnChanges {
   readonly parseError = signal<string | null>(null);
   valid = signal(true);
   queuePreset = 'medium';
-  protected readonly renderPresets = renderPresets;
+  protected readonly renderPresets = cutRenderPresets;
   protected readonly pointOptions = POINT_OPTIONS;
   /**
    * Prefixe des `name` du selecteur de point. Les radios de meme `name` forment

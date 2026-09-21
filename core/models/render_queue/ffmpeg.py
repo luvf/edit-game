@@ -96,6 +96,47 @@ def _cuda_device_initialises(ffmpeg_path: str) -> bool:
 class RenderQueueItemFFMPEG(RenderQueueItemBase):
     """Concrete base for ffmpeg-driven jobs; treat `build_command` as abstract."""
 
+    #: NVENC only honours `-cq` under VBR with a ceiling well above what the
+    #: quality needs: left to its default, the rate stays pinned near 16 Mb/s
+    #: whatever `-cq` asks for.
+    NVENC_CQ_ARGS: ClassVar[list[str]] = [
+        "-rc",
+        "vbr",
+        "-b:v",
+        "0",
+        "-maxrate",
+        "200M",
+        "-bufsize",
+        "400M",
+    ]
+
+    #: The height a YouTube upload is brought up to: YouTube gives a 4K
+    #: upload more bitrate and its VP9/AV1 encodes, and a 1080p viewer gets a
+    #: better stream out of it too.
+    YOUTUBE_HEIGHT = 2160
+
+    #: What YouTube asks of an upload: a keyframe every half second, two
+    #: B-frames, 4:2:0, and AAC at 384k in 48 kHz.
+    YOUTUBE_GOP_ARGS: ClassVar[list[str]] = [
+        "-force_key_frames",
+        "expr:gte(t,n_forced*0.5)",
+        "-bf",
+        "2",
+        "-pix_fmt",
+        "yuv420p",
+    ]
+    YOUTUBE_AUDIO_ARGS: ClassVar[list[str]] = [
+        "-c:a",
+        "aac",
+        "-b:a",
+        "384k",
+        "-ar",
+        "48000",
+    ]
+
+    #: `youtube` has no entry here on purpose, so it always falls back to its
+    #: x264 args: measured on 4K rushes, NVENC HEVC matched x264 in fidelity
+    #: and speed, for files 20 to 65% heavier.
     PRESET_ARGS_GPU: ClassVar[dict[str, dict[str, list[str]]]] = {
         "low": {
             "scale": ["854", "-2"],
@@ -106,16 +147,33 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
                 "35",
                 "-preset",
                 "p4",
+                *NVENC_CQ_ARGS,
             ],
             "audio": ["-c:a", "aac", "-b:a", "96k"],
         },
         "medium": {
             "scale": ["1280", "-2"],
-            "video": ["-c:v", "hevc_nvenc", "-cq", "32", "-preset", "p4"],
+            "video": [
+                "-c:v",
+                "hevc_nvenc",
+                "-cq",
+                "32",
+                "-preset",
+                "p4",
+                *NVENC_CQ_ARGS,
+            ],
             "audio": ["-c:a", "aac", "-b:a", "192k"],
         },
         "high": {
-            "video": ["-c:v", "hevc_nvenc", "-cq", "18", "-preset", "p4"],
+            "video": [
+                "-c:v",
+                "hevc_nvenc",
+                "-cq",
+                "18",
+                "-preset",
+                "p4",
+                *NVENC_CQ_ARGS,
+            ],
             "audio": ["-c:a", "aac", "-b:a", "192k"],
         },
     }
@@ -123,7 +181,7 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
         "low": {
             "scale": ["640", "-2"],
             "video": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "35"],
-            "audio": ["-c:a", "aac", "-b:a", "96"],
+            "audio": ["-c:a", "aac", "-b:a", "96k"],
         },
         "medium": {
             "video": ["-c:v", "libx264", "-preset", "medium", "-crf", "23"],
@@ -145,6 +203,24 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
         "high_av1": {
             "video": ["-c:v", "libsvtav1", "-crf", "24", "-preset", "6"],
             "audio": ["-c:a", "aac", "-b:a", "192k"],
+        },
+        "youtube": {
+            "scale": ["-2", str(YOUTUBE_HEIGHT)],
+            # Bringing 1080p up to 4K: lanczos keeps the edges sharper than
+            # the default bicubic.
+            "scale_flags": ["lanczos"],
+            "video": [
+                "-c:v",
+                "libx264",
+                "-preset",
+                "medium",
+                "-crf",
+                "16",
+                "-profile:v",
+                "high",
+                *YOUTUBE_GOP_ARGS,
+            ],
+            "audio": YOUTUBE_AUDIO_ARGS,
         },
     }
 
@@ -444,20 +520,45 @@ class RenderQueueItemFFMPEG(RenderQueueItemBase):
     ) -> dict[str, list[str]]:
         """Return ffmpeg args for the selected preset.
 
-        `source_files` lets a subclass adapt the args to what it is about to
-        encode; it is unused here.
+        `source_files` lets the args adapt to what is about to be encoded: the
+        YouTube preset only ever scales up, so sources already at
+        :attr:`YOUTUBE_HEIGHT` or taller keep their resolution.
         """
-        _ = source_files
         default_preset_cpu = next(iter(self.PRESET_ARGS_CPU.keys()))
         cpu_preset_args = self.PRESET_ARGS_CPU.get(
             self.preset,
             self.PRESET_ARGS_CPU[default_preset_cpu],
         )
 
-        if not self._is_cuda_available():
-            return cpu_preset_args
+        preset_args = cpu_preset_args
+        if self._is_cuda_available():
+            preset_args = self.PRESET_ARGS_GPU.get(self.preset, cpu_preset_args)
 
-        return self.PRESET_ARGS_GPU.get(self.preset, cpu_preset_args)
+        tallest = self._tallest_source_height(source_files)
+        if (
+            self.preset == "youtube"
+            and tallest is not None
+            and tallest >= self.YOUTUBE_HEIGHT
+        ):
+            return {key: args for key, args in preset_args.items() if key != "scale"}
+        return preset_args
+
+    @classmethod
+    def _tallest_source_height(cls, source_files: list[Path] | None) -> int | None:
+        """Return the height of the tallest source, None when none is readable.
+
+        The tallest source decides: the inputs are concatenated into a single
+        output, so they are all encoded at that resolution anyway.
+        """
+        heights = [
+            height
+            for height in (
+                cls._source_video_height(source_file)
+                for source_file in source_files or []
+            )
+            if height is not None
+        ]
+        return max(heights, default=None)
 
     def delete(
         self,
@@ -538,10 +639,10 @@ class RenderQueueItemCut(RenderQueueItemFFMPEG):
 
         points, _, display = CutJsonParser(self.cut.json_file.path).parse_all()
 
-        preset_args = self._preset_args()
-
         source_files = game.get_source_files()
         nb_files = len(source_files)
+
+        preset_args = self._preset_args(source_files)
 
         fps = get_fps(source_files[0])
 
@@ -581,7 +682,7 @@ class RenderQueueItemCut(RenderQueueItemFFMPEG):
 
         if scale:
             w, h = scale
-            filter_complex.filter_scale(w, h)
+            filter_complex.filter_scale(w, h, *preset_args.get("scale_flags", []))
 
         if chapter_metadata_tmp_path:
             write_chapters_metadata(
@@ -620,6 +721,7 @@ class RenderQueueItemCut(RenderQueueItemFFMPEG):
                 fade=intro.fade,
             )
         filter_complex.filter_overlay(plan.overlay_arguments(indices.first_overlay))
+        filter_complex.filter_tv_range()
         # Toujours en dernier : c'est la sortie du graphe qui doit porter le
         # frame rate, sinon l'encodeur ne sait pas a quel debit viser.
         filter_complex.filter_fps(fps)
@@ -846,7 +948,8 @@ class RenderQueueItemGameRender(RenderQueueItemFFMPEG):
         scale = preset_args.get("scale")
         if scale:
             w, h = scale
-            filter_complex.filter_scale(w, h)
+            filter_complex.filter_scale(w, h, *preset_args.get("scale_flags", []))
+        filter_complex.filter_tv_range()
 
         cmd = ffmpeg_command_builder(
             filter_complex=filter_complex,
@@ -943,23 +1046,11 @@ class RenderQueueItemArchive(RenderQueueItemGameRender):
     def _sources_need_downscale(cls, source_files: list[Path] | None) -> bool:
         """Tell whether the sources are taller than the archive target.
 
-        The tallest source decides: the inputs are concatenated into a single
-        output, so the archive is encoded at that resolution anyway. An
-        unreadable source is treated as not needing a downscale, which keeps
-        the preset's own args rather than guessing.
+        An unreadable source is treated as not needing a downscale, which
+        keeps the preset's own args rather than guessing.
         """
-        if not source_files:
-            return False
-
-        heights = [
-            height
-            for height in (
-                cls._source_video_height(source_file) for source_file in source_files
-            )
-            if height is not None
-        ]
-
-        return bool(heights) and max(heights) > cls.MAX_SOURCE_HEIGHT
+        tallest = cls._tallest_source_height(source_files)
+        return tallest is not None and tallest > cls.MAX_SOURCE_HEIGHT
 
     @staticmethod
     def _with_crf(video_args: list[str], crf: str) -> list[str]:
