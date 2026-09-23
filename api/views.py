@@ -849,6 +849,9 @@ class CutViewSet(viewsets.ModelViewSet[Cut]):
                 "points": decoding.payload["points"],
                 "stats": decoding.payload["comment"]["stats"],
                 "review": decoding.payload["comment"]["review"],
+                # What the side classifier makes of these very segments, when
+                # the run carries one: re-derived here, never stale.
+                "sides": decoding.payload["comment"].get("sides", []),
             }
         )
 

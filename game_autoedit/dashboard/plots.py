@@ -20,15 +20,35 @@ if TYPE_CHECKING:
     from game_autoedit.eval.decode import DecodeSpec
 
 COLOURS = {"in": "#2E86DE", "out": "#E55039", "inside": "#8395A7"}
+
+# How a side reads on a segment bar: the picture's left or right.
+SIDE_MARK = {"left": "G", "right": "D"}
+SIDE_NAME = {"left": "gauche", "right": "droite"}
 TRUTH = "#10AC84"
 PREDICTED = "#EE5A24"
 
 
 def _segments_band(
-    figure: go.Figure, segments: list[Segment], row: float, colour: str, name: str
+    figure: go.Figure,
+    segments: list[Segment],
+    row: float,
+    colour: str,
+    name: str,
+    sides: list[tuple[str, float]] | None = None,
 ) -> None:
-    """Draw one row of segment bars."""
+    """Draw one row of segment bars, each marked with who won it when known.
+
+    `sides` is the model's guess and its confidence, one per segment; without
+    it, a segment shows the side its cut records, if any.
+    """
     for index, segment in enumerate(segments):
+        side, confidence = sides[index] if sides is not None else (segment.point, None)
+        won = (
+            f"<br>gagné à {SIDE_NAME[side]}"
+            + (f" (confiance {confidence:.0%})" if confidence is not None else "")
+            if side in SIDE_NAME
+            else ""
+        )
         figure.add_trace(
             go.Scatter(
                 x=[segment.start, segment.end],
@@ -40,10 +60,18 @@ def _segments_band(
                 showlegend=index == 0,
                 hovertemplate=(
                     f"{name}<br>%{{x:.1f}}s "
-                    f"(durée {segment.duration:.0f}s)<extra></extra>"
+                    f"(durée {segment.duration:.0f}s){won}<extra></extra>"
                 ),
             )
         )
+        if side in SIDE_MARK:
+            figure.add_annotation(
+                x=(segment.start + segment.end) / 2,
+                y=row,
+                text=SIDE_MARK[side] + ("?" if sides is not None else ""),
+                showarrow=False,
+                font={"size": 10, "color": "white"},
+            )
 
 
 def game_figure(
@@ -54,6 +82,7 @@ def game_figure(
     decode_spec: DecodeSpec,
     *,
     show: tuple[str, ...] = ("in", "out", "inside"),
+    sides: list[tuple[str, float]] | None = None,
 ) -> go.Figure:
     """Build the game view.
 
@@ -64,6 +93,7 @@ def game_figure(
         predicted: the segments the decoder produced.
         decode_spec: the triggers in force, drawn as reference lines.
         show: which channels to draw.
+        sides: the side the run's classifier gives each predicted segment.
 
     Returns:
         A figure with the curves on top and the two cuts underneath.
@@ -92,7 +122,7 @@ def game_figure(
         )
 
     _segments_band(figure, truth.segments, -0.12, TRUTH, "vérité")
-    _segments_band(figure, predicted, -0.25, PREDICTED, "prédit")
+    _segments_band(figure, predicted, -0.25, PREDICTED, "prédit", sides)
 
     figure.update_layout(
         height=460,

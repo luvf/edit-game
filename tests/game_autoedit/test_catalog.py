@@ -46,8 +46,13 @@ class FakeGame:
 
 @dataclass
 class FakeCut:
+    """A cut row, with the file `pick_cut` reads to see if it is annotated."""
+
     type_cut: str
     pk: int
+    json_file: FakeFile = field(
+        default_factory=lambda: FakeFile("/nonexistent/cut.json", exists_on_disk=False)
+    )
 
 
 class TestArchiveQualities:
@@ -203,3 +208,50 @@ class TestPickCut:
 
     def test_ties_go_to_the_most_recent_row(self):
         assert pick_cut([FakeCut("VID", 1), FakeCut("VID", 9)]).pk == 9
+
+
+class TestAlignedVideoSources:
+    def _game(self, video, audio):
+        from game_autoedit.data.catalog import LabeledGame
+
+        return LabeledGame(
+            game_id=1,
+            name="g",
+            slug="g",
+            tournament="t",
+            cut_id=1,
+            cut_type="MAN",
+            cut_json_path=Path("c.json"),
+            audio_sources=audio,
+            fps=DEFAULT_FPS,
+            video_sources=video,
+        )
+
+    def _durations(self, monkeypatch, durations):
+        from game_autoedit.data import audio
+
+        monkeypatch.setattr(audio, "probe_duration", lambda path: durations[path.name])
+
+    def test_keeps_a_proxy_on_the_same_timeline(self, monkeypatch):
+        from game_autoedit.data.catalog import aligned_video_sources
+
+        self._durations(monkeypatch, {"p.mp4": 1000.2, "a.mp4": 1000.0})
+        game = self._game((Path("p.mp4"),), (Path("a.mp4"),))
+
+        assert aligned_video_sources(game) == (Path("p.mp4"),)
+
+    def test_drops_a_proxy_of_another_length(self, monkeypatch):
+        from game_autoedit.data.catalog import aligned_video_sources
+
+        self._durations(monkeypatch, {"p.mp4": 1707.0, "a.mp4": 2453.9})
+        game = self._game((Path("p.mp4"),), (Path("a.mp4"),))
+
+        assert aligned_video_sources(game) == (Path("a.mp4"),)
+
+    def test_adds_up_the_rushes(self, monkeypatch):
+        from game_autoedit.data.catalog import aligned_video_sources
+
+        self._durations(monkeypatch, {"p.mp4": 30.0, "r1.mp4": 10.0, "r2.mp4": 20.0})
+        game = self._game((Path("p.mp4"),), (Path("r1.mp4"), Path("r2.mp4")))
+
+        assert aligned_video_sources(game) == (Path("p.mp4"),)

@@ -18,7 +18,7 @@ from game_autoedit.datasets.targets import CHANNELS
 if TYPE_CHECKING:
     from torch import nn
 
-    from game_autoedit.data.embeddings import EmbeddingStore
+    from game_autoedit.data.embeddings import EmbeddingStore, FusedStore
 
 # Above this many steps the game is cut into overlapping slabs, purely to bound
 # memory; the overlap is wider than the receptive field so the result is
@@ -29,13 +29,13 @@ MAX_STEPS = 40_000
 @torch.no_grad()
 def predict_whole_game(
     model: nn.Module,
-    store: EmbeddingStore,
+    store: EmbeddingStore | FusedStore,
     game_id: int,
     device: torch.device,
     *,
     receptive_field: int = 1024,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Predict the three channel probabilities over a whole game.
+    """Predict the channel probabilities over a whole game.
 
     Args:
         model: the trained head, already on `device`.
@@ -46,7 +46,8 @@ def predict_whole_game(
             when a game has to be processed in slabs.
 
     Returns:
-        ``(steps, 3)`` probabilities and the ``(steps,)`` centre times.
+        ``(steps, outputs)`` probabilities -- the boundary channels, then the
+        side when the model predicts one -- and the ``(steps,)`` centre times.
     """
     model.eval()
     embeddings = np.asarray(store.load(game_id), dtype=np.float32)
@@ -61,7 +62,7 @@ def predict_whole_game(
 
     margin = max(receptive_field, 1)
     stride = MAX_STEPS - 2 * margin
-    output = np.zeros((total, len(CHANNELS)), dtype=np.float32)
+    output: np.ndarray | None = None
     for start in range(0, total, stride):
         first = max(start - margin, 0)
         last = min(start + stride + margin, total)
@@ -69,7 +70,11 @@ def predict_whole_game(
         with torch.autocast(device.type, enabled=device.type == "cuda"):
             logits = model(slab)
         probabilities = torch.sigmoid(logits.float())[0].cpu().numpy()
+        if output is None:
+            output = np.zeros((total, probabilities.shape[1]), dtype=np.float32)
         keep_from = start - first
         keep_to = min(start + stride, total) - first
         output[start : start + (keep_to - keep_from)] = probabilities[keep_from:keep_to]
+    if output is None:
+        output = np.zeros((total, len(CHANNELS)), dtype=np.float32)
     return output, times

@@ -17,6 +17,9 @@ if TYPE_CHECKING:
 # A cut shorter than this is a leftover, not a point.
 MIN_SEGMENT_SECONDS = 1.0
 
+# Which side of the picture scored the point, as the editor writes it.
+SIDES: tuple[str, ...] = ("left", "right")
+
 # Two kept segments closer than this were one action split by the editor.
 MERGE_GAP_SECONDS = 0.2
 
@@ -55,6 +58,11 @@ class GameLabels:
         return [segment.end for segment in self.segments]
 
     @property
+    def has_sides(self) -> bool:
+        """Tell whether any segment says which side scored."""
+        return any(segment.point in SIDES for segment in self.segments)
+
+    @property
     def kept_seconds(self) -> float:
         """Return the total kept duration."""
         return sum(segment.duration for segment in self.segments)
@@ -86,6 +94,24 @@ def has_points(cut_json_path: Path) -> bool:
         return False
     return any(
         isinstance(point, dict) and "in" in point and "out" in point
+        for point in _raw_points(payload)
+    )
+
+
+def has_sides(cut_json_path: Path) -> bool:
+    """Tell whether a cut file says, for at least one point, who scored it.
+
+    The model never writes a side: a proposal comes out with every point at
+    ``nopoint``. A side in the file is therefore the mark of a human pass, and
+    is what lets a corrected proposal be told from a raw one.
+    """
+    try:
+        with cut_json_path.open() as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return False
+    return any(
+        isinstance(point, dict) and point.get("point") in SIDES
         for point in _raw_points(payload)
     )
 
@@ -161,7 +187,9 @@ def _merge_close(segments: list[Segment], warnings: list[str]) -> list[Segment]:
                 f"segments fusionnés autour de {previous.end:.2f}s "
                 f"(écart {segment.start - previous.end:.3f}s)"
             )
-            merged.append(Segment(previous.start, segment.end, previous.point))
+            # A point is won at its end, so the later half says who scored.
+            point = segment.point if segment.point in SIDES else previous.point
+            merged.append(Segment(previous.start, segment.end, point))
             continue
         merged.append(segment)
     return merged

@@ -8,7 +8,7 @@ which is the one that decides whether this is usable in production.
 
 from __future__ import annotations
 
-import random
+import hashlib
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
@@ -63,28 +63,49 @@ class Split:
         return sorted({game.tournament for game in games})
 
 
+def _draw(key: str, seed: int) -> float:
+    """Return a unit's fixed draw in [0, 1), from its key and the seed alone."""
+    digest = hashlib.sha256(f"{seed}:{key}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") / 2**64
+
+
 def _split_units(
-    units: list[list[LabeledGame]],
+    units: list[tuple[str, list[LabeledGame]]],
     *,
     val_fraction: float,
     test_fraction: float,
     seed: int,
 ) -> tuple[list[LabeledGame], list[LabeledGame], list[LabeledGame]]:
-    """Shuffle groups of games and cut them into three parts."""
-    ordered = sorted(units, key=lambda unit: unit[0].game_id)
-    random.Random(seed).shuffle(ordered)
+    """Send each group of games to a part according to its own draw.
 
-    total = len(ordered)
-    n_val = int(round(total * val_fraction))
-    n_test = int(round(total * test_fraction))
-    # Never starve the training set on a tiny catalog.
-    n_val = min(n_val, max(total - 1, 0))
-    n_test = min(n_test, max(total - n_val - 1, 0))
+    A unit's part depends on its key and the seed, never on what else is in
+    the catalog. The catalog grows — archives are rendered, corrected
+    proposals come in — and a shuffle over the whole list reshuffled every
+    game each time one was added: runs trained a day apart no longer shared a
+    validation set, and a run evaluated after the change was partly scored on
+    its own training games. The price is that the fractions hold on average
+    rather than exactly, and that a catalog of a handful of games can draw no
+    training game at all — which `train` reports rather than quietly moving a
+    game, since moving one would make its part depend on the catalog again.
+    """
+    draws = sorted(((_draw(key, seed), key, games) for key, games in units))
+    parts: dict[str, list[tuple[float, str, list[LabeledGame]]]] = {
+        "val": [],
+        "test": [],
+        "train": [],
+    }
+    for draw in draws:
+        if draw[0] < val_fraction:
+            parts["val"].append(draw)
+        elif draw[0] < val_fraction + test_fraction:
+            parts["test"].append(draw)
+        else:
+            parts["train"].append(draw)
 
-    val = [game for unit in ordered[:n_val] for game in unit]
-    test = [game for unit in ordered[n_val : n_val + n_test] for game in unit]
-    train = [game for unit in ordered[n_val + n_test :] for game in unit]
-    return train, val, test
+    return tuple(  # type: ignore[return-value]
+        [game for _, _, games in parts[name] for game in games]
+        for name in ("train", "val", "test")
+    )
 
 
 def make_split(games: Sequence[LabeledGame], spec: SplitSpec) -> Split:
@@ -116,9 +137,9 @@ def make_split(games: Sequence[LabeledGame], spec: SplitSpec) -> Split:
         grouped: dict[str, list[LabeledGame]] = {}
         for game in pool:
             grouped.setdefault(game.tournament, []).append(game)
-        units = list(grouped.values())
+        units = list(grouped.items())
     else:
-        units = [[game] for game in pool]
+        units = [(str(game.game_id), [game]) for game in pool]
 
     train, val, test = _split_units(
         units,

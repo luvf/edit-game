@@ -152,3 +152,27 @@ def build_comment(
         "review": review,
         "rejected": [rejection.as_dict() for rejection in decoded.dropped],
     }
+
+
+def side_guesses(
+    segments: list[Any],
+    sides: list[tuple[str, float]] | None,
+    fps: float,
+) -> list[dict[str, Any]]:
+    """Return the model's guess of who won each point, for the comment block.
+
+    Kept out of the points' own ``point`` field on purpose: a side there is how
+    a corrected proposal is told from a raw one (`is_human_cut`), and a guess
+    written there would pass for a human's.
+    """
+    if sides is None:
+        return []
+    return [
+        {
+            "in": int(round(segment.start * fps)),
+            "out": int(round(segment.end * fps)),
+            "point": side,
+            "confidence": round(confidence, 3),
+        }
+        for segment, (side, confidence) in zip(segments, sides, strict=True)
+    ]

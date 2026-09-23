@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from game_autoedit.data.catalog import LabeledGame
-    from game_autoedit.data.embeddings import EmbeddingStore
+    from game_autoedit.data.embeddings import EmbeddingStore, FusedStore
     from game_autoedit.data.labels import GameLabels
 
 
@@ -43,7 +43,7 @@ class EmbeddingDatasetSpec:
     @classmethod
     def for_store(
         cls,
-        store: EmbeddingStore,
+        store: EmbeddingStore | FusedStore,
         *,
         window: WindowSpec | None = None,
         sampling: SamplingSpec | None = None,
@@ -77,7 +77,7 @@ class PreparedEmbeddingGame:
 
 
 def prepare_embedding_games(
-    games: Sequence[LabeledGame], store: EmbeddingStore
+    games: Sequence[LabeledGame], store: EmbeddingStore | FusedStore
 ) -> tuple[list[PreparedEmbeddingGame], list[tuple[int, str]]]:
     """Resolve embeddings and labels for a list of games.
 
@@ -119,7 +119,7 @@ class EmbeddingWindowDataset(Dataset[dict[str, Any]]):
     def __init__(
         self,
         games: Sequence[PreparedEmbeddingGame],
-        store: EmbeddingStore,
+        store: EmbeddingStore | FusedStore,
         spec: EmbeddingDatasetSpec,
         *,
         seed: int = 0,
@@ -171,7 +171,6 @@ class EmbeddingWindowDataset(Dataset[dict[str, Any]]):
         valid = (
             self.spec.target.centers(start, len(targets)) < prepared.duration
         ).astype(np.float32)
-
         return {
             "embeddings": torch.from_numpy(embeddings),
             "target": torch.from_numpy(targets),

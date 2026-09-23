@@ -23,6 +23,11 @@ from game_autoedit.config import AUDIO_QUALITY, SAMPLE_RATE, Paths
 from game_autoedit.data.audio import build_audio_cache
 from game_autoedit.data.catalog import UnusableGameError, predictable_game
 from game_autoedit.datasets.targets import CHANNELS
+from game_autoedit.models.side import WeightProfile, sides_from_logits
+
+# The per-step side curve stored next to the three channels: the logit that
+# the point being decided is won on the left of the picture.
+SIDE_CURVE = "side_logit"
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -107,41 +112,69 @@ def _derived_from(cached: Path, audio_path: Path) -> bool:
         return False
 
 
-def _ensure_embeddings(game_id: int, paths: Paths, encoder: str, device: Any) -> Any:
-    """Return the embedding store for `encoder`, encoding this game if needed.
+def _ensure_embeddings(
+    game: LabeledGame, paths: Paths, encoder: str, device: Any
+) -> Any:
+    """Return the store for `encoder`, encoding this game where it is missing.
 
-    The encoder itself is only built when something is missing: loading AST
+    `encoder` may fuse several caches (``ast_ms+dinov2``); each is completed on
+    its own. An encoder is only built when something is missing: loading one
     costs seconds and a slab of VRAM, and a game proposed twice pays it once.
 
     Raises:
-        UnusableGameError: the cache does not exist and cannot be created.
+        UnusableGameError: a picture cache is needed and the game has no video.
     """
+    from game_autoedit.data.embeddings import FUSION, open_store
+
+    for key in encoder.split(FUSION):
+        _ensure_single_embeddings(game, paths, key, device)
+    store = open_store(paths.features, encoder)
+    if store is None:
+        raise UnusableGameError(f"cache de plongements '{encoder}' introuvable")
+    return store
+
+
+def _ensure_single_embeddings(
+    game: LabeledGame, paths: Paths, key: str, device: Any
+) -> None:
+    """Encode this game into the cache `key`, unless it is there and current."""
     import soundfile as sf
 
+    from game_autoedit.data.catalog import aligned_video_sources
     from game_autoedit.data.embeddings import EmbeddingStore
     from game_autoedit.encoders import EncoderSpec, build_encoder
+    from game_autoedit.encoders.base import VIDEO_ENCODERS
 
+    game_id = game.game_id
+    is_video = key in VIDEO_ENCODERS
     # The cache key carries the mid/side suffix; the encoder name does not.
-    spec = EncoderSpec(name=encoder.removesuffix("_ms"), stereo=encoder.endswith("_ms"))
-    root = paths.embeddings(encoder)
+    spec = EncoderSpec(name=key.removesuffix("_ms"), stereo=key.endswith("_ms"))
+    root = paths.embeddings(key)
     store = EmbeddingStore.open(root)
+    # Pictures do not come from the extracted audio, so its date says nothing
+    # about them; they are rebuilt only when missing.
     if (
         store is not None
         and store.has(game_id)
-        and _derived_from(store.path(game_id), paths.audio_path(game_id))
+        and (is_video or _derived_from(store.path(game_id), paths.audio_path(game_id)))
     ):
-        return store
+        return
+    if is_video and not game.video_sources:
+        raise UnusableGameError(f"game {game_id} : aucune vidéo pour les images")
 
     built = build_encoder(spec, device)
     if store is None:
         store = EmbeddingStore.create(
             root, rate=built.rate, dim=built.dim, encoder=spec.name
         )
+    if is_video:
+        sources = aligned_video_sources(game)
+        store.write(game_id, built.encode_video(sources))  # type: ignore[union-attr]
+        return
     waveform, _ = sf.read(
         str(paths.audio_path(game_id)), dtype="float32", always_2d=spec.stereo
     )
-    store.write(game_id, built.encode(waveform))
-    return store
+    store.write(game_id, built.encode(waveform))  # type: ignore[union-attr]
 
 
 def _ensure_envelope(game_id: int, paths: Paths) -> np.ndarray | None:
@@ -172,13 +205,37 @@ def _ensure_envelope(game_id: int, paths: Paths) -> np.ndarray | None:
     return envelope
 
 
+@dataclass(frozen=True)
+class _Sider:
+    """A run's side classifier, bound to one game's embeddings."""
+
+    classifier: Any
+    store: Any
+    game_id: int
+
+    @property
+    def profile(self) -> Any:
+        """Return the weighting the classifier was fitted with."""
+        return self.classifier.profile
+
+    def logits(self) -> np.ndarray | None:
+        """Return the side logit at every step of the game."""
+        from game_autoedit.models.side import step_features, step_logits
+
+        features = step_features(self.store, self.game_id)
+        if features is None:
+            return None
+        return step_logits(self.classifier, features)
+
+
 def _predict(
     game: LabeledGame, duration: float, run_name: str, paths: Paths, device: Any
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, Any]:
     """Run the model over the whole game.
 
     Returns:
-        ``(steps, 3)`` probabilities and the ``(steps,)`` centre times.
+        the probabilities, the centre times, and how to ask who won a list of
+        segments — None when the run carries no side classifier.
 
     Raises:
         UnusableGameError: the run cannot be loaded or read.
@@ -194,20 +251,22 @@ def _predict(
 
     if run.on_embeddings:
         encoder = str(run.encoder)
-        store = _ensure_embeddings(game.game_id, paths, encoder, device)
-        return predict_whole_game(
+        store = _ensure_embeddings(game, paths, encoder, device)
+        probabilities, times = predict_whole_game(
             run.model,
             store,
             game.game_id,
             device,
             receptive_field=run.receptive_field,
         )
+        sider = _Sider(run.side, store, game.game_id) if run.side else None
+        return probabilities, times, sider
 
     if run.dataset is None:
         raise UnusableGameError(
             f"run '{run_name}' illisible : ni encodeur ni spécification de dataset"
         )
-    return predict_game(
+    probabilities, times = predict_game(
         run.model,
         paths.audio_path(game.game_id),
         duration=duration,
@@ -215,6 +274,7 @@ def _predict(
         device=device,
         batch_size=8,
     )
+    return probabilities, times, None
 
 
 def _cut_payload(
@@ -224,15 +284,18 @@ def _cut_payload(
     fps: float,
     spec: DecodeSpec,
     model_info: dict[str, Any],
+    sides: list[tuple[str, float]] | None = None,
 ) -> dict[str, Any]:
     """Assemble the cut file a decoding produced.
 
     Shared by the first proposal and every re-decoding after it, so a cut
     tuned six months later carries exactly the same shape as a fresh one.
+    `sides` is what the run's side classifier says about each segment, when
+    the run carries one.
     """
-    from game_autoedit.eval.report import build_comment
+    from game_autoedit.eval.report import build_comment, side_guesses
 
-    return {
+    payload: dict[str, Any] = {
         "points": [
             {
                 "in": int(round(segment.start * fps)),
@@ -250,6 +313,10 @@ def _cut_payload(
             model_info=model_info,
         ),
     }
+    guesses = side_guesses(decoded.segments, sides, fps)
+    if guesses:
+        payload["comment"]["sides"] = guesses
+    return payload
 
 
 def read_curves(path: Path) -> tuple[np.ndarray, np.ndarray]:
@@ -281,6 +348,22 @@ def read_curves(path: Path) -> tuple[np.ndarray, np.ndarray]:
     return probabilities, times
 
 
+def read_side_curve(path: Path) -> np.ndarray | None:
+    """Return the per-step side curve stored with the others, if there is one.
+
+    An older proposal, or one from a run with no side classifier, simply has
+    none; the cut then comes back without sides rather than with stale ones.
+    """
+    try:
+        with np.load(path) as archive:
+            if SIDE_CURVE not in archive.files:
+                return None
+            curve: np.ndarray = np.asarray(archive[SIDE_CURVE], dtype=np.float32)
+    except (OSError, ValueError, EOFError):
+        return None
+    return curve
+
+
 @dataclass(frozen=True)
 class Decoding:
     """A cut re-derived from stored curves, and whether it could be snapped."""
@@ -306,6 +389,12 @@ def redecode(
     pass of numpy over a file that is already on disk. Turning a threshold is
     therefore something a person can do while watching the result, which is
     the whole reason decoding was kept out of the model.
+
+    The sides come along: the classifier is linear, so its curve along the
+    game answers for whatever segments this decoding produces, and a point
+    keeps its winner when a slider moves its boundaries. The weighting it was
+    fitted with travels in the comment, so the curve is read exactly as it
+    was written.
 
     Snapping is the one part that needs more than the curves: the onset
     envelope lives in the disposable cache, and when it has been wiped the
@@ -335,6 +424,7 @@ def redecode(
     paths = paths or Paths()
     spec = decode_spec or DecodeSpec()
     probabilities, times = read_curves(curves_path)
+    side_logits = read_side_curve(curves_path)
 
     decoded = decode(probabilities, times, spec)
     snapped = False
@@ -352,6 +442,14 @@ def redecode(
         fps=fps,
         spec=spec,
         model_info={**(model_info or {}), "redecoded": True, "snapped": snapped},
+        sides=sides_from_logits(
+            side_logits,
+            times,
+            decoded.segments,
+            WeightProfile.from_json((model_info or {}).get("side_profile")),
+        )
+        if side_logits is not None
+        else None,
     )
     payload["comment"]["curves_file"] = curves_path.name
     payload["comment"]["curves_hop"] = hop
@@ -399,7 +497,11 @@ def generate_cut(
 
     duration = _ensure_audio(game, paths)
     device = resolve_device(options.device)
-    probabilities, times = _predict(game, duration, run, paths, device)
+    probabilities, times, sider = _predict(game, duration, run, paths, device)
+    # One curve along the game rather than an answer per segment: the sides
+    # then survive a re-decode with other thresholds, which reads it back.
+    side_logits = sider.logits() if sider is not None else None
+    profile = sider.profile if sider is not None else None
 
     decoded = decode(probabilities, times, spec)
     if options.snap:
@@ -413,7 +515,17 @@ def generate_cut(
         duration=duration,
         fps=fps,
         spec=spec,
-        model_info={"run": run, "cut_id": cut_id, "quality": game.quality},
+        model_info={
+            "run": run,
+            "cut_id": cut_id,
+            "quality": game.quality,
+            # The curve alone is not enough to read the sides again: it has to
+            # be weighted exactly as the classifier was fitted.
+            **({"side_profile": sider.profile.to_json()} if sider else {}),
+        },
+        sides=sides_from_logits(side_logits, times, decoded.segments, profile)
+        if side_logits is not None
+        else None,
     )
     comment = payload["comment"]
 
@@ -423,6 +535,8 @@ def generate_cut(
         name: probabilities[:, index].astype(np.float32)
         for index, name in enumerate(CHANNELS)
     }
+    if side_logits is not None:
+        curves[SIDE_CURVE] = side_logits.astype(np.float32)
     curves["times"] = times.astype(np.float32)
     np.savez_compressed(curves_path, **curves)
     comment["curves_file"] = curves_path.name

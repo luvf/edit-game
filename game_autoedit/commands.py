@@ -7,6 +7,7 @@ of them writes to the database.
 from __future__ import annotations
 
 import statistics
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -227,15 +228,76 @@ def build_cache(args: argparse.Namespace, paths: Paths) -> int:
     return 1 if failed else 0
 
 
+def _build_video_embeddings(
+    args: argparse.Namespace, paths: Paths, catalog: Catalog
+) -> int:
+    """Encode the pictures of every selected game with a frozen image encoder."""
+    from game_autoedit.data.catalog import aligned_video_sources
+    from game_autoedit.data.embeddings import EmbeddingStore
+    from game_autoedit.encoders import EncoderSpec, build_encoder
+    from game_autoedit.runs import resolve_device
+
+    games = [game for game in catalog.games if game.video_sources]
+    device = resolve_device(args.device)
+    spec = EncoderSpec(name=args.encoder, batch_size=args.batch_size)
+    print(f"Chargement de l'encodeur {spec.name} sur {device}…")
+    encoder = build_encoder(spec, device)
+
+    root = paths.embeddings(spec.cache_key)
+    store = EmbeddingStore.create(
+        root, rate=encoder.rate, dim=encoder.dim, encoder=spec.name
+    )
+    print(
+        f"{len(games)} game(s) -> {root}\n"
+        f"grille {store.rate:.3f} Hz, {store.dim} dimensions\n"
+    )
+
+    done, encoded_seconds = 0, 0.0
+    failed: list[tuple[int, str]] = []
+    for index, game in enumerate(games, start=1):
+        if store.has(game.game_id) and not args.force:
+            done += 1
+            continue
+        started = time.monotonic()
+        try:
+            sources = aligned_video_sources(game)
+            embeddings = encoder.encode_video(sources)  # type: ignore[union-attr]
+        except RuntimeError as error:
+            failed.append((game.game_id, str(error)))
+            print(f"[{index}/{len(games)}] ÉCHEC game {game.game_id}: {error}")
+            continue
+        store.write(game.game_id, embeddings)
+        done += 1
+        seconds = embeddings.shape[0] / store.rate
+        encoded_seconds += seconds
+        print(
+            f"[{index}/{len(games)}] game {game.game_id:5d}  "
+            f"{embeddings.shape[0]:6d} images  {seconds / 60:6.1f} min  "
+            f"en {time.monotonic() - started:4.0f}s  {sources[0].name}"
+        )
+
+    size = sum(path.stat().st_size for path in root.glob("*.npy"))
+    print(
+        f"\n{done} game(s) encodés ({encoded_seconds / 3600:.1f} h cette fois), "
+        f"{size / 1e9:.2f} Go"
+    )
+    for game_id, reason in failed:
+        print(f"  game {game_id}: {reason}")
+    return 1 if failed else 0
+
+
 def build_embeddings(args: argparse.Namespace, paths: Paths) -> int:
     """Encode every selected game once with a frozen pretrained encoder."""
     import soundfile as sf
 
     from game_autoedit.data.embeddings import EmbeddingStore
     from game_autoedit.encoders import EncoderSpec, build_encoder
+    from game_autoedit.encoders.base import VIDEO_ENCODERS
     from game_autoedit.runs import resolve_device
 
     catalog = _catalog_from_args(args)
+    if args.encoder in VIDEO_ENCODERS:
+        return _build_video_embeddings(args, paths, catalog)
     prepared, skipped = prepare_games(catalog.games, paths)
     _report_skipped(skipped, "audio")
     if not prepared:
@@ -268,7 +330,7 @@ def build_embeddings(args: argparse.Namespace, paths: Paths) -> int:
         waveform, _ = sf.read(
             str(item.audio_path), dtype="float32", always_2d=spec.stereo
         )
-        embeddings = encoder.encode(waveform)
+        embeddings = encoder.encode(waveform)  # type: ignore[union-attr]
         store.write(item.game.game_id, embeddings)
         done += 1
         encoded_seconds += item.duration
@@ -505,21 +567,54 @@ def _train_spec(args: argparse.Namespace) -> TrainSpec:
     )
 
 
+def _head_spec(args: argparse.Namespace, store: Any) -> Any:
+    """Build the head for `store`, locating its sound and picture features.
+
+    A mid/side audio cache keeps its side channel in its second half; in a
+    fused input that half moves with the cache, and the pictures get their own
+    dropout.
+    """
+    from game_autoedit.data.embeddings import FusedStore
+    from game_autoedit.encoders.base import VIDEO_ENCODERS
+    from game_autoedit.models.head import HeadSpec
+
+    side_span: tuple[int, int] | None = None
+    video_span: tuple[int, int] | None = None
+    if isinstance(store, FusedStore):
+        for span in store.spans:
+            if span.encoder in VIDEO_ENCODERS:
+                video_span = (span.start, span.end)
+            elif span.encoder.endswith("_ms") and side_span is None:
+                side_span = ((span.start + span.end) // 2, span.end)
+        if side_span is None:
+            side_span = (0, 0)
+    elif store.encoder in VIDEO_ENCODERS:
+        side_span = (0, 0)
+
+    return HeadSpec(
+        channels=args.head_channels,
+        dropout=args.dropout,
+        side_span=side_span,
+        video_span=video_span,
+        video_dropout=args.video_dropout if video_span else 0.0,
+    )
+
+
 def _train_on_embeddings(args: argparse.Namespace, paths: Paths, split: Split) -> int:
     """Train a small head on top of a frozen encoder's cached embeddings."""
-    from game_autoedit.data.embeddings import EmbeddingStore
+    from game_autoedit.data.embeddings import open_store
     from game_autoedit.datasets.embedding_dataset import (
         EmbeddingDatasetSpec,
         EmbeddingWindowDataset,
         prepare_embedding_games,
     )
     from game_autoedit.datasets.windows import SamplingSpec, WindowSpec
-    from game_autoedit.models.head import EmbeddingTagger, HeadSpec
+    from game_autoedit.models.head import EmbeddingTagger
     from game_autoedit.runs import resolve_device
     from game_autoedit.training import RunSpec, TrainingInputs
     from game_autoedit.training import train as run_training
 
-    store = EmbeddingStore.open(paths.embeddings(args.encoder))
+    store = open_store(paths.features, args.encoder)
     if store is None:
         print(
             f"Aucun cache de plongements pour '{args.encoder}' : "
@@ -550,7 +645,7 @@ def _train_on_embeddings(args: argparse.Namespace, paths: Paths, split: Split) -
         tolerance=args.tolerance,
         shape=args.target_shape,
     )
-    head = HeadSpec(channels=args.head_channels, dropout=args.dropout)
+    head = _head_spec(args, store)
     run = RunSpec(
         name=args.name,
         dataset=spec,
@@ -648,16 +743,18 @@ class _Predictor:
 
     games: list[Any]
     predict: Callable[[Any], tuple[np.ndarray, np.ndarray]]
+    sides: Callable[[Any, list[Any]], list[tuple[str, float]] | None]
 
 
 def _make_predictor(
     args: argparse.Namespace, paths: Paths, games: Sequence[Any], device: Any
 ) -> _Predictor | None:
     """Load the run named by `args` and bind it to the games it can read."""
-    from game_autoedit.data.embeddings import EmbeddingStore
+    from game_autoedit.data.embeddings import open_store
     from game_autoedit.datasets.embedding_dataset import prepare_embedding_games
     from game_autoedit.eval.inference import predict_game
     from game_autoedit.eval.whole_game import predict_whole_game
+    from game_autoedit.models.side import sides_for
     from game_autoedit.runs import RunNotFoundError, load_run
 
     try:
@@ -668,7 +765,7 @@ def _make_predictor(
 
     if run.on_embeddings:
         encoder = str(args.encoder or run.encoder)
-        store = EmbeddingStore.open(paths.embeddings(encoder))
+        store = open_store(paths.features, encoder)
         if store is None:
             print(f"Aucun cache de plongements pour '{encoder}'.")
             return None
@@ -684,7 +781,10 @@ def _make_predictor(
                 receptive_field=run.receptive_field,
             )
 
-        return _Predictor(games=prepared, predict=predict)
+        def sides(item: Any, segments: list[Any]) -> list[tuple[str, float]] | None:
+            return sides_for(run.side, store, item.game.game_id, segments)
+
+        return _Predictor(games=prepared, predict=predict, sides=sides)
 
     prepared_audio, skipped_audio = prepare_games(games, paths)
     _report_skipped(skipped_audio, "audio")
@@ -703,7 +803,162 @@ def _make_predictor(
             batch_size=8,
         )
 
-    return _Predictor(games=prepared_audio, predict=predict_audio)
+    def no_sides(_item: Any, _segments: list[Any]) -> None:
+        """Say nothing about who won: the waveform model never sees the field."""
+
+    return _Predictor(games=prepared_audio, predict=predict_audio, sides=no_sides)
+
+
+def _score_sides(
+    sides: list[tuple[str, float]] | None, labels: GameLabels
+) -> tuple[int, int]:
+    """Return how many of a game's labelled sides the model calls right.
+
+    Scored on the human segments, so a side is judged apart from whether the
+    boundaries around it were found.
+
+    Args:
+        sides: what was guessed for every segment of the human cut, in order.
+        labels: that cut.
+
+    Returns:
+        The right calls and the number of points whose cut says who scored.
+    """
+    from game_autoedit.data.labels import SIDES
+
+    if sides is None:
+        return 0, 0
+    pairs = [
+        (segment, guess)
+        for segment, guess in zip(labels.segments, sides, strict=True)
+        if segment.point in SIDES
+    ]
+    right = sum(1 for segment, (side, _) in pairs if side == segment.point)
+    return right, len(pairs)
+
+
+def train_side(args: argparse.Namespace, paths: Paths) -> int:
+    """Fit the side classifier of a run, on the points whose cut says who won.
+
+    Separate from `train` on purpose: the side has two hundred labelled points
+    against two hundred games of boundaries, and mixing the two taught the
+    tagger a constant (see `game_autoedit.models.side`). This fits in seconds
+    and writes `side.pt` next to the run's checkpoint, where `evaluate`,
+    `predict` and `propose` pick it up.
+    """
+    from game_autoedit.data.embeddings import open_store
+    from game_autoedit.datasets.embedding_dataset import prepare_embedding_games
+    from game_autoedit.models.side import (
+        SideClassifier,
+        SideFit,
+        WeightProfile,
+        accuracy,
+        mirrored,
+        training_points,
+        width_of,
+    )
+    from game_autoedit.runs import SIDE_FILE, RunNotFoundError, load_run, resolve_device
+
+    device = resolve_device(args.device)
+    run_dir = paths.runs / args.run
+    try:
+        run = load_run(run_dir, device)
+    except RunNotFoundError as error:
+        print(error)
+        return 1
+
+    encoder = str(args.encoder or run.encoder or "")
+    store = open_store(paths.features, encoder) if encoder else None
+    if store is None:
+        print(f"Aucun cache de plongements pour '{encoder}'.")
+        return 1
+
+    catalog = _catalog_from_args(args)
+    split = _split_from_args(args, catalog)
+    train_games, _ = prepare_embedding_games(split.train, store)
+    val_games, _ = prepare_embedding_games(split.val, store)
+
+    profile = WeightProfile(
+        kind=args.profile,
+        rate=args.profile_rate,
+        spread=args.profile_spread,
+    )
+    features, targets, owners = training_points(store, train_games, profile)
+    val_features, val_targets, val_owners = training_points(store, val_games, profile)
+    if not len(targets):
+        print(
+            "Aucun point étiqueté dans l'entraînement : remplir le camp de "
+            "quelques points dans l'éditeur, ou élargir la sélection."
+        )
+        return 1
+
+    width = width_of(store)
+    if not width:
+        print(
+            f"Le cache '{encoder}' ne porte aucune image : le camp ne se lit "
+            f"pas dans le son. Ajouter dinov2 à l'encodeur du run."
+        )
+        return 1
+
+    print(
+        f"{len(targets)} point(s) étiqueté(s) sur {len(set(owners.tolist()))} game(s) "
+        f"d'entraînement, {len(val_targets)} sur "
+        f"{len(set(val_owners.tolist()))} en validation\n"
+        f"Plongements {encoder} -> {width} dimensions d'asymétrie "
+        f"(bande gauche - bande droite, moins la moyenne de la game), "
+        f"part de 'gauche' {targets.mean():.2f}\n"
+        f"Pondération {profile.kind} (pic à {profile.rate:.1f}s avant la fin)"
+    )
+
+    fit = SideFit(
+        epochs=args.epochs,
+        learning_rate=args.learning_rate,
+        weight_decay=args.weight_decay,
+        hidden=args.hidden,
+    )
+    # On asymmetry features a mirror is an exact change of sign, and it is
+    # worth 0.84 against 0.82 by cross-validation — and it is what stops the
+    # classifier learning that one camera films the winners on one side.
+    fitted_features, fitted_targets = (
+        mirrored(features, targets) if not args.no_mirror else (features, targets)
+    )
+    if not args.no_mirror:
+        print("Miroir : chaque point compte deux fois, gauche et droite échangées")
+
+    model = SideClassifier(width, fit, profile).to(device)
+    loss = model.fit(fitted_features, fitted_targets)
+    train_accuracy = accuracy(model.probabilities(features), targets)
+    print(
+        f"\nLoss finale {loss:.4f}, camps justes à l'entraînement {train_accuracy:.3f}"
+    )
+
+    if len(val_targets):
+        scores = model.probabilities(val_features)
+        print(f"Camps justes en validation      {accuracy(scores, val_targets):.3f}")
+        for game_id in sorted(set(val_owners.tolist())):
+            pick = val_owners == game_id
+            print(
+                f"  game {game_id:5d}  {accuracy(scores[pick], val_targets[pick]):.2f} "
+                f"sur {int(pick.sum())} point(s)"
+            )
+    else:
+        print("Aucun point étiqueté en validation : rien à mesurer.")
+
+    model.save(run_dir / SIDE_FILE)
+    print(f"\nClassifieur écrit dans {run_dir / SIDE_FILE}")
+    return 0
+
+
+def _sides_line(right: int, total: int, *, short: bool = False) -> str:
+    """Return the report line of a side score, empty when nothing was scored."""
+    if not total:
+        return ""
+    if short:
+        return f"  camp {right}/{total}"
+    return (
+        f"  Camp du point  : {right}/{total} justes ({right / total:.1%}) "
+        f"sur les points dont le cut le dit\n"
+    )
 
 
 def evaluate(args: argparse.Namespace, paths: Paths) -> int:
@@ -732,6 +987,7 @@ def evaluate(args: argparse.Namespace, paths: Paths) -> int:
     aggregate = Aggregate.empty(("in", "out"))
     intervals: dict[str, tuple[list[int], int]] = {"in": ([], 0), "out": ([], 0)}
     print(f"Évaluation de {len(games)} game(s) sur {device}\n")
+    sides_right, sides_total = 0, 0
 
     for prepared in games:
         probabilities, times = predictor.predict(prepared)
@@ -758,13 +1014,23 @@ def evaluate(args: argparse.Namespace, paths: Paths) -> int:
         )
         aggregate.add_segments(segment_score)
 
+        game_sides = _score_sides(
+            predictor.sides(prepared, prepared.labels.segments), prepared.labels
+        )
+        sides_right += game_sides[0]
+        sides_total += game_sides[1]
+
         if args.per_game:
-            print(f"game {prepared.game.game_id:5d}  {segment_score.line()}")
+            print(
+                f"game {prepared.game.game_id:5d}  {segment_score.line()}"
+                f"{_sides_line(*game_sides, short=True)}"
+            )
 
     print(f"\nGlobal sur {aggregate.games} game(s), tolérance ±{args.tolerance}s")
     for channel in ("in", "out"):
         print("  " + aggregate.boundary_score(channel).line())
     print(f"  IoU temporel   : {aggregate.iou:.3f}")
+    print(_sides_line(sides_right, sides_total), end="")
 
     if any(deltas for deltas, _ in intervals.values()):
         print("\n  Bon intervalle de tambour (la question qui compte) :")
@@ -789,7 +1055,7 @@ def predict(args: argparse.Namespace, paths: Paths) -> int:
     import json
 
     from game_autoedit.eval.decode import decode
-    from game_autoedit.eval.report import build_comment
+    from game_autoedit.eval.report import build_comment, side_guesses
     from game_autoedit.runs import resolve_device
 
     device = resolve_device(args.device)
@@ -832,6 +1098,13 @@ def predict(args: argparse.Namespace, paths: Paths) -> int:
                 model_info={"run": args.run},
             ),
         }
+        guesses = side_guesses(
+            decoded.segments,
+            predictor.sides(prepared, decoded.segments),
+            fps,
+        )
+        if guesses:
+            payload["comment"]["sides"] = guesses
 
         curves_path = out_dir / f"game_{game_id}_curves.npz"
         curves: dict[str, Any] = {

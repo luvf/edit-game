@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 import streamlit as st
 
 from game_autoedit.config import Paths
+from game_autoedit.runs import SIDE_FILE
 
 if TYPE_CHECKING:
     import numpy as np
@@ -106,6 +107,7 @@ class RunInfo:
     encoder: str | None
     history: list[dict[str, Any]]
     config: dict[str, Any]
+    has_side: bool = False
 
     @property
     def best(self) -> dict[str, Any] | None:
@@ -137,6 +139,7 @@ def runs() -> list[RunInfo]:
                 encoder=config.get("encoder"),
                 history=history,
                 config=config,
+                has_side=(directory / SIDE_FILE).exists(),
             )
         )
     return found
@@ -154,7 +157,7 @@ def loaded_run(name: str) -> Any:
 @st.cache_data(ttl=600, show_spinner="Calcul des courbes…")
 def curves(run_name: str, game_id: int) -> tuple[np.ndarray, np.ndarray]:
     """Return the probability curves and their times for one game."""
-    from game_autoedit.data.embeddings import EmbeddingStore
+    from game_autoedit.data.embeddings import open_store
     from game_autoedit.datasets.dataset import prepare_games
     from game_autoedit.eval.inference import predict_game
     from game_autoedit.eval.whole_game import predict_whole_game
@@ -164,7 +167,7 @@ def curves(run_name: str, game_id: int) -> tuple[np.ndarray, np.ndarray]:
     device = resolve_device(None)
 
     if run.on_embeddings:
-        store = EmbeddingStore.open(paths().embeddings(run.encoder))
+        store = open_store(paths().features, run.encoder)
         if store is None:
             message = f"cache de plongements '{run.encoder}' absent"
             raise FileNotFoundError(message)
@@ -185,6 +188,24 @@ def curves(run_name: str, game_id: int) -> tuple[np.ndarray, np.ndarray]:
         device=device,
         batch_size=8,
     )
+
+
+def sides(run_name: str, game_id: int, segments: list[Any]) -> Any:
+    """Return who the run thinks won each segment, or None without a classifier.
+
+    Not cached: it is a matrix multiply over a handful of pooled vectors, and
+    the segments change with every slider.
+    """
+    from game_autoedit.data.embeddings import open_store
+    from game_autoedit.models.side import sides_for
+
+    run = loaded_run(run_name)
+    if run.side is None or not run.encoder:
+        return None
+    store = open_store(paths().features, run.encoder)
+    if store is None:
+        return None
+    return sides_for(run.side, store, game_id, segments)
 
 
 def game_by_id(game_id: int) -> LabeledGame:

@@ -219,8 +219,12 @@ class TestCurves:
 class TestRedecode:
     """Turning a threshold again, months later, without a GPU."""
 
-    def _cut_with_a_decodable_point(self, game, **comment):
-        """A cut whose curves hold one clean point, from 10 s to 40 s."""
+    def _cut_with_a_decodable_point(self, game, *, side=None, **comment):
+        """A cut whose curves hold one clean point, from 10 s to 40 s.
+
+        `side` adds the per-step side curve a run with a side classifier
+        writes: a logit, positive for a point won on the left.
+        """
         steps = 600
         channels = {
             "in": np.zeros(steps, dtype=np.float32),
@@ -228,6 +232,8 @@ class TestRedecode:
             "inside": np.full(steps, 0.05, dtype=np.float32),
             "times": ((np.arange(steps) + 0.5) * 0.1).astype(np.float32),
         }
+        if side is not None:
+            channels["side_logit"] = np.full(steps, side, dtype=np.float32)
         channels["in"][100] = 0.9
         channels["out"][400] = 0.9
         channels["inside"][100:400] = 0.9
@@ -258,6 +264,24 @@ class TestRedecode:
         assert response.data["points"][0]["in"] == pytest.approx(603, abs=2)
         cut.refresh_from_db()
         assert cut.get_json()["points"] == [{"in": 0, "out": 1}]
+
+    def test_the_side_follows_the_segments_it_answers_for(self, api_client, game):
+        # A curve, not one answer per segment: whatever the thresholds cut,
+        # every segment comes back with the side of its own end window.
+        cut = self._cut_with_a_decodable_point(game, side=2.0)
+
+        response = api_client.post(reverse("cut-redecode", args=[cut.pk]))
+
+        assert len(response.data["sides"]) == response.data["segments"]
+        assert response.data["sides"][0]["point"] == "left"
+        assert response.data["sides"][0]["confidence"] == pytest.approx(0.88, abs=0.01)
+
+    def test_curves_without_a_side_answer_nothing(self, api_client, game):
+        cut = self._cut_with_a_decodable_point(game)
+
+        response = api_client.post(reverse("cut-redecode", args=[cut.pk]))
+
+        assert response.data["sides"] == []
 
     def test_applying_rewrites_the_cut(self, api_client, game):
         cut = self._cut_with_a_decodable_point(game)

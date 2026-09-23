@@ -43,14 +43,25 @@ class TestMakeSplit:
         assert sorted(ids) == [g.game_id for g in games]
         assert len(set(ids)) == len(ids)
 
-    def test_fractions_are_respected(self):
+    def test_fractions_hold_on_average(self):
         split = make_split(
-            catalog({"A": 100}), SplitSpec(val_fraction=0.2, test_fraction=0.1)
+            catalog({"A": 2000}), SplitSpec(val_fraction=0.2, test_fraction=0.1)
         )
 
-        assert len(split.val) == 20
-        assert len(split.test) == 10
-        assert len(split.train) == 70
+        assert len(split.val) == pytest.approx(400, abs=60)
+        assert len(split.test) == pytest.approx(200, abs=45)
+        assert len(split.train) == pytest.approx(1400, abs=70)
+
+    def test_adding_games_moves_no_existing_one(self):
+        games = catalog({"A": 200})
+        before = make_split(games, SplitSpec(seed=3))
+        after = make_split(
+            [*games, *(game(1000 + i, "B") for i in range(30))], SplitSpec(seed=3)
+        )
+
+        for part in ("train", "val", "test"):
+            kept = {g.game_id for g in getattr(after, part) if g.game_id < 1000}
+            assert kept == {g.game_id for g in getattr(before, part)}
 
     def test_same_seed_gives_the_same_partition(self):
         games = catalog({"A": 20})
@@ -97,7 +108,10 @@ class TestMakeSplit:
         assert not train & set(split.tournaments("val"))
         assert not train & set(split.tournaments("test"))
 
-    def test_tiny_catalog_keeps_a_training_game(self):
-        split = make_split(catalog({"A": 2}), SplitSpec())
+    def test_a_game_keeps_its_part_in_a_restricted_catalog(self):
+        games = catalog({"A": 100})
+        whole = make_split(games, SplitSpec())
+        val_only = make_split(whole.val, SplitSpec())
 
-        assert len(split.train) >= 1
+        assert val_only.train == []
+        assert val_only.val == whole.val

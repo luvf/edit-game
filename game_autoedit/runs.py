@@ -19,6 +19,10 @@ if TYPE_CHECKING:
     from torch import nn
 
 
+# The side classifier a run carries, fitted separately by `train-side`.
+SIDE_FILE = "side.pt"
+
+
 class RunNotFoundError(FileNotFoundError):
     """Raised when a run directory holds no usable checkpoint."""
 
@@ -57,6 +61,8 @@ class LoadedRun:
 
     `encoder` names the frozen encoder when the run trained a head on cached
     embeddings; it is None for the end-to-end model, which reads waveforms.
+    `side` is the separate classifier of who won a point, fitted afterwards by
+    `train-side`; it is None until one has been.
     """
 
     model: nn.Module
@@ -64,6 +70,7 @@ class LoadedRun:
     encoder: str | None
     dataset: DatasetSpec | None = None
     receptive_field: int = 1024
+    side: Any = None
 
     @property
     def on_embeddings(self) -> bool:
@@ -104,11 +111,19 @@ def load_run(run_dir: Path, device: torch.device) -> LoadedRun:
     encoder = payload.get("encoder")
 
     if encoder:
+        from dataclasses import fields
+
         from game_autoedit.models.head import EmbeddingTagger, HeadSpec
 
+        FIELDS = {field.name for field in fields(HeadSpec)}  # noqa: N806
+
         raw = dict(payload.get("model", {}))
-        if "dilations" in raw:
-            raw["dilations"] = tuple(raw["dilations"])
+        for key in ("dilations", "side_span", "video_span"):
+            if raw.get(key) is not None:
+                raw[key] = tuple(raw[key])
+        # Runs trained while the side was a channel of the tagger carry keys
+        # the head no longer has.
+        raw = {key: value for key, value in raw.items() if key in FIELDS}
         head = HeadSpec(**raw)
         input_dim = checkpoint["model"]["project.weight"].shape[1]
         model: nn.Module = EmbeddingTagger(int(input_dim), head).to(device)
@@ -119,6 +134,7 @@ def load_run(run_dir: Path, device: torch.device) -> LoadedRun:
             payload=payload,
             encoder=str(encoder),
             receptive_field=head.receptive_field(),
+            side=load_side_classifier(run_dir, device),
         )
 
     dataset_spec = _dataset_spec(payload)
@@ -132,6 +148,17 @@ def load_run(run_dir: Path, device: torch.device) -> LoadedRun:
     return LoadedRun(
         model=waveform_model, payload=payload, encoder=None, dataset=dataset_spec
     )
+
+
+def load_side_classifier(run_dir: Path, device: torch.device) -> Any:
+    """Return the side classifier fitted for this run, or None."""
+    path = run_dir / SIDE_FILE
+    if not path.exists():
+        return None
+
+    from game_autoedit.models.side import SideClassifier
+
+    return SideClassifier.load(path, device)
 
 
 def resolve_device(name: str | None) -> torch.device:

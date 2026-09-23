@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from game_autoedit.dashboard import loading
+from game_autoedit.data.labels import SIDES
 
 
 def render() -> None:
@@ -14,10 +15,21 @@ def render() -> None:
     catalog = loading.catalog()
     partitions = loading.partitions()
 
-    columns = st.columns(4)
+    with_sides = [
+        game for game in catalog.games if loading.labels(game.game_id).has_sides
+    ]
+    columns = st.columns(5)
     columns[0].metric("Games exploitables", len(catalog.games))
     columns[1].metric("Écartés", len(catalog.rejected))
     columns[2].metric("Tournois", len(catalog.tournaments()))
+    columns[4].metric(
+        "Games avec camp",
+        len(with_sides),
+        help="Games dont le cut dit, pour au moins un point, quel camp l'a "
+        "gagné (gauche ou droite de l'image). Seuls ceux-là apprennent la "
+        "sortie « camp ». Un cut ML n'est retenu que s'il en porte : c'est la "
+        "trace d'une relecture humaine.",
+    )
     columns[3].metric(
         "Partition",
         f"{sum(1 for p in partitions.values() if p == 'train')} / "
@@ -40,7 +52,11 @@ def render() -> None:
                 "nom": game.name,
                 "tournoi": game.tournament,
                 "partition": partitions.get(game.game_id, "?"),
+                "cut": game.cut_type,
                 "points": len(labels.segments),
+                "avec camp": sum(
+                    1 for segment in labels.segments if segment.point in SIDES
+                ),
                 "gardé (min)": round(labels.kept_seconds / 60, 1),
                 "durée cut médiane (s)": round(
                     float(

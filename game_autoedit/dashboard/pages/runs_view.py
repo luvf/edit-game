@@ -17,6 +17,8 @@ def _summary_row(run: loading.RunInfo) -> dict[str, object]:
     return {
         "run": run.name,
         "encodeur": run.encoder or "bout-en-bout",
+        "images": "dinov2" in (run.encoder or ""),
+        "camp": run.has_side,
         "epochs": len(run.history),
         "meilleure epoch": best.get("epoch"),
         "score sélection": round(best.get("selection_score", float("nan")), 4),
@@ -48,7 +50,11 @@ def render() -> None:
     st.caption(
         "Le score de sélection est l'AP moyenne des canaux in et out : c'est "
         "sur lui que le meilleur checkpoint est retenu, pas sur la val loss, "
-        "qui diverge bien avant que les frontières cessent de progresser."
+        "qui diverge bien avant que les frontières cessent de progresser. "
+        "« Camp » dit si un classifieur du camp gagnant a été ajusté pour ce "
+        "run (`train-side`) ; il est appris à part et ne touche pas aux "
+        "frontières. Un encodeur `a+b` lit plusieurs caches côte à côte "
+        "(son + images)."
     )
 
     chosen = st.selectbox("Détail du run", [run.name for run in available])

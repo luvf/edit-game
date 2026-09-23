@@ -45,10 +45,15 @@ ARCHIVE_QUALITIES: tuple[str, ...] = ("archive", "high")
 # real edit, VID is reconstructed by audio alignment and is the noisy one.
 CUT_TYPE_PRIORITY: tuple[str, ...] = ("OTIO", "MAN", "VID", "XML", "ML", "X")
 
+# The proxies the pictures are read from, in order of preference: the low
+# h264 one decodes fastest; older games only carry a medium or an AV1 proxy.
+# See `video_sources`.
+VIDEO_QUALITIES: tuple[str, ...] = ("low", "medium", "low_av1")
+
 # The cut type this pipeline writes. A proposal is never training material: a
 # model fed its own output drifts without anything in the numbers saying so,
-# so `build_catalog` ignores these however a game is otherwise labelled. A
-# corrected proposal is a human edit and must be saved under another type.
+# so `build_catalog` ignores these -- unless the file says who scored its
+# points, which only a human writes (see `is_human_cut`).
 PREDICTED_CUT_TYPE = "ML"
 
 _ENV_CACHE = "GAME_AUTOEDIT_CACHE"

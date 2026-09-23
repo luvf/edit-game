@@ -9,10 +9,12 @@ import streamlit as st
 
 from game_autoedit.dashboard import loading
 from game_autoedit.dashboard.plots import game_figure
+from game_autoedit.data.labels import SIDES
 from game_autoedit.eval.decode import DecodeSpec, decode
 from game_autoedit.eval.metrics import match_boundaries, score_segments
 
 if TYPE_CHECKING:
+    from game_autoedit.data.labels import GameLabels
     from game_autoedit.eval.metrics import BoundaryScore, SegmentScore
 
 PARTITION_LABEL = {
@@ -198,8 +200,34 @@ def _game_picker(partitions: dict[int, str]) -> int | None:
     return labelled[st.sidebar.selectbox("Game", list(labelled))]
 
 
-def _cost_row(score: SegmentScore, boundary: dict[str, BoundaryScore]) -> None:
-    """Draw the repair-cost metrics."""
+def _side_score(
+    run_name: str, game_id: int, truth: GameLabels
+) -> tuple[int, int] | None:
+    """Return the right side calls over the human points that record a side.
+
+    Judged on the human segments, so a side is scored apart from whether the
+    boundaries around it were found. None when the run carries no side
+    classifier, or the cut records no side.
+    """
+    guessed = loading.sides(run_name, game_id, truth.segments)
+    if guessed is None:
+        return None
+    pairs = [
+        (segment, guess)
+        for segment, guess in zip(truth.segments, guessed, strict=True)
+        if segment.point in SIDES
+    ]
+    if not pairs:
+        return None
+    return sum(1 for segment, (side, _) in pairs if side == segment.point), len(pairs)
+
+
+def _cost_row(
+    score: SegmentScore,
+    boundary: dict[str, BoundaryScore],
+    sides: tuple[int, int] | None = None,
+) -> None:
+    """Draw the repair-cost metrics, and the side score when there is one."""
     cells: list[tuple[str, str, str]] = [
         ("Points manqués", str(score.missed_points), "à retrouver en scrubbant"),
         ("Segments en trop", str(score.extra_segments), "un clic pour supprimer"),
@@ -212,6 +240,15 @@ def _cost_row(score: SegmentScore, boundary: dict[str, BoundaryScore]) -> None:
             "frontières retrouvées dans la tolérance",
         ),
     ]
+    if sides is not None:
+        cells.append(
+            (
+                "Camp juste",
+                f"{sides[0]}/{sides[1]}",
+                "points du montage humain dont le camp gagnant est bien "
+                "deviné, jugé sur les segments humains",
+            )
+        )
     for column, (label, value, help_text) in zip(
         st.columns(len(cells)), cells, strict=True
     ):
@@ -297,7 +334,8 @@ def render() -> None:
             tolerance=tolerance,
         ),
     }
-    _cost_row(score, boundary)
+    guessed = loading.sides(run_name, game_id, decoded.segments)
+    _cost_row(score, boundary, _side_score(run_name, game_id, truth))
 
     st.plotly_chart(
         game_figure(
@@ -307,6 +345,7 @@ def render() -> None:
             decoded.segments,
             decode_spec,
             show=_curve_toggles(),
+            sides=guessed,
         ),
         width="stretch",
     )
@@ -314,6 +353,12 @@ def render() -> None:
         f"{len(truth.segments)} points dans le montage humain, "
         f"{len(decoded.segments)} proposés — durée {duration / 60:.1f} min. "
         "Les pointillés marquent les seuils de déclenchement."
+        + (
+            " G / D : camp qui gagne le point, à gauche ou à droite de l'image ; "
+            "suivi d'un « ? » quand c'est le classifieur qui le devine."
+            if guessed is not None or truth.has_sides
+            else ""
+        )
     )
 
     left, right = st.columns(2)

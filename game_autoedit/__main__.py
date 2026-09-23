@@ -57,6 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     for register in (
         _register_data_commands,
         _register_train_commands,
+        _register_side_command,
     ):
         register(subparsers)
 
@@ -105,10 +106,14 @@ def _register_data_commands(subparsers: argparse._SubParsersAction) -> None:  # 
 
     embed = subparsers.add_parser(
         "build-embeddings",
-        help="encoder l'audio avec un encodeur pré-entraîné gelé (une fois)",
+        help="encoder l'audio ou les images avec un encodeur pré-entraîné gelé (une fois)",
     )
     _add_selection_args(embed)
-    embed.add_argument("--encoder", default="ast", help="encodeur gelé (défaut: ast)")
+    embed.add_argument(
+        "--encoder",
+        default="ast",
+        help="encodeur gelé : ast (son) ou dinov2 (images) (défaut: ast)",
+    )
     embed.add_argument("--batch-size", type=int, default=16)
     embed.add_argument(
         "--mono",
@@ -117,6 +122,51 @@ def _register_data_commands(subparsers: argparse._SubParsersAction) -> None:  # 
     )
     embed.add_argument("--force", action="store_true")
     embed.add_argument("--device")
+
+
+def _register_side_command(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
+    """Register the command fitting a run's side classifier."""
+    side = subparsers.add_parser(
+        "train-side",
+        help="ajuster le classifieur du camp qui marque, pour un run existant",
+    )
+    _add_selection_args(side)
+    _add_split_args(side)
+    side.add_argument("--run", required=True, help="run auquel attacher le camp")
+    side.add_argument("--encoder", help="cache de plongements (défaut: celui du run)")
+    side.add_argument("--epochs", type=int, default=400)
+    side.add_argument("--lr", type=float, default=0.05, dest="learning_rate")
+    side.add_argument("--weight-decay", type=float, default=0.1)
+    side.add_argument(
+        "--hidden",
+        type=int,
+        default=0,
+        help="largeur d'une couche cachée (0 = régression logistique)",
+    )
+    side.add_argument(
+        "--no-mirror",
+        action="store_true",
+        help="ne pas ajouter chaque point vu en miroir",
+    )
+    side.add_argument(
+        "--profile",
+        choices=("poisson", "gaussian", "flat"),
+        default="poisson",
+        help="pondération des instants avant la fin du point (défaut: poisson)",
+    )
+    side.add_argument(
+        "--profile-rate",
+        type=float,
+        default=2.3,
+        help="pic de la pondération, en secondes avant la fin (défaut: 2.3)",
+    )
+    side.add_argument(
+        "--profile-spread",
+        type=float,
+        default=1.0,
+        help="largeur de la pondération : sigma en gaussien, durée en plat",
+    )
+    side.add_argument("--device")
 
 
 def _register_train_commands(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
@@ -144,11 +194,18 @@ def _register_train_commands(subparsers: argparse._SubParsersAction) -> None:  #
     train.add_argument("--seed", type=int, default=0)
     train.add_argument(
         "--encoder",
-        help="entraîner une tête sur les plongements de cet encodeur gelé "
+        help="entraîner une tête sur les plongements de cet encodeur gelé, "
+        "ou de plusieurs joints par + (ast_ms+dinov2) "
         "(défaut: modèle bout-en-bout sur la forme d'onde)",
     )
     train.add_argument("--head-channels", type=int, default=128)
     train.add_argument("--dropout", type=float, default=0.2)
+    train.add_argument(
+        "--video-dropout",
+        type=float,
+        default=0.2,
+        help="probabilité de masquer les images d'une fenêtre entière",
+    )
     train.add_argument(
         "--patience",
         type=int,
@@ -329,6 +386,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "build-beats": commands.build_beats,
         "splits": commands.splits,
         "train": commands.train,
+        "train-side": commands.train_side,
         "evaluate": commands.evaluate,
         "predict": commands.predict,
         "propose": commands.propose,

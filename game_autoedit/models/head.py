@@ -37,6 +37,14 @@ class HeadSpec:
             dual mono where it is silence anyway. Without this the head would
             learn to depend on a cue that is simply absent on those, and do
             worse there than it does today.
+        side_span: the ``[start, end)`` features `side_dropout` acts on. None
+            is the second half of the input, which is where it sits when the
+            input is a mid/side audio cache alone.
+        video_span: the ``[start, end)`` features coming from pictures, when
+            the input fuses sound and image.
+        video_dropout: probability of zeroing `video_span` for a whole window
+            during training, so the sound keeps its say and the head does not
+            hand everything to the picture.
     """
 
     channels: int = 128
@@ -44,6 +52,9 @@ class HeadSpec:
     dropout: float = 0.2
     input_dropout: float = 0.1
     side_dropout: float = 0.25
+    side_span: tuple[int, int] | None = None
+    video_span: tuple[int, int] | None = None
+    video_dropout: float = 0.0
 
     def receptive_field(self, kernel: int = 3) -> int:
         """Return the receptive field, in embedding steps."""
@@ -98,7 +109,11 @@ class ResidualBlock(nn.Module):
 
 
 class EmbeddingTagger(nn.Module):
-    """Predicts the three channel logits for every embedding step."""
+    """Predicts the three channel logits for every embedding step.
+
+    Who won a point is *not* one of them: it is a separate classifier, for the
+    reasons `game_autoedit.models.side` gives.
+    """
 
     def __init__(self, input_dim: int, spec: HeadSpec | None = None) -> None:
         """Build the projection and the dilated stack."""
@@ -107,7 +122,7 @@ class EmbeddingTagger(nn.Module):
         self.input_dim = input_dim
 
         self.input_dropout = nn.Dropout(self.spec.input_dropout)
-        self.half_dim = input_dim // 2
+        self.side_span = self.spec.side_span or (input_dim // 2, input_dim)
         self.project = nn.Conv1d(input_dim, self.spec.channels, kernel_size=1)
         self.project_norm = ChannelNorm(self.spec.channels)
         self.blocks = nn.Sequential(
@@ -119,16 +134,19 @@ class EmbeddingTagger(nn.Module):
         self.head = nn.Conv1d(self.spec.channels, len(CHANNELS), kernel_size=1)
 
     def _drop_side(self, embeddings: torch.Tensor) -> torch.Tensor:
-        """Zero the spatial half of some windows, during training only."""
-        if not self.training or self.spec.side_dropout <= 0:
+        """Zero the audio's spatial channel in some windows, in training only."""
+        return self._drop_span(embeddings, self.side_span, self.spec.side_dropout)
+
+    def _drop_span(
+        self, embeddings: torch.Tensor, span: tuple[int, int] | None, rate: float
+    ) -> torch.Tensor:
+        """Zero `span` for a share `rate` of the windows, during training only."""
+        if not self.training or rate <= 0 or span is None:
             return embeddings
 
-        keep = (
-            torch.rand(embeddings.shape[0], 1, 1, device=embeddings.device)
-            >= self.spec.side_dropout
-        )
+        keep = torch.rand(embeddings.shape[0], 1, 1, device=embeddings.device) >= rate
         mask = torch.ones_like(embeddings)
-        mask[:, :, self.half_dim :] = keep.to(embeddings.dtype)
+        mask[:, :, span[0] : span[1]] = keep.to(embeddings.dtype)
         return embeddings * mask
 
     def forward(self, embeddings: torch.Tensor) -> torch.Tensor:
@@ -140,7 +158,11 @@ class EmbeddingTagger(nn.Module):
         Returns:
             ``(batch, steps, len(CHANNELS))`` logits, one per input step.
         """
-        features = self.input_dropout(self._drop_side(embeddings)).transpose(1, 2)
+        embeddings = self._drop_side(embeddings)
+        embeddings = self._drop_span(
+            embeddings, self.spec.video_span, self.spec.video_dropout
+        )
+        features = self.input_dropout(embeddings).transpose(1, 2)
         features = F.gelu(self.project_norm(self.project(features)))
         features = self.blocks(features)
         logits: torch.Tensor = self.head(features).transpose(1, 2)

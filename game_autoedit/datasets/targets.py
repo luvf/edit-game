@@ -22,6 +22,9 @@ if TYPE_CHECKING:
 CHANNELS: tuple[str, ...] = ("in", "out", "inside")
 CHANNEL_INDEX = {name: index for index, name in enumerate(CHANNELS)}
 
+# The side a probability of 1 stands for, wherever a model answers "who won".
+SIDE_CHANNEL = "left"
+
 TargetShape = Literal["rect", "triangle", "gaussian"]
 
 

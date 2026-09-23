@@ -23,8 +23,9 @@ from game_autoedit.config import (
     DEFAULT_FPS,
     PREDICTED_CUT_TYPE,
     RUSH_QUALITY,
+    VIDEO_QUALITIES,
 )
-from game_autoedit.data.labels import has_points
+from game_autoedit.data.labels import has_points, has_sides
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -52,6 +53,7 @@ class LabeledGame:
     audio_sources: tuple[Path, ...]
     fps: float
     quality: str = AUDIO_QUALITY
+    video_sources: tuple[Path, ...] = ()
 
     @property
     def key(self) -> str:
@@ -110,12 +112,26 @@ def pick_cut(cuts: Sequence[Cut]) -> Cut:
     Games occasionally carry several cuts, mixing a reconstructed one with the
     one that came from the actual edit. `CUT_TYPE_PRIORITY` decides; ties go to
     the most recent row.
+
+    An annotated cut comes first, whatever its type: a point that says which
+    side won it has been gone over by hand, since no model writes a side, and
+    that is worth more than the type it was filed under. Without this rule,
+    five games of a tournament sat in the catalog with their 66 labelled sides
+    ignored, read from their reconstructed `VID` twin instead.
+
+    Then the usual order: a real edit, then a cut rebuilt from the video.
     """
     order = {type_cut: rank for rank, type_cut in enumerate(CUT_TYPE_PRIORITY)}
-    return min(
-        cuts,
-        key=lambda cut: (order.get(cut.type_cut, len(order)), -(cut.pk or 0)),
-    )
+
+    def rank(cut: Cut) -> tuple[int, int, int]:
+        annotated = has_sides(Path(cut.json_file.path))
+        return (
+            0 if annotated else 1,
+            order.get(cut.type_cut, len(order)),
+            -(cut.pk or 0),
+        )
+
+    return min(cuts, key=rank)
 
 
 @dataclass(frozen=True)
@@ -131,6 +147,72 @@ class AudioSource:
     def path(self) -> Path | None:
         """Return the first file, or None when there is nothing to read."""
         return self.paths[0] if self.paths else None
+
+
+def is_human_cut(cut: Cut) -> bool:
+    """Tell whether a cut can be trusted as training material.
+
+    Every cut is, except a proposal nobody has gone over. A proposal that says
+    who scored its points has been: the model never writes a side, so the side
+    is the trace of the human pass that also corrected the boundaries.
+    """
+    if cut.type_cut != PREDICTED_CUT_TYPE:
+        return True
+    return has_sides(Path(cut.json_file.path))
+
+
+def video_sources(game: Game, audio: AudioSource) -> tuple[Path, ...]:
+    """Return the files a game's pictures are read from.
+
+    A proxy first, the low one by preference: it shares the archive's
+    timeline to the millisecond and decodes an order of magnitude faster than
+    the AV1 archive, which the card at hand cannot decode in hardware — and
+    the encoder looks at the frames at a few hundred pixels wide anyway. The audio source otherwise,
+    archive or rushes, which carries the same timeline by construction.
+    """
+    proxy = game.video_proxy
+    if proxy is None:
+        return audio.paths
+    for quality in VIDEO_QUALITIES:
+        try:
+            video_file = proxy.get_file(quality)
+        except FileNotFoundError:
+            continue
+        if video_file.exists_on_disk:
+            return (Path(video_file.path),)
+    return audio.paths
+
+
+# How far a proxy's length may stray from its audio source's before its
+# timeline is not trusted to be the same one.
+ALIGNMENT_TOLERANCE = 1.0
+
+
+def aligned_video_sources(game: LabeledGame) -> tuple[Path, ...]:
+    """Return the video to read pictures from, once its timeline is checked.
+
+    A proxy is only as good as its timeline, and not every proxy was rendered
+    from the rushes the archive was: one found in the catalog lasts 28 min
+    against the archive's 41. A proxy whose length strays from the audio
+    source is dropped for the audio source itself, slower to decode but on
+    the timeline the labels refer to. Probing costs a few ffprobe calls, which
+    is why this runs when a game is encoded rather than in `build_catalog`.
+    """
+    from game_autoedit.data.audio import probe_duration
+
+    if not game.video_sources or game.video_sources == game.audio_sources:
+        return game.audio_sources
+
+    def total(paths: tuple[Path, ...]) -> float | None:
+        durations = [probe_duration(path) for path in paths]
+        if any(duration is None for duration in durations):
+            return None
+        return sum(duration for duration in durations if duration is not None)
+
+    video, audio = total(game.video_sources), total(game.audio_sources)
+    if video is None or audio is None or abs(video - audio) > ALIGNMENT_TOLERANCE:
+        return game.audio_sources
+    return game.video_sources
 
 
 def _qualities_for(quality: str) -> tuple[str, ...]:
@@ -239,7 +321,7 @@ def build_catalog(
 
     for game in queryset:
         tournament = game.tournament.name
-        cuts = [cut for cut in game.cuts.all() if cut.type_cut != PREDICTED_CUT_TYPE]
+        cuts = [cut for cut in game.cuts.all() if is_human_cut(cut)]
         if not cuts:
             rejected.append(
                 Rejection(game.pk, game.name, tournament, "aucun cut humain")
@@ -279,6 +361,7 @@ def build_catalog(
                 audio_sources=source.paths,
                 fps=source.fps,
                 quality=source.quality,
+                video_sources=video_sources(game, source),
             )
         )
 
@@ -360,4 +443,5 @@ def predictable_game(
         audio_sources=source.paths,
         fps=source.fps,
         quality=source.quality,
+        video_sources=video_sources(game, source),
     )

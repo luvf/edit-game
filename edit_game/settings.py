@@ -19,7 +19,7 @@ TOURNAMENTS_ARCHIVE_DIR = Path("/mnt/jugger/tournois")
 
 # Which trained run proposes cuts. Runs live in the auto-edit cache; comparing
 # two of them is a matter of pointing this elsewhere and proposing again.
-AUTOEDIT_RUN = "ast_ms_268"
+AUTOEDIT_RUN = "fusion_wcc"
 
 # Where that cache lives. None leaves the pipeline to its own default
 # (`$GAME_AUTOEDIT_CACHE`, else /mnt/video/juggerData/cache_game_edit); tests

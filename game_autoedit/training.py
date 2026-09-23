@@ -135,10 +135,16 @@ class MaskedChannelLoss(nn.Module):
         """Return the mean loss over valid steps.
 
         Args:
-            logits: ``(batch, steps, channels)``.
+            logits: ``(batch, steps, len(CHANNELS))``.
             target: same shape, soft targets in [0, 1].
             valid: ``(batch, steps)``, 1 where the step is real audio.
         """
+        return self._boundary_loss(logits, target, valid)
+
+    def _boundary_loss(
+        self, logits: torch.Tensor, target: torch.Tensor, valid: torch.Tensor
+    ) -> torch.Tensor:
+        """Return the loss of the boundary channels."""
         if self.spec.loss == "focal":
             probabilities = torch.sigmoid(logits)
             focus = (target - probabilities).abs() ** self.spec.focal_gamma
@@ -240,17 +246,14 @@ def evaluate_windows(
         total_loss += float(loss_fn(logits.float(), target, valid))
         batches += 1
 
+        probabilities = torch.sigmoid(logits.float()).cpu().numpy()
         mask = valid.bool().cpu().numpy().reshape(-1)
         collected.append(
             (
-                torch.sigmoid(logits.float())
-                .cpu()
-                .numpy()
-                .reshape(-1, len(CHANNELS))[mask],
+                probabilities[..., : len(CHANNELS)].reshape(-1, len(CHANNELS))[mask],
                 target.cpu().numpy().reshape(-1, len(CHANNELS))[mask],
             )
         )
-
     scores = np.concatenate([item[0] for item in collected])
     targets = np.concatenate([item[1] for item in collected])
     metrics = {"val_loss": total_loss / max(batches, 1)}
