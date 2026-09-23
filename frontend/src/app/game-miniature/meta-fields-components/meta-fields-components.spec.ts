@@ -1,17 +1,17 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
-import { MetaFieldsComponents } from './meta-fields-components';
+import { MetaFieldsComponent } from './meta-fields-components';
 
-describe('MetaFieldsComponents', () => {
-  let component: MetaFieldsComponents;
-  let fixture: ComponentFixture<MetaFieldsComponents>;
+describe('MetaFieldsComponent', () => {
+  let component: MetaFieldsComponent;
+  let fixture: ComponentFixture<MetaFieldsComponent>;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [MetaFieldsComponents],
+      imports: [MetaFieldsComponent],
     }).compileComponents();
 
-    fixture = TestBed.createComponent(MetaFieldsComponents);
+    fixture = TestBed.createComponent(MetaFieldsComponent);
     component = fixture.componentInstance;
     fixture.detectChanges();
   });
