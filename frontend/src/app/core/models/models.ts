@@ -230,8 +230,22 @@ export interface CutComment {
   review?: CutReviewItem[];
   /** Ce qu'il a failli proposer, et pourquoi il ne l'a pas fait. */
   rejected?: CutReviewItem[];
+  /**
+   * Ce que le classifieur pense du camp gagnant de chaque point, sur les
+   * memes segments que ceux proposes. Une suggestion, jamais un label : le
+   * champ `point` d'un point n'est rempli que par un humain.
+   */
+  sides?: CutSideGuess[];
   curves_file?: string;
   curves_hop?: number;
+}
+
+/** Le camp devine pour un point, et la confiance du modele. */
+export interface CutSideGuess {
+  in: number;
+  out: number;
+  point: 'left' | 'right';
+  confidence: number;
 }
 
 /** Reglages du decodage : ce qu'on tourne quand l'outil propose trop ou trop peu. */

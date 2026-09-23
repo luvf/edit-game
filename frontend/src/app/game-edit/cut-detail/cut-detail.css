@@ -602,3 +602,44 @@
 .cut-review-detail {
   opacity: 0.75;
 }
+
+/* L'avis du modele sur le camp gagnant, a droite du selecteur : meme forme,
+   en gris et sans interaction, pour qu'on le lise comme une suggestion et non
+   comme une valeur enregistree. Le champ a gauche reste le seul qui compte. */
+.point-switch.is-suggestion {
+  pointer-events: none;
+  opacity: 0.55;
+  border-style: dashed;
+  background: #fafafa;
+  width: 66px;
+}
+
+.point-switch.is-suggestion .point-switch-thumb {
+  background: #e5e7eb;
+  box-shadow: none;
+}
+
+.point-switch.is-suggestion .point-switch-option {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.point-switch.is-suggestion .point-switch-option.is-active {
+  color: #4b5563;
+  font-weight: 600;
+}
+
+/* Sans suggestion, la place reste prise : les lignes gardent leurs colonnes
+   alignees, qu'un point ait un avis du modele ou non. */
+.point-switch-placeholder {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  margin-bottom: 5px;
+  width: 66px;
+  height: 26px;
+}

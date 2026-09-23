@@ -274,6 +274,30 @@
                 }
               </div>
 
+              @if (suggestion(row.point); as hint) {
+                <div
+                  class="point-switch is-suggestion"
+                  [attr.data-position]="suggestionPosition(hint)"
+                  [title]="suggestionTitle(hint)"
+                  role="img"
+                  [attr.aria-label]="suggestionTitle(hint)"
+                >
+                  <span class="point-switch-thumb" aria-hidden="true"></span>
+                  @for (option of pointOptions; track option.value) {
+                    <span
+                      class="point-switch-option"
+                      [class.is-active]="option.value === hint.point"
+                      >{{ option.short }}</span
+                    >
+                  }
+                </div>
+              } @else {
+                <span
+                  class="point-switch-placeholder"
+                  aria-hidden="true"
+                ></span>
+              }
+
               <span
                 class="gap-to-next"
                 [class.invalid]="isOutInvalid(row.index)"

@@ -18,6 +18,7 @@ import {
   Cut,
   CutComment,
   CutReviewItem,
+  CutSideGuess,
   DecodeSettings,
 } from '../../core/models/models';
 import { MatButtonModule } from '@angular/material/button';
@@ -169,6 +170,30 @@ type CutPayload = {
    */
   display?: Record<string, unknown>;
 };
+
+/**
+ * La suggestion qui recouvre le plus ce point, s'il y en a une.
+ *
+ * Par recouvrement et non par egalite des timecodes : les suggestions ont ete
+ * calculees sur les segments proposes, et deplacer une frontiere ne doit pas
+ * faire disparaitre l'avis du modele sur le point qu'on est en train de
+ * regler. Un point qu'aucune suggestion ne recouvre n'en a pas.
+ */
+export function suggestionForPoint(
+  sides: CutSideGuess[] | undefined,
+  point: Point,
+): CutSideGuess | null {
+  let best: CutSideGuess | null = null;
+  let bestOverlap = 0;
+  for (const side of sides ?? []) {
+    const overlap = Math.min(point.out, side.out) - Math.max(point.in, side.in);
+    if (overlap > bestOverlap) {
+      best = side;
+      bestOverlap = overlap;
+    }
+  }
+  return best;
+}
 
 /** Une ligne de la liste « a verifier », prete a etre affichee. */
 type ReviewRow = ReviewMarker & { timecode: string };
@@ -670,6 +695,29 @@ export class CutDetailComponent implements OnChanges {
 
   setHoveredPoint(index: number | null): void {
     this.hoveredPoint.set(index);
+  }
+
+  /** Ce que le modele propose pour ce point, ou null s'il ne dit rien. */
+  suggestion(point: Point): CutSideGuess | null {
+    return suggestionForPoint(this.payload()?.comment?.sides, point);
+  }
+
+  /** Index de la position d'une suggestion, pour placer son curseur. */
+  suggestionPosition(side: CutSideGuess): number {
+    const index = POINT_OPTIONS.findIndex(
+      (option) => option.value === side.point,
+    );
+    return index < 0 ? 1 : index;
+  }
+
+  /** L'infobulle d'une suggestion : le camp, et a quel point le modele y croit. */
+  suggestionTitle(side: CutSideGuess): string {
+    const camp = side.point === 'left' ? 'gauche' : 'droite';
+    const confidence = Math.round((side.confidence ?? 0) * 100);
+    return (
+      `Suggestion du modele : ${camp} (${confidence} %). ` +
+      `A titre indicatif — le champ a gauche reste a vous.`
+    );
   }
 
   /** Index de la position active du selecteur, pour placer le curseur. */
