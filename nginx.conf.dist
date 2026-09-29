@@ -1,0 +1,65 @@
+# Modele de configuration du nginx local, qui sert les videos des tournois au
+# lecteur du front. Chaque machine a la sienne dans nginx/.nginx/nginx.conf,
+# non versionnee :
+#
+#   mkdir -p nginx/.nginx && cp nginx.conf.dist nginx/.nginx/nginx.conf
+#
+# puis adapter a la machine :
+# - `alias` : le dossier des tournois, TOURNAMENTS_BASE_DIR dans settings.py ;
+# - `include` : l'emplacement de mime.types de l'installation de nginx.
+# Le port 8081 est celui qu'attend Tournament.tournament_media_url.
+#
+# Les chemins relatifs le sont au prefixe `nginx/` que passe le Makefile
+# (make nginx-start).
+
+worker_processes 1;
+error_log logs/nginx-error.log info;
+pid tmp/nginx/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    client_body_temp_path tmp/nginx/client-body;
+    proxy_temp_path tmp/nginx/proxy;
+    fastcgi_temp_path tmp/nginx/fastcgi;
+    uwsgi_temp_path tmp/nginx/uwsgi;
+    scgi_temp_path tmp/nginx/scgi;
+
+    access_log logs/nginx-access.log;
+    sendfile on;
+    keepalive_timeout 65;
+    types_hash_max_size 4096;
+
+    server {
+        listen 8081;
+        server_name localhost;
+
+        location /tournois {
+            alias /mnt/video/juggerData/tournois;
+            index off;
+            autoindex on;
+            autoindex_exact_size off;
+            autoindex_localtime on;
+
+            # Les types viennent de /etc/nginx/mime.types (mp4, webm, ogv, png,
+            # jpg, json...) : un bloc `types` ici les remplacerait tous, et
+            # tout ce qui n'est pas une video partirait en octet-stream.
+            # Accept-Ranges est envoye par nginx lui-meme.
+
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, HEAD, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' 'Range, Content-Type, Authorization' always;
+
+            if ($request_method = OPTIONS) {
+                return 204;
+            }
+
+            try_files $uri =404;
+        }
+    }
+}

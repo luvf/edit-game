@@ -1,7 +1,8 @@
 
 NGINX_PREFIX := $(CURDIR)/nginx
 NGINX_CONF := .nginx/nginx.conf
-NGINX_PID := tmp/nginx/nginx.pid
+# Relatif au prefixe, comme dans nginx.conf : c'est la que nginx ecrit son PID.
+NGINX_PID := $(NGINX_PREFIX)/tmp/nginx/nginx.pid
 
 .PHONY: nginx-start nginx-stop nginx-reload nginx-status runserver dev \
 	autoedit-dashboard autoedit-dashboard-fg autoedit-dashboard-stop \
@@ -147,6 +148,7 @@ nginx-start:
 		echo "Nginx est déjà lancé avec le PID $$(cat $(NGINX_PID))"; \
 	else \
 		echo "Démarrage de Nginx sur http://localhost:8081"; \
+		mkdir -p "$(NGINX_PREFIX)/logs" "$(NGINX_PREFIX)/tmp/nginx"; \
 		nginx -p "$(NGINX_PREFIX)" -c "$(NGINX_CONF)"; \
 	fi
 

@@ -214,3 +214,6 @@ game_autoedit/legacy/*.mp3
 
 # Cache local du pipeline game_autoedit (reconstructible)
 game_autoedit/cache/
+
+# nginx local, propre a chaque machine : il se cree depuis nginx.conf.dist.
+nginx/
