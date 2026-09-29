@@ -1,20 +1,37 @@
 <div [formGroup]="miniatureBuilderForm">
   <section class="teams-row">
-    <app-team-select
-      [teams]="teams_logos()"
-      formControlName="team1"
-      label="Team 1"
-    ></app-team-select>
+    <div class="team-cell">
+      <app-team-select
+        [teams]="teams_logos()"
+        formControlName="team1"
+        label="Team 1"
+      ></app-team-select>
+      <app-team-create
+        (created)="onTeamCreated('team1', $event)"
+      ></app-team-create>
+    </div>
 
-    <button (click)="onSwapTeams()" class="swap-btn" matButton="elevated">
-      Swap teams
+    <button
+      mat-stroked-button
+      type="button"
+      class="swap-teams"
+      title="Inverser les équipes"
+      aria-label="Inverser les équipes"
+      (click)="onSwapTeams()"
+    >
+      ⇄
     </button>
 
-    <app-team-select
-      [teams]="teams_logos()"
-      formControlName="team2"
-      label="Team 2"
-    ></app-team-select>
+    <div class="team-cell">
+      <app-team-select
+        [teams]="teams_logos()"
+        formControlName="team2"
+        label="Team 2"
+      ></app-team-select>
+      <app-team-create
+        (created)="onTeamCreated('team2', $event)"
+      ></app-team-create>
+    </div>
   </section>
 
   <div class="form-row timecode-row">

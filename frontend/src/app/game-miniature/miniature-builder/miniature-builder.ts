@@ -10,6 +10,7 @@ import {
 } from '@angular/forms';
 import { TeamSelectComponent } from '../team-select/team-select';
 import { ImagesPreviewComponent } from './image-preview/image-preview';
+import { TeamCreateComponent } from '../../game-edit/team-create/team-create';
 import { Team, VideoMetadata } from '../../core/models/models';
 import { TeamService } from '../../core/services/misc-hateoas-models.service';
 
@@ -22,6 +23,7 @@ import { TeamService } from '../../core/services/misc-hateoas-models.service';
     MatSlider,
     MatButton,
     TeamSelectComponent,
+    TeamCreateComponent,
     ImagesPreviewComponent,
     ReactiveFormsModule,
   ],
@@ -56,6 +58,21 @@ export class MiniatureBuilder implements OnInit {
       team1: this.miniatureBuilderForm.get('team2')?.value,
       team2: this.miniatureBuilderForm.get('team1')?.value,
     });
+  }
+
+  /**
+   * Adds a team just created from the "+" bubble and selects it in its slot.
+   */
+  onTeamCreated(slot: 'team1' | 'team2', team: Team) {
+    this.teams_logos.set(
+      [...this.teams_logos(), team].sort((a, b) =>
+        (a.name ?? '').localeCompare(b.name ?? ''),
+      ),
+    );
+    const href = team._links?.self?.href;
+    if (!href) return;
+    this.teamByUrl.set({ ...this.teamByUrl(), [href]: team });
+    this.miniatureBuilderForm.get(slot)?.setValue(href);
   }
 
   /**
