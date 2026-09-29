@@ -5,6 +5,23 @@
   margin-top: 12px;
 }
 
+.cut-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--mat-sys-outline-variant);
+}
+
+.cut-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
 .cut-queue-label {
   display: flex;
   align-items: center;
@@ -34,51 +51,9 @@
 }
 
 .cut-detail {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 16px;
-}
-
-.cut-tabs {
-  display: none;
-}
-
-:host ::ng-deep .cut-tabs .mat-mdc-tab-header {
-  border-bottom: none;
-  margin-bottom: 12px;
-}
-
-:host ::ng-deep .cut-tabs .mat-mdc-tab-list {
-  background: #f3f4f6;
-  border-radius: 8px;
-  padding: 4px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
-}
-
-:host ::ng-deep .cut-tabs .mat-mdc-tab {
-  min-height: 14px;
-  border-radius: 6px;
-  opacity: 0.75;
-}
-
-:host ::ng-deep .cut-tabs .mdc-tab__content {
-  padding: 2px 8px;
-}
-
-:host ::ng-deep .cut-tabs .mdc-tab__text-label {
-  font-size: 12px;
-  line-height: 14px;
-}
-
-:host ::ng-deep .cut-tabs .mat-mdc-tab.mdc-tab--active {
-  background: #ffffff;
-  opacity: 1;
-}
-
-:host ::ng-deep .cut-tabs .mdc-tab-indicator {
-  display: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .section-title {
@@ -117,7 +92,40 @@
   gap: 6px;
   align-items: center;
   flex-wrap: nowrap;
-  justify-content: center;
+  justify-content: flex-start;
+  padding: 4px 6px;
+  border-radius: 10px;
+  background: var(--mat-sys-surface-container-lowest);
+}
+
+.form-row:hover {
+  background: var(--mat-sys-surface-container-low);
+}
+
+/* Un point deja attribue a un cote est traite : il s'efface un peu, et
+   redevient net des qu'on s'en approche. */
+.form-row.is-scored {
+  background: var(--mat-sys-surface-container);
+  opacity: 0.7;
+}
+
+.form-row.is-scored:hover,
+.form-row.is-scored.is-hovered,
+.form-row.is-scored.is-current {
+  opacity: 1;
+}
+
+/* Survol venu d'ici ou du segment correspondant dans la timeline. */
+.form-row.is-hovered {
+  background: var(--mat-sys-primary-container);
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+/* Le point sous la tete de lecture, ou le plus proche d'elle. Declare apres
+   le survol : c'est lui qui reste visible quand les deux tombent ensemble. */
+.form-row.is-current {
+  background: light-dark(#fef9c3, #3f3a12);
+  box-shadow: inset 3px 0 0 #ca8a04;
 }
 
 .form-row label {
@@ -175,7 +183,7 @@
   height: 32px;
   padding: 4px 8px;
   font-size: 13px;
-  border: 1px solid #d0d0d0;
+  border: 1px solid var(--mat-sys-outline-variant);
   border-radius: 6px;
 }
 
@@ -200,8 +208,8 @@
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  border: 1px solid #d0d0d0;
-  background: #fff;
+  border: 1px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-surface-container-lowest);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -215,19 +223,150 @@
   background: #d32f2f;
 }
 
-.row-actions {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  transform: translateY(12px);
+/* Meme traitement que la duree in-out : c'est la meme nature d'information. */
+.gap-to-next {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  margin-bottom: 6px;
+  padding-left: 8px;
+  min-width: 82px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  opacity: 0.85;
 }
 
-.row-actions button {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
+/* Un ecart negatif veut dire que le point suivant commence avant la fin de
+   celui-ci : c'est la meme faute que signale l'input `out`. */
+.gap-to-next.invalid {
+  color: var(--mat-sys-error);
+  opacity: 1;
+  font-weight: 600;
+}
+
+.gap-none {
+  opacity: 0.4;
+}
+
+.row-delete {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  /* Colle a droite quelle que soit la largeur de la ligne. */
+  margin-left: auto;
+  margin-bottom: 3px;
+  width: 26px;
+  height: 26px;
   padding: 0;
+  border: 1px solid transparent;
   border-radius: 8px;
+  background: transparent;
+  color: var(--mat-sys-outline);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.form-row:hover .row-delete {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.row-delete:hover {
+  color: #ffffff;
+  background: #dc2626;
+  border-color: #dc2626;
+}
+
+/* --- Selecteur de point, trois positions -------------------------------- */
+
+.point-switch {
+  position: relative;
+  flex: 0 0 auto;
+  align-self: flex-end;
+  margin-bottom: 5px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 78px;
+  height: 26px;
+  padding: 2px;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 999px;
+  background: var(--mat-sys-surface-container);
+}
+
+.point-switch-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / 3);
+  border-radius: 999px;
+  background: var(--mat-sys-surface-bright);
+  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.2);
+  transition:
+    transform 140ms ease,
+    background-color 140ms ease;
+}
+
+/* Vert a gauche, rouge a droite : les deux cotes doivent se distinguer d'un
+   coup d'oeil dans une liste de points, ce qu'un bleu et un ambre pales ne
+   faisaient pas sur le fond clair de l'application. */
+.point-switch[data-position="0"] .point-switch-thumb {
+  background: light-dark(#dcfce7, #14532d);
+}
+
+.point-switch[data-position="1"] .point-switch-thumb {
+  transform: translateX(100%);
+}
+
+.point-switch[data-position="2"] .point-switch-thumb {
+  transform: translateX(200%);
+  background: light-dark(#fee2e2, #7f1d1d);
+}
+
+.form-row label.point-switch-option {
+  position: relative;
+  z-index: 1;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  gap: 0;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.5;
+  cursor: pointer;
+}
+
+.point-switch-option.is-active {
+  opacity: 1;
+  font-weight: 600;
+}
+
+/* La lettre porte la couleur de son cote, active ou non : c'est elle qu'on
+   lit, et l'option inactive reste lisible grace a son opacite. */
+.point-switch-option.is-left {
+  color: light-dark(#15803d, #4ade80);
+}
+
+.point-switch-option.is-right {
+  color: light-dark(#991b1b, #f87171);
+}
+
+.point-switch-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.point-switch-option:focus-within {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
 }
 
 .form-row input[type="number"] {
@@ -239,19 +378,270 @@
 }
 
 .cut-error {
-  color: #b00020;
+  color: var(--mat-sys-error);
 }
 
 .cut-empty {
   opacity: 0.65;
 }
 
-@container side-panel (max-width: 1000px) {
-  .cut-detail {
-    display: none;
-  }
+/* Un evenement n'a qu'un timecode : la ligne est plus courte, et se distingue
+   des points par sa teinte pour qu'on la retrouve dans la liste melangee. */
+.form-row.is-event {
+  background: light-dark(#f5f3ff, #2a2540);
+  border: 1px dashed light-dark(#ddd6fe, #4c3f7a);
+}
 
-  .cut-tabs {
-    display: block;
-  }
+.form-row.is-event:hover {
+  background: light-dark(#ede9fe, #332c52);
+}
+
+.form-row.is-event[data-event="Warning"] {
+  background: light-dark(#fff7ed, #3a2716);
+  border-color: light-dark(#fed7aa, #7c4a1c);
+}
+
+.form-row.is-event[data-event="Warning"]:hover {
+  background: light-dark(#ffedd5, #45301a);
+}
+
+.row-kind {
+  flex: 0 0 auto;
+  width: 14px;
+  text-align: center;
+  font-size: 11px;
+  opacity: 0.45;
+}
+
+.event-label {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+.form-row.is-event label {
+  text-transform: uppercase;
+}
+
+.form-row.is-event label.wide {
+  flex: 1 1 auto;
+  min-width: 80px;
+}
+
+.form-row.is-event label.wide input {
+  width: 100%;
+  text-transform: none;
+}
+
+.form-row.is-event label.narrow input {
+  width: 64px;
+}
+
+/* Le score n'est pas stocke : il decoule des points et des evenements
+   au-dessus, donc il se lit mais ne s'edite pas. */
+.row-score {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.form-row.is-event .row-delete,
+.form-row.is-event .row-kind {
+  opacity: 0.6;
+}
+
+.form-row.is-event:hover .row-delete {
+  opacity: 1;
+}
+
+/* Les seuils du modele. Replies par defaut : on ne les ouvre que quand la
+   proposition tombe a cote, et jamais sur un cut monte a la main. */
+.cut-decode {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border: 1px solid
+    light-dark(rgba(15, 23, 42, 0.12), rgba(255, 255, 255, 0.12));
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.cut-decode > summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.cut-decode-badge {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--mat-sys-primary);
+  font-size: 12px;
+}
+
+.cut-decode-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cut-decode-row {
+  display: grid;
+  grid-template-columns: 8.5rem 1fr 3.5rem;
+  align-items: center;
+  gap: 8px;
+}
+
+.cut-decode-row input[type="range"] {
+  width: 100%;
+}
+
+.cut-decode-row output {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  text-align: right;
+}
+
+.cut-decode-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cut-decode-hint {
+  margin: 2px 0 0;
+  max-width: 60ch;
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.7;
+}
+
+.cut-decode-warn {
+  display: block;
+  margin-top: 4px;
+  color: light-dark(#b45309, #fbbf24);
+  opacity: 1;
+}
+
+.cut-decode-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Les endroits a verifier. Repliee par defaut comme les seuils : on l'ouvre
+   quand on doute, pas a chaque ouverture de cut. */
+.cut-review {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border: 1px solid
+    light-dark(rgba(15, 23, 42, 0.12), rgba(255, 255, 255, 0.12));
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.cut-review > summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.cut-review-count {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(180, 83, 9, 0.14);
+  color: light-dark(#b45309, #fbbf24);
+  font-size: 12px;
+}
+
+.cut-review-list {
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.cut-review-row {
+  display: grid;
+  grid-template-columns: 7.5rem 9rem 1fr;
+  gap: 8px;
+  align-items: baseline;
+  padding: 3px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cut-review-row:hover {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.cut-review-tc {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.cut-review-kind {
+  color: light-dark(#b45309, #fbbf24);
+}
+
+/* Un candidat rejete n'est pas un doute sur le montage rendu : il dit que le
+   modele a failli proposer quelque chose ici. */
+.cut-review-row.is-rejected .cut-review-kind {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.cut-review-detail {
+  opacity: 0.75;
+}
+
+/* L'avis du modele sur le camp gagnant, a droite du selecteur : meme forme,
+   en gris et sans interaction, pour qu'on le lise comme une suggestion et non
+   comme une valeur enregistree. Le champ a gauche reste le seul qui compte. */
+.point-switch.is-suggestion {
+  pointer-events: none;
+  opacity: 0.55;
+  border-style: dashed;
+  background: var(--mat-sys-surface-container-low);
+  width: 66px;
+}
+
+.point-switch.is-suggestion .point-switch-thumb {
+  background: var(--mat-sys-surface-container-highest);
+  box-shadow: none;
+}
+
+.point-switch.is-suggestion .point-switch-option {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--mat-sys-outline);
+}
+
+.point-switch.is-suggestion .point-switch-option.is-active {
+  color: var(--mat-sys-on-surface-variant);
+  font-weight: 600;
+}
+
+/* Sans suggestion, la place reste prise : les lignes gardent leurs colonnes
+   alignees, qu'un point ait un avis du modele ou non. */
+.point-switch-placeholder {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  margin-bottom: 5px;
+  width: 66px;
+  height: 26px;
 }

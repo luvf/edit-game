@@ -1,21 +1,38 @@
 // TypeScript
-import {AfterViewInit, Component, inject, OnDestroy, OnInit, signal, ViewChild} from '@angular/core';
-import {ActivatedRoute, Router} from '@angular/router';
+import {
+  AfterViewInit,
+  Component,
+  inject,
+  OnDestroy,
+  OnInit,
+  signal,
+  ViewChild,
+} from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 
-import {MatTableDataSource, MatTableModule} from '@angular/material/table';
-import {MatSort, MatSortModule} from '@angular/material/sort';
-import {TournamentService} from '../core/services/tournament.service';
-import {Game, Team, Tournament, VideoMetadata} from '../core/models/models';
-import {of} from 'rxjs';
-import {MatButtonModule} from '@angular/material/button';
-import {MatInputModule} from '@angular/material/input';
-import {MatFormFieldModule} from '@angular/material/form-field';
-import {MatCheckboxModule} from '@angular/material/checkbox';
-import {MatSelectModule} from '@angular/material/select';
-import {FormsModule} from '@angular/forms';
-import {GamesService} from '../core/services/misc-hateoas-models.service';
-import {NavService} from '../core/services/nav.service';
-
+import { MatTableDataSource, MatTableModule } from '@angular/material/table';
+import { MatSort, MatSortModule } from '@angular/material/sort';
+import {
+  ArchiveAllGamesResult,
+  TournamentService,
+} from '../core/services/tournament.service';
+import {
+  Game,
+  Team,
+  Tournament,
+  Video,
+  VideoMetadata,
+} from '../core/models/models';
+import { of } from 'rxjs';
+import { MatButtonModule } from '@angular/material/button';
+import { MatInputModule } from '@angular/material/input';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatSelectModule } from '@angular/material/select';
+import { FormsModule } from '@angular/forms';
+import { GamesService } from '../core/services/misc-hateoas-models.service';
+import { NavService } from '../core/services/nav.service';
+import { renderPresets } from '../core/services/preset-service';
 
 @Component({
   selector: 'app-tournament-edit-games-view',
@@ -27,14 +44,19 @@ import {NavService} from '../core/services/nav.service';
     MatInputModule,
     MatCheckboxModule,
     MatFormFieldModule,
-    MatSelectModule
+    MatSelectModule,
   ],
   templateUrl: './tournament-edit-games-view.html',
-  styleUrl: './tournament-edit-games-view.css'
+  styleUrl: './tournament-edit-games-view.css',
 })
-export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy {
+export class TournamentEditGamesView
+  implements OnInit, AfterViewInit, OnDestroy
+{
   tournament = signal<Tournament | null>(null);
   games = signal<Game[]>([]);
+  videos = signal<Record<string, Video | undefined>>({});
+  /** Archives indexees par match, absentes tant qu'aucune archive n'est liee. */
+  archives = signal<Record<string, Video | undefined>>({});
   team1_names = signal<Record<string, string>>({});
   team2_names = signal<Record<string, string>>({});
   cuts_count = signal<Record<number, number>>({});
@@ -42,10 +64,13 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
   selectedSourceFiles = signal<string[]>([]);
   dataSource = new MatTableDataSource<Game>([]);
   proxyQuality = signal<'low' | 'medium' | 'high'>('medium');
+  /** Resultat du dernier archivage global, pour le retour visuel. */
+  archiveAllGamesResult = signal<ArchiveAllGamesResult | null>(null);
   newGameName = '';
   selectedSourceFile = '';
   sourceFilePreviewUrl = '';
   @ViewChild(MatSort) sort!: MatSort;
+  protected readonly renderPresets = renderPresets;
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private tournamentService = inject(TournamentService);
@@ -62,22 +87,20 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
 
     // Load the tournament, then its videos (with error handling)
     this.tournamentService.get(tournament_url).subscribe({
-        next: (current_tournament: Tournament | null) => {
-          if (!current_tournament) return;
-          this.tournament.set(current_tournament);
-          this.updateNav(tournament_url);
-          this.resetCreateGameForm();
-          this.tournament_loaded(current_tournament);
-          this.loadSourceFiles(current_tournament);
-        },
-        error: (e) => {
-          console.error('Erreur lors de la récupération du tournoi', e);
-          return of(null);
-        },
-      }
-    );
+      next: (current_tournament: Tournament | null) => {
+        if (!current_tournament) return;
+        this.tournament.set(current_tournament);
+        this.updateNav(tournament_url);
+        this.resetCreateGameForm();
+        this.tournament_loaded(current_tournament);
+        this.loadSourceFiles(current_tournament);
+      },
+      error: (e) => {
+        console.error('Erreur lors de la récupération du tournoi', e);
+        return of(null);
+      },
+    });
     // videos() uses follow() and returns Observable<VideoMetadata[]>
-
   }
 
   ngOnDestroy(): void {
@@ -93,35 +116,58 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
           const team2 = this.team2_names()[item.pk] ?? '';
           return `${team1} vs ${team2}`.toLowerCase();
         }
-        case 'rendered':
         case 'proxy':
-          return (item.source_proxy?.trim()?.length ?? 0) > 0 ? 1 : 0;
+          return this.hasProxy(item) ? 1 : 0;
+        case 'archive':
+          return this.hasArchive(item) ? 1 : 0;
+
         case 'file_name': {
-          const sourceName = (item as unknown as {source_name?: string}).source_name;
+          const sourceName = (item as unknown as { source_name?: string })
+            .source_name;
           return sourceName?.toLowerCase() ?? item.files?.toLowerCase() ?? '';
         }
         case 'name':
           return item.name?.toLowerCase() ?? '';
         case 'cuts':
           return this.cuts_count()[item.pk] ?? 0;
+        case 'high_renders':
+          return item.high_renders ?? 0;
         default:
-          return (item as unknown as Record<string, string | number>)[property] ?? '';
+          return (
+            (item as unknown as Record<string, string | number>)[property] ?? ''
+          );
       }
     };
   }
+
+  /** Un proxy est utilisable des qu'au moins un fichier a ete rendu. */
+  hasProxy(game: Game): boolean {
+    return Object.keys(this.videos()[game.pk]?.files ?? {}).length > 0;
+  }
+
+  /**
+   * Dit si le match a un fichier d'archive.
+   *
+   * Le Video d'archive est cree des la mise en file du rendu : tant qu'il n'a
+   * aucun fichier, l'archive n'existe pas encore sur le disque.
+   */
+  hasArchive(game: Game): boolean {
+    return Object.keys(this.archives()[game.pk]?.files ?? {}).length > 0;
+  }
+
   /**
    * Triggers the 'generate_gamse' action on a tournament.
    *
    */
-   onGenerateGames(): void {
-     const tournament = this.tournament();
-     if (!tournament) return;
-     this.tournamentService.generate_games(tournament,{}).subscribe({
-       next:()=>{},
-       error: (e) => {
-         console.error('Erreur lors de la génération des matchs', e);
-      }
-    })
+  onGenerateGames(): void {
+    const tournament = this.tournament();
+    if (!tournament) return;
+    this.tournamentService.generate_games(tournament, {}).subscribe({
+      next: () => {},
+      error: (e) => {
+        console.error('Erreur lors de la génération des matchs', e);
+      },
+    });
   }
 
   onSourceFileSelected(filename: string): void {
@@ -131,7 +177,10 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
       this.sourceFilePreviewUrl = '';
       return;
     }
-    this.sourceFilePreviewUrl = this.tournamentService.sourceFileUrl(tournament, filename);
+    this.sourceFilePreviewUrl = this.tournamentService.sourceFileUrl(
+      tournament,
+      filename,
+    );
   }
 
   onAddSourceFile(): void {
@@ -144,7 +193,7 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
 
   onRemoveSourceFile(filename: string): void {
     this.selectedSourceFiles.set(
-      this.selectedSourceFiles().filter((item) => item !== filename)
+      this.selectedSourceFiles().filter((item) => item !== filename),
     );
   }
 
@@ -155,19 +204,21 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
     const newGameName = this.newGameName.trim();
     const files = this.selectedSourceFiles();
 
-    this.tournamentService.create_game(tournament, {
-       name:newGameName,
-       files:files,
-    }).subscribe({
-      next: () => {
-        this.resetCreateGameForm();
-        this.tournament_loaded(tournament);
-        this.loadSourceFiles(tournament);
-      },
-      error: (e) => {
-        console.error('Erreur lors de la création du match', e);
-      },
-    });
+    this.tournamentService
+      .create_game(tournament, {
+        name: newGameName,
+        files: files,
+      })
+      .subscribe({
+        next: () => {
+          this.resetCreateGameForm();
+          this.tournament_loaded(tournament);
+          this.loadSourceFiles(tournament);
+        },
+        error: (e) => {
+          console.error('Erreur lors de la création du match', e);
+        },
+      });
   }
 
   onGenerateAllProxy(): void {
@@ -175,10 +226,13 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
     if (!items.length) return;
     const quality = this.proxyQuality();
     items.forEach((game) => {
-      this.GameService.generateProxy(game, {quality}).subscribe({
+      this.GameService.generateProxy(game, { quality }).subscribe({
         next: () => {},
         error: (e) => {
-          console.error(`Erreur lors de la génération du proxy pour ${game.pk}`, e);
+          console.error(
+            `Erreur lors de la génération du proxy pour ${game.pk}`,
+            e,
+          );
         },
       });
     });
@@ -189,12 +243,40 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
     if (!items.length) return;
     const quality = this.proxyQuality();
     items.forEach((game) => {
-      this.GameService.generateProxy(game, {quality, to_queue: true}).subscribe({
+      this.GameService.generateProxy(game, {
+        quality,
+        to_queue: true,
+      }).subscribe({
         next: () => {},
         error: (e) => {
-          console.error(`Erreur lors de la mise en file du proxy pour ${game.pk}`, e);
+          console.error(
+            `Erreur lors de la mise en file du proxy pour ${game.pk}`,
+            e,
+          );
         },
       });
+    });
+  }
+
+  /**
+   * Met en file un rendu d'archive pour tous les matchs du tournoi.
+   *
+   * Un seul appel cote API : les matchs qui ont deja une archive ou un rendu
+   * en attente sont ignores et remontent dans `skipped`.
+   */
+  onArchiveAllGames(): void {
+    const tournament = this.tournament();
+    if (!tournament) return;
+    const count = this.games().length;
+    if (!confirm(`Lancer l'archivage des ${count} match(s) du tournoi ?`)) {
+      return;
+    }
+    this.archiveAllGamesResult.set(null);
+    this.tournamentService.archiveAllGames(tournament, {}).subscribe({
+      next: (result) => this.archiveAllGamesResult.set(result),
+      error: (e) => {
+        console.error("Erreur lors de l'archivage des matchs", e);
+      },
     });
   }
 
@@ -202,33 +284,34 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
     const url = game?._links?.self?.href;
     if (!url) return;
     this.router.navigate(['/game-edit'], {
-      queryParams: {url},
+      queryParams: { url },
     });
   }
 
   /*
-  * loads viedos datas after the tournaent is loaded
-  *
-  * @param tournament - The tournament to load videos for.
-  * */
+   * loads viedos datas after the tournaent is loaded
+   *
+   * @param tournament - The tournament to load videos for.
+   * */
   private tournament_loaded(tournament: Tournament): void {
     this.tournamentService.games(tournament, true).subscribe({
-      next: (videos: Game[]) => {
-        this.games.set(videos);
-        this.dataSource.data = videos;
-        videos.forEach(v => this.loadTeamsNames(v));
-        videos.forEach(v => this.loadCutsCount(v));
+      next: (games: Game[]) => {
+        this.games.set(games);
+        this.dataSource.data = games;
+        games.forEach((v) => this.loadTeamsNames(v));
+        games.forEach((v) => this.loadCutsCount(v));
+        games.forEach((v) => this.loadProxy(v));
+        games.forEach((v) => this.loadArchive(v));
 
         // Load team names and status for each video, and the miniature
         //videos.forEach(v => this.Action(v));
-
       },
 
       error: (e) => {
         console.error('Erreur lors du chargement des vidéos', e);
         return of([] as VideoMetadata[]);
       },
-    })
+    });
   }
 
   private loadSourceFiles(tournament: Tournament): void {
@@ -239,7 +322,10 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
           this.onSourceFileSelected('');
           return;
         }
-        if (this.selectedSourceFile && files.includes(this.selectedSourceFile)) {
+        if (
+          this.selectedSourceFile &&
+          files.includes(this.selectedSourceFile)
+        ) {
           this.onSourceFileSelected(this.selectedSourceFile);
           return;
         }
@@ -251,7 +337,7 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
     });
   }
 
-   /**
+  /**
    * Resolves and stores Team 1 and Team 2 names for a given video.
    *
    * @param game - The video metadata entry.
@@ -259,32 +345,32 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
   private loadTeamsNames(game: Game): void {
     this.GameService.team1(game).subscribe({
       next: (team1: Team) => {
-          const next1 = {...this.team1_names()};
-          next1[game.pk] =  team1.name
-          this.team1_names.set(next1);
-          this.dataSource.data = [...this.dataSource.data];
-      }, error: (e) => {
+        const next1 = { ...this.team1_names() };
+        next1[game.pk] = team1.name;
+        this.team1_names.set(next1);
+        this.dataSource.data = [...this.dataSource.data];
+      },
+      error: (e) => {
         console.error(`Erreur team1 pour video ${game.pk}`, e);
-      }
+      },
     });
     this.GameService.team2(game).subscribe({
       next: (team2: Team) => {
-          const next2 = {...this.team2_names()};
-          next2[game.pk] =  team2.name
-          this.team2_names.set(next2);
-          this.dataSource.data = [...this.dataSource.data];
-
+        const next2 = { ...this.team2_names() };
+        next2[game.pk] = team2.name;
+        this.team2_names.set(next2);
+        this.dataSource.data = [...this.dataSource.data];
       },
       error: (e) => {
         console.error(`Erreur team2 pour video ${game.pk}`, e);
-      }
+      },
     });
   }
 
   private loadCutsCount(game: Game): void {
     this.GameService.cuts(game).subscribe({
       next: (cuts) => {
-        const nextCounts = {...this.cuts_count()};
+        const nextCounts = { ...this.cuts_count() };
         nextCounts[game.pk] = Array.isArray(cuts) ? cuts.length : 0;
         this.cuts_count.set(nextCounts);
         this.dataSource.data = [...this.dataSource.data];
@@ -295,12 +381,42 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
     });
   }
 
+  private loadProxy(game: Game): void {
+    this.GameService.proxy_video(game).subscribe({
+      next: (video) => {
+        const next1 = { ...this.videos() };
+        next1[game.pk] = video;
+        this.videos.set(next1);
+        this.dataSource.data = [...this.dataSource.data];
+      },
+      error: (e) => {
+        console.error(`Erreur video pour video ${game.pk}`, e);
+      },
+    });
+  }
+
+  /** Charge l'archive d'un match, si l'API en expose une. */
+  private loadArchive(game: Game): void {
+    if (!game._links?.archive_video) return;
+    this.GameService.archive_video(game).subscribe({
+      next: (video) => {
+        const next = { ...this.archives() };
+        next[game.pk] = video;
+        this.archives.set(next);
+        this.dataSource.data = [...this.dataSource.data];
+      },
+      error: (e) => {
+        console.error(`Erreur archive pour le match ${game.pk}`, e);
+      },
+    });
+  }
+
   private updateNav(tournamentUrl: string): void {
     this.navService.setLinks([
       {
         label: 'Miniature edit',
         routerLink: ['/tournament/games'],
-        queryParams: {url: tournamentUrl},
+        queryParams: { url: tournamentUrl },
       },
     ]);
     this.navService.setActions([
@@ -318,5 +434,4 @@ export class TournamentEditGamesView implements OnInit, AfterViewInit, OnDestroy
     this.sourceFilePreviewUrl = '';
     this.sourceFiles.set([]);
   }
-
 }

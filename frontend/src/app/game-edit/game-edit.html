@@ -1,53 +1,169 @@
 <div class="game-edit">
-  <header>
-    <h1>Game edit</h1>
-  </header>
-
   @if (game(); as game) {
-    <dl class="game-fields">
-      <dt>Name</dt>
-      <dd class="name-row">
+    <section class="game-header">
+      <!-- Le match : son nom, et ce que la carte d'ouverture en dit. -->
+      <div class="header-col header-identity">
         <mat-form-field appearance="outline" class="name-field">
           <mat-label>Name</mat-label>
-          <input matInput [(ngModel)]="nameDraft">
+          <input matInput [(ngModel)]="nameDraft" />
+          <mat-hint class="source-name" [title]="'files: ' + game.files">
+            files: {{ game.files }}
+          </mat-hint>
         </mat-form-field>
-        <span class="source-name">files: {{ game.files }}</span>
-      </dd>
 
-      <dt>Rendered</dt>
-      <dd>{{ game.rendered }}</dd>
+        <!-- Le numero du match, TTJGG, et sa condition en code court : c'est
+             ce qui nomme ses rendus. -->
+        <div class="header-line">
+          <mat-form-field appearance="outline" class="match-number-part">
+            <mat-label>Terrain</mat-label>
+            <input
+              matInput
+              type="number"
+              min="0"
+              [max]="numberMax.field"
+              [ngModel]="fieldNumberDraft()"
+              (ngModelChange)="fieldNumberDraft.set($event)"
+            />
+          </mat-form-field>
+          <mat-form-field appearance="outline" class="match-number-part">
+            <mat-label>Jour</mat-label>
+            <input
+              matInput
+              type="number"
+              min="0"
+              [max]="numberMax.day"
+              [ngModel]="dayNumberDraft()"
+              (ngModelChange)="dayNumberDraft.set($event)"
+            />
+          </mat-form-field>
+          <mat-form-field appearance="outline" class="match-number-part">
+            <mat-label>Game</mat-label>
+            <input
+              matInput
+              type="number"
+              min="0"
+              [max]="numberMax.game"
+              [ngModel]="gameNumberDraft()"
+              (ngModelChange)="gameNumberDraft.set($event)"
+            />
+          </mat-form-field>
+          <output
+            class="match-number"
+            title="Numéro du match : terrain, jour, game. Il ouvre le nom des rendus."
+            >{{ numberPreview() }}</output
+          >
+          <mat-form-field appearance="outline" class="match-win-condition">
+            <mat-label>Condition courte</mat-label>
+            <input
+              matInput
+              placeholder="1a10+2v"
+              maxlength="30"
+              [ngModel]="winConditionDraft()"
+              (ngModelChange)="winConditionDraft.set($event)"
+            />
+            <mat-hint>dans le nom des rendus</mat-hint>
+          </mat-form-field>
+        </div>
 
-      <dt>JSON file</dt>
-      <dd>{{ game.json_file }}</dd>
+        <div class="header-line">
+          <mat-form-field appearance="outline" class="match-sets">
+            <mat-label>Sets à gagner</mat-label>
+            <input
+              matInput
+              type="number"
+              min="1"
+              [ngModel]="setsToWinDraft()"
+              (ngModelChange)="setsToWinDraft.set($event)"
+            />
+          </mat-form-field>
+          <mat-form-field appearance="outline" class="match-condition">
+            <mat-label>Condition de victoire</mat-label>
+            <input
+              matInput
+              placeholder="texte libre, affiché sur la carte d'ouverture"
+              [ngModel]="conditionDraft()"
+              (ngModelChange)="conditionDraft.set($event)"
+            />
+          </mat-form-field>
+          <button
+            mat-raised-button
+            color="primary"
+            type="button"
+            class="save-button"
+            (click)="onSaveNameTeam()"
+          >
+            Save
+          </button>
+        </div>
+      </div>
 
-      <dt></dt>
-      <dd class="save-row">
-        <button mat-raised-button color="primary" type="button" (click)="onSaveName()">
-          Save
+      <!-- Les equipes, et le score de chacune sous elle. L'equipe 1 commence
+           a gauche : c'est elle qui recoit un point marque a gauche. -->
+      <div class="header-col header-teams">
+        <div class="team-cell">
+          <app-team-select
+            label="Team 1 — à gauche"
+            [teams]="teams()"
+            [ngModel]="team1Draft()"
+            (ngModelChange)="team1Draft.set($event)"
+          ></app-team-select>
+          <app-team-create
+            (created)="onTeamCreated(1, $event)"
+          ></app-team-create>
+        </div>
+
+        <button
+          mat-stroked-button
+          type="button"
+          class="swap-teams"
+          title="Inverser les équipes : l'équipe 1 est celle qui commence à gauche, et c'est elle qui décide à qui revient un point marqué à gauche. Enregistre aussitôt."
+          aria-label="Inverser les équipes"
+          (click)="onSwapTeams()"
+        >
+          ⇄
         </button>
-      </dd>
 
-      <dt>Source proxy</dt>
-      <dd>{{ game.source_proxy }}</dd>
+        <div class="team-cell">
+          <app-team-select
+            label="Team 2 — à droite"
+            [teams]="teams()"
+            [ngModel]="team2Draft()"
+            (ngModelChange)="team2Draft.set($event)"
+          ></app-team-select>
+          <app-team-create
+            (created)="onTeamCreated(2, $event)"
+          ></app-team-create>
+        </div>
 
-    </dl>
+        <mat-form-field appearance="outline" class="start-score">
+          <mat-label>Score de départ équipe 1</mat-label>
+          <input
+            matInput
+            placeholder="10-3"
+            [ngModel]="startTeam1Draft()"
+            (ngModelChange)="startTeam1Draft.set($event)"
+            (blur)="padStartScores()"
+          />
+          <mat-hint title="Vide si le match est filmé dès le début"
+            >un tiret par set</mat-hint
+          >
+        </mat-form-field>
 
-    <div class="proxy-tools">
-      <mat-form-field appearance="outline" class="proxy-quality">
-        <mat-label>Proxy quality</mat-label>
-        <mat-select [(ngModel)]="proxyQuality">
-          <mat-option value="low">low</mat-option>
-          <mat-option value="medium">medium</mat-option>
-          <mat-option value="high">high</mat-option>
-        </mat-select>
-      </mat-form-field>
-      <button mat-raised-button color="primary" type="button" (click)="onGenerateProxy()">
-        Generate proxy
-      </button>
-      <button mat-raised-button color="accent" type="button" (click)="onQueueProxy()">
-        Add proxy to queue
-      </button>
-    </div>
+        <mat-form-field appearance="outline" class="start-score start-score-2">
+          <mat-label>Score de départ équipe 2</mat-label>
+          <input
+            matInput
+            placeholder="8-0"
+            [ngModel]="startTeam2Draft()"
+            (ngModelChange)="startTeam2Draft.set($event)"
+            (blur)="padStartScores()"
+          />
+        </mat-form-field>
+      </div>
+
+      <!-- Laissee vide expres. -->
+      <div class="header-col header-spare"></div>
+    </section>
 
     <app-game-edit-cuts [game]="game"></app-game-edit-cuts>
   } @else {

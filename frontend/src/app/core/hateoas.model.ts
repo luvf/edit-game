@@ -2,7 +2,6 @@
  * Union of supported HTTP methods used when invoking HATEOAS link actions.
  */
 
-
 /**
  * Describes a HAL/HATEOAS link object.
  *
@@ -36,12 +35,10 @@ export interface Link {
   /** Add additional fields if your API exposes more link metadata. */
 }
 
-
 /**
  * Dictionary of HATEOAS links, keyed by relation name (rel).
  */
 export type LinksMap = Record<string, Link | undefined>;
-
 
 /**
  * Generic HATEOAS resource shape.
@@ -51,4 +48,3 @@ export type LinksMap = Record<string, Link | undefined>;
 export interface HateoasResource<TLinks extends LinksMap = LinksMap> {
   _links?: TLinks;
 }
-

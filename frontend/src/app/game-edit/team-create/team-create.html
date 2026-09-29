@@ -1,0 +1,69 @@
+<button
+  mat-stroked-button
+  type="button"
+  class="team-create-button"
+  title="Créer une équipe qui n'existe pas encore"
+  aria-label="Créer une équipe"
+  cdkOverlayOrigin
+  #origin="cdkOverlayOrigin"
+  (click)="toggle()"
+>
+  +
+</button>
+
+<ng-template
+  cdkConnectedOverlay
+  [cdkConnectedOverlayOrigin]="origin"
+  [cdkConnectedOverlayOpen]="open()"
+  [cdkConnectedOverlayOffsetY]="8"
+  (overlayOutsideClick)="close()"
+  (detach)="close()"
+>
+  <form class="team-create-bubble" (ngSubmit)="create()">
+    <h3>Nouvelle équipe</h3>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Nom</mat-label>
+      <input
+        matInput
+        name="name"
+        required
+        [ngModel]="name"
+        (ngModelChange)="onNameChange($event)"
+      />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline">
+      <mat-label>Nom court</mat-label>
+      <input
+        matInput
+        name="shortName"
+        [maxlength]="shortNameLength"
+        [(ngModel)]="shortName"
+      />
+      <mat-hint>{{ shortName.length }} / {{ shortNameLength }}</mat-hint>
+    </mat-form-field>
+
+    <label class="team-create-logo">
+      <span>Logo (facultatif)</span>
+      <input type="file" accept="image/*" (change)="onLogoSelected($event)" />
+      <small>Sans logo, le rendu en génère un à partir du nom court.</small>
+    </label>
+
+    @if (error(); as message) {
+      <p class="team-create-error">{{ message }}</p>
+    }
+
+    <div class="team-create-actions">
+      <button mat-button type="button" (click)="close()">Annuler</button>
+      <button
+        mat-raised-button
+        color="primary"
+        type="submit"
+        [disabled]="pending()"
+      >
+        {{ pending() ? "Création…" : "Créer" }}
+      </button>
+    </div>
+  </form>
+</ng-template>

@@ -1,8 +1,20 @@
-import {Injectable} from '@angular/core';
-import {HttpClient} from '@angular/common/http';
-import {Cut, Game, RenderQueueItem, Team, TmpImage, Yt_Video} from '../models/models';
-import {HateoasService} from '../hateoas.service';
-import {map, Observable, throwError} from 'rxjs';
+import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import {
+  Cut,
+  CutCurves,
+  DecodeSettings,
+  Game,
+  MlCutResponse,
+  RedecodeResponse,
+  RenderQueueItem,
+  Team,
+  TmpImage,
+  Video,
+  Yt_Video,
+} from '../models/models';
+import { HateoasService } from '../hateoas.service';
+import { map, Observable, throwError } from 'rxjs';
 
 /**
  /**
@@ -12,7 +24,7 @@ import {map, Observable, throwError} from 'rxjs';
  * - Configures the collection endpoint for listing/creating teams.
  * - Inherits generic helpers to follow relations and invoke link-based actions.
  */
-@Injectable({providedIn: 'root'})
+@Injectable({ providedIn: 'root' })
 export class TeamService extends HateoasService<Team> {
   /**
    * Creates the service and sets the default collection URL for teams.
@@ -24,94 +36,146 @@ export class TeamService extends HateoasService<Team> {
    */
   constructor(http: HttpClient) {
     super(http);
-    this.setCollectionUrl('http://localhost:8000/api/teams/')
-
+    this.setCollectionUrl('http://localhost:8000/api/teams/');
   }
 }
 
-@Injectable({providedIn: 'root'})
+@Injectable({ providedIn: 'root' })
 export class YTVideoService extends HateoasService<Yt_Video> {
   constructor(http: HttpClient) {
     super(http);
-    this.setCollectionUrl('http://localhost:8000/api/yt_videos/')
+    this.setCollectionUrl('http://localhost:8000/api/yt_videos/');
   }
 
   latest(limit: number = 20): Observable<Yt_Video[]> {
     return this.list().pipe(
-      map((videos) => videos
-        .sort((a, b) => {
-          const dateDiff = Date.parse(b.publication_date) - Date.parse(a.publication_date);
-          return dateDiff || b.pk - a.pk;
-        })
-        .slice(0, limit)
-      )
+      map((videos) =>
+        videos
+          .sort((a, b) => {
+            const dateDiff =
+              Date.parse(b.publication_date) - Date.parse(a.publication_date);
+            return dateDiff || b.pk - a.pk;
+          })
+          .slice(0, limit),
+      ),
     );
   }
 }
 
-
-@Injectable({providedIn: 'root'})
+@Injectable({ providedIn: 'root' })
 export class TmpImageService extends HateoasService<TmpImage> {
   constructor(http: HttpClient) {
     super(http);
-    this.setCollectionUrl('http://localhost:8000/api/tmp_images/')
+    this.setCollectionUrl('http://localhost:8000/api/tmp_images/');
   }
 }
 
-
-@Injectable({providedIn: 'root'})
+@Injectable({ providedIn: 'root' })
 export class CutsService extends HateoasService<Cut> {
   constructor(http: HttpClient) {
-    super(http)
-    this.setCollectionUrl('http://localhost:8000/api/cuts/')
-
+    super(http);
+    this.setCollectionUrl('http://localhost:8000/api/cuts/');
   }
 
   cut_types(): Observable<Array<{ code: string; label: string }>> {
-    return this.http.get<Array<{ code: string; label: string }>>(`${this.baseUrl}cut-types/`);
+    return this.http.get<Array<{ code: string; label: string }>>(
+      `${this.baseUrl}cut-types/`,
+    );
   }
 
   render_cut(resource: Cut, body: unknown = {}): Observable<RenderQueueItem> {
     return this.invoke_resource<RenderQueueItem>(resource, 'render', body);
   }
 
+  rendered_video(resource: Cut, reload: boolean = false): Observable<Video> {
+    return this.follow_resource<Video>(resource, 'rendered_video', reload);
+  }
+
   gen_from_file(resource: Cut, uploadFile: File): Observable<Cut> {
     const link = resource._links?.gen_from_file;
     if (!link || !('href' in link)) {
-      return throwError(() => new Error("Relation 'gen_from_xml' introuvable sur le cut."));
+      return throwError(
+        () => new Error("Relation 'gen_from_xml' introuvable sur le cut."),
+      );
     }
     const formData = new FormData();
     formData.append('upload_file', uploadFile);
     return this.http.post(link.href, formData).pipe(
       map((resp) => {
         const parsed = this.parse(resp);
-        const result = (parsed as any).original ? (parsed as any).original() as Cut : (resp as Cut);
+        const result = (parsed as any).original
+          ? ((parsed as any).original() as Cut)
+          : (resp as Cut);
         (result as any)._parsed = parsed;
         return result;
-      })
+      }),
     );
   }
 
-  gen_from_rendered(resource: Cut, body: { path?: string; filename?: string } = {}): Observable<Cut> {
+  gen_from_rendered(
+    resource: Cut,
+    body: { path?: string; filename?: string } = {},
+  ): Observable<Cut> {
     return this.invoke_resource<Cut>(resource, 'gen_from_rendered', body);
+  }
+
+  /**
+   * Courbes de probabilite du cut, a la resolution demandee.
+   *
+   * `points` est une resolution d'affichage, pas une troncature : le serveur
+   * reduit chaque godet, par maximum pour les frontieres et par moyenne pour
+   * `inside`, donc un pic reste un pic.
+   */
+  /**
+   * Re-derive le cut de ses courbes avec d'autres seuils.
+   *
+   * Sans `apply`, rien n'est ecrit : c'est un apercu, et les corrections
+   * deja faites a la main sur ce cut restent intactes.
+   */
+  redecode(
+    resource: Cut,
+    settings: Partial<DecodeSettings>,
+    apply = false,
+  ): Observable<RedecodeResponse> {
+    return this.invoke_resource<RedecodeResponse>(resource, 'redecode', {
+      ...settings,
+      apply,
+    });
+  }
+
+  curves(resource: Cut, points = 1500): Observable<CutCurves> {
+    const link = resource._links?.curves;
+    if (!link || !('href' in link)) {
+      return throwError(
+        () => new Error("Relation 'curves' introuvable sur le cut."),
+      );
+    }
+    return this.http.get<CutCurves>(link.href, { params: { points } });
   }
 }
 
-
-@Injectable({providedIn: 'root'})
+@Injectable({ providedIn: 'root' })
 export class GamesService extends HateoasService<Game> {
   constructor(http: HttpClient) {
     super(http);
-    this.setCollectionUrl('http://localhost:8000/api/games/')
+    this.setCollectionUrl('http://localhost:8000/api/games/');
   }
 
   team1(resource: Game, reload: boolean = false): Observable<Team> {
     return this.follow_resource<Team>(resource, 'team1', reload);
   }
 
-
   team2(resource: Game, reload: boolean = false): Observable<Team> {
     return this.follow_resource<Team>(resource, 'team2', reload);
+  }
+
+  proxy_video(resource: Game, reload: boolean = false): Observable<Video> {
+    return this.follow_resource<Video>(resource, 'video_proxy', reload);
+  }
+
+  /** Vidéo d'archive du match. La relation n'existe que si une archive est liée. */
+  archive_video(resource: Game, reload: boolean = false): Observable<Video> {
+    return this.follow_resource<Video>(resource, 'archive_video', reload);
   }
 
   generateProxy(resource: Game, body: unknown = {}) {
@@ -126,16 +190,30 @@ export class GamesService extends HateoasService<Game> {
     return this.invoke_resource<Cut>(resource, 'create_cut', body);
   }
 
+  create_archive(resource: Game, body: unknown = {}): Observable<Game> {
+    return this.invoke_resource<Game>(resource, 'create_archive', body);
+  }
 
+  /**
+   * Cree un cut vide et met le modele en file d'attente pour le remplir.
+   *
+   * Le cut revient tout de suite, vide : il y a un onglet a ouvrir pendant
+   * que la file travaille, et `render_queue_item_id` dit ou en est le job.
+   */
+  ml_cut(
+    resource: Game,
+    body: { name?: string; run?: string } = {},
+  ): Observable<MlCutResponse> {
+    return this.invoke_resource<MlCutResponse>(resource, 'ml_cut', body);
+  }
 }
 
-@Injectable({providedIn: 'root'})
+@Injectable({ providedIn: 'root' })
 export class RenderQueueService extends HateoasService<RenderQueueItem> {
   constructor(http: HttpClient) {
     super(http);
-    this.setCollectionUrl('http://localhost:8000/api/render-queue/')
+    this.setCollectionUrl('http://localhost:8000/api/render-queue/');
   }
-
 
   run(item: RenderQueueItem): Observable<RenderQueueItem> {
     return this.invoke_resource<RenderQueueItem>(item, 'run');
@@ -143,5 +221,20 @@ export class RenderQueueService extends HateoasService<RenderQueueItem> {
 
   reset(item: RenderQueueItem): Observable<RenderQueueItem> {
     return this.invoke_resource<RenderQueueItem>(item, 'reset');
+  }
+}
+
+@Injectable({ providedIn: 'root' })
+export class VideoService extends HateoasService<Video> {
+  constructor(http: HttpClient) {
+    super(http);
+    this.setCollectionUrl('http://localhost:8000/api/videos/');
+  }
+
+  game(resource: Video, reload: boolean = false): Observable<Game> {
+    return this.follow_resource<Game>(resource, 'game', reload);
+  }
+  cut(resource: Video, reload: boolean = false): Observable<Cut> {
+    return this.follow_resource<Cut>(resource, 'cut', reload);
   }
 }

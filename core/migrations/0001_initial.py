@@ -12,10 +12,15 @@ class Migration(migrations.Migration):
 
     dependencies: list[tuple[str, str]] = []
 
-    operations = [
-        migrations.SeparateDatabaseAndState(
-            database_operations=[],
-            state_operations=[
+    # NOTE: these CreateModel operations used to run as state-only (moving
+    # models into `core` from another app that already had the tables on
+    # every real deployment). That means a brand-new database never actually
+    # gets these tables created, which breaks pytest-django's from-scratch
+    # test DB (and any fresh install). Reused for both `database_operations`
+    # and `state_operations` below so existing databases (which already have
+    # 0001 recorded as applied) are unaffected, while fresh databases now
+    # really get the tables created.
+    _create_operations = [
                 migrations.CreateModel(
                     name="Tournament",
                     fields=[
@@ -304,6 +309,11 @@ class Migration(migrations.Migration):
                         "db_table": "miniatures_ytvideo",
                     },
                 ),
-            ],
+    ]
+
+    operations = [
+        migrations.SeparateDatabaseAndState(
+            database_operations=_create_operations,
+            state_operations=_create_operations,
         ),
     ]

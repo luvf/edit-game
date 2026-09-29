@@ -1,7 +1,7 @@
-import {Injectable, signal} from '@angular/core';
-import {HttpClient} from '@angular/common/http';
-import {tap} from 'rxjs/operators';
-import {Observable} from 'rxjs';
+import { Injectable, signal } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { tap } from 'rxjs/operators';
+import { Observable } from 'rxjs';
 
 export interface ApiRoot {
   video_metadatas: string;
@@ -16,14 +16,13 @@ export interface ApiRoot {
   [k: string]: string;
 }
 
-@Injectable({providedIn: 'root'})
+@Injectable({ providedIn: 'root' })
 export class ApiDirectoryService {
   private readonly endpoints = new Map<string, string>();
   private readonly _ready = signal(false);
   readonly ready = this._ready.asReadonly();
 
-  constructor(private readonly http: HttpClient) {
-  }
+  constructor(private readonly http: HttpClient) {}
 
   private _rootUrl = '';
 
@@ -32,10 +31,10 @@ export class ApiDirectoryService {
   }
 
   /*
-  * loads the root url.
-  * returns an observable that completes when the root url is loaded.
-  * @param rootUrl the root url of the api
-  * */
+   * loads the root url.
+   * returns an observable that completes when the root url is loaded.
+   * @param rootUrl the root url of the api
+   * */
   load(rootUrl: string): Observable<ApiRoot> {
     this._rootUrl = rootUrl;
     return this.http.get<ApiRoot>(rootUrl).pipe(
@@ -43,14 +42,16 @@ export class ApiDirectoryService {
         this.endpoints.clear();
         Object.entries(root).forEach(([k, v]) => this.endpoints.set(k, v));
         this._ready.set(true);
-      })
+      }),
     );
   }
 
   url(key: keyof ApiRoot | string): string {
     const value = this.endpoints.get(String(key));
     if (!value) {
-      throw new Error(`Endpoint introuvable pour la clé "${String(key)}". Avez-vous appelé load(rootUrl) ?`);
+      throw new Error(
+        `Endpoint introuvable pour la clé "${String(key)}". Avez-vous appelé load(rootUrl) ?`,
+      );
     }
     return value;
   }

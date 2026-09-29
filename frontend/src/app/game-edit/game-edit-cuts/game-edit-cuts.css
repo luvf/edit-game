@@ -1,43 +1,8 @@
 .edit-layout {
   display: grid;
-  grid-template-columns: 2fr 3fr;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   gap: 16px;
   align-items: start;
-}
-
-.video-slot {
-  width: 100%;
-  max-width: 100%;
-  padding: 0;
-  background: #fafafa;
-  display: inline-flex;
-  flex-direction: column;
-  gap: 12px;
-  align-items: flex-start;
-  justify-content: flex-start;
-}
-
-.source-proxy-video {
-  display: block;
-  width: 100%;
-  height: auto;
-  border-radius: 6px;
-  background: #000;
-}
-
-.video-controls {
-  display: flex;
-  gap: 8px;
-  padding: 0 12px;
-  flex-wrap: wrap;
-}
-
-.video-metrics {
-  display: flex;
-  gap: 16px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 13px;
-  opacity: 0.75;
 }
 
 .side-panel {
@@ -77,6 +42,14 @@
   flex-wrap: wrap;
 }
 
+.cut-ml-hint {
+  margin: 0;
+  max-width: 52ch;
+  font-size: 13px;
+  line-height: 1.45;
+  opacity: 0.7;
+}
+
 .cut-xml-upload {
   display: flex;
   align-items: center;
@@ -109,7 +82,7 @@
   margin-left: auto;
   border: none;
   background: transparent;
-  color: #6b7280;
+  color: var(--mat-sys-on-surface-variant);
   font-size: 18px;
   line-height: 1;
   padding: 2px 6px;
@@ -141,7 +114,8 @@
 
 .cut-json-file {
   word-break: break-word;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   font-size: 13px;
 }
 
@@ -149,4 +123,58 @@
   .edit-layout {
     grid-template-columns: 1fr;
   }
+}
+
+.active-cut-video-title {
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+/* La liste de points est longue : le lecteur reste a l'ecran pendant qu'on la
+   parcourt, sinon on place un point sans voir l'image. */
+.video-column {
+  position: sticky;
+  top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.video-slot.is-secondary {
+  opacity: 0.95;
+}
+
+/* A cote du compteur de frames : ou l'on se trouve dans le montage, et ce que
+   le rendu afficherait ici. C'est la seule facon de verifier un score sans
+   lancer un rendu. */
+.player-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.status-point {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+  white-space: nowrap;
+}
+
+/* Entre deux points, le montage saute : la pastille doit se taire. */
+.status-point.is-outside {
+  background: var(--mat-sys-surface-container);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.status-score {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--mat-sys-inverse-surface);
+  color: var(--mat-sys-inverse-on-surface);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }

@@ -12,9 +12,9 @@
   display: grid;
   gap: 10px;
   padding: 12px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid light-dark(rgba(0, 0, 0, 0.12), rgba(255, 255, 255, 0.12));
   border-radius: 8px;
-  background: #fff;
+  background: var(--mat-sys-surface-container-low);
 }
 
 .create-panel h2 {
@@ -42,7 +42,11 @@
   position: relative;
   cursor: crosshair;
   background:
-    radial-gradient(circle, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0) 68%),
+    radial-gradient(
+      circle,
+      rgba(255, 255, 255, 1) 0%,
+      rgba(255, 255, 255, 0) 68%
+    ),
     conic-gradient(
       #ff0000,
       #ffff00,
@@ -76,7 +80,7 @@
 .color-picker-label {
   width: 46px;
   height: 46px;
-  border: 1px solid rgba(0, 0, 0, 0.2);
+  border: 1px solid light-dark(rgba(0, 0, 0, 0.2), rgba(255, 255, 255, 0.2));
   border-radius: 6px;
   overflow: hidden;
   display: inline-block;
@@ -106,7 +110,7 @@
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: 1px solid rgba(0, 0, 0, 0.2);
+  border: 1px solid light-dark(rgba(0, 0, 0, 0.2), rgba(255, 255, 255, 0.2));
 }
 
 /* ... existing code ... */
@@ -132,7 +136,11 @@
 }
 
 #game_list thead tr {
-  background: linear-gradient(180deg, #f3f4f6 0%, #eaecef 100%);
+  background: linear-gradient(
+    180deg,
+    var(--mat-sys-surface-container) 0%,
+    var(--mat-sys-surface-container-highest) 100%
+  );
   border-radius: 12px; /* pour harmoniser avec les lignes */
 }
 
@@ -142,13 +150,12 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #374151;
+  color: var(--mat-sys-on-surface);
   text-align: center; /* centre tous les titres de colonnes */
-  border-bottom: 1px solid #d1d5db;
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
   backdrop-filter: saturate(1.1);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset;
 }
-
 
 /* Une seule « carte » par ligne: arrondi + ombre au niveau du tr */
 #game_list {
@@ -159,16 +166,24 @@
 }
 
 #game_list tbody tr {
-  background: #eef2f7; /* fond de la ligne */
+  background: var(--mat-sys-surface-container); /* fond de la ligne */
   border-radius: 12px; /* arrondis extérieurs */
-  clip-path: inset(0 round 12px); /* force le rognage des coins (fiable sur tr) */
+  clip-path: inset(
+    0 round 12px
+  ); /* force le rognage des coins (fiable sur tr) */
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); /* UNE seule ombre pour la ligne */
-  transition: box-shadow 0.2s ease, transform 0.2s ease, background-color 0.2s ease;
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease,
+    background-color 0.2s ease;
 }
 
 #game_list tbody tr:hover {
-  background: #e5e7eb; /* assombrissement léger au survol */
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.12);
+  background: light-dark(
+    #e5e7eb,
+    #374151
+  ); /* assombrissement léger au survol */
+  box-shadow: 0 6px 12px light-dark(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.45));
   transform: translateY(-1px);
 }
 
@@ -183,7 +198,6 @@
   border-bottom-right-radius: 12px;
 }
 
-
 /* Barre de couleur à gauche: conserve la hauteur sans ajouter d’ombre */
 .image_cell {
   width: 5em;
@@ -192,11 +206,10 @@
 }
 
 .image_cell::after {
-  content: '';
+  content: "";
   display: block;
   height: 36px; /* hauteur visuelle de la ligne */
 }
-
 
 #game_list thead th:nth-child(3),
 #game_list thead th:nth-child(4) {
@@ -236,7 +249,6 @@
   text-overflow: ellipsis;
 }
 
-
 #game_list thead th.actions_col,
 #game_list tbody td.actions_col {
   text-align: center;
@@ -253,7 +265,6 @@
 .tournaments-table .mat-column-actions {
   width: 180px;
 }
-
 
 /* Empiler les boutons verticalement */
 .actions-stack {

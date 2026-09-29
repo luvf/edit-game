@@ -1,0 +1,62 @@
+<button
+  mat-stroked-button
+  type="button"
+  class="video-menu-trigger"
+  cdkOverlayOrigin
+  #origin="cdkOverlayOrigin"
+  aria-haspopup="dialog"
+  [attr.aria-expanded]="open()"
+  [disabled]="!game()"
+  (click)="toggle()"
+>
+  Vidéo ▾
+</button>
+
+<ng-template
+  cdkConnectedOverlay
+  [cdkConnectedOverlayOrigin]="origin"
+  [cdkConnectedOverlayOpen]="open()"
+  [cdkConnectedOverlayPositions]="positions"
+  (overlayOutsideClick)="close()"
+  (detach)="close()"
+>
+  <div class="video-menu" role="dialog" aria-label="Vidéo du match">
+    <section>
+      <h3>Proxy</h3>
+      <p>La vidéo légère sur laquelle on monte.</p>
+      <div class="video-menu-row">
+        <select
+          class="video-menu-select"
+          aria-label="Qualité du proxy"
+          [(ngModel)]="proxyQuality"
+        >
+          @for (preset of renderPresets; track preset.value) {
+            <option [ngValue]="preset.value">{{ preset.label }}</option>
+          }
+        </select>
+        <button
+          mat-flat-button
+          color="primary"
+          type="button"
+          (click)="onGenerateProxy()"
+        >
+          Générer
+        </button>
+      </div>
+    </section>
+
+    <section>
+      <h3>Archive</h3>
+      <p>Le master haute qualité des rushes, pour les rendus.</p>
+      <button mat-stroked-button type="button" (click)="onCreateArchive()">
+        Créer l'archive
+      </button>
+    </section>
+
+    @if (message(); as note) {
+      <p class="video-menu-message" [class.is-error]="note.error">
+        {{ note.text }}
+      </p>
+    }
+  </div>
+</ng-template>

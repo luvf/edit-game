@@ -1,23 +1,74 @@
-import {Component, inject, Input, OnChanges, signal, SimpleChanges} from '@angular/core';
-import {CommonModule} from '@angular/common';
-import {HttpClient} from '@angular/common/http';
-import {Cut} from '../../core/models/models';
-import {MatButtonModule} from '@angular/material/button';
-import {CutsService} from '../../core/services/misc-hateoas-models.service';
-import {FormsModule} from '@angular/forms';
-import {MatTabsModule} from '@angular/material/tabs';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  EventEmitter,
+  inject,
+  Input,
+  input,
+  OnChanges,
+  Output,
+  signal,
+  SimpleChanges,
+} from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { HttpClient } from '@angular/common/http';
+import {
+  Cut,
+  CutComment,
+  CutReviewItem,
+  CutSideGuess,
+  DecodeSettings,
+} from '../../core/models/models';
+import { MatButtonModule } from '@angular/material/button';
+import { CutsService } from '../../core/services/misc-hateoas-models.service';
+import { FormsModule } from '@angular/forms';
+import {
+  CutEvent,
+  CutPoint,
+  GameEditCutsStateService,
+  ReviewMarker,
+} from '../game-edit-cuts/game-edit-cuts-state';
+import { cutRenderPresets } from '../../core/services/preset-service';
+import { buildStates, stateAt } from '../scoreboard';
+import { MatOption, MatSelect } from '@angular/material/select';
 
-type Point = {
-  in: number;
-  out: number;
-  point?: 'left' | 'right' | 'nopoint';
+type Point = CutPoint;
+
+/**
+ * Les trois positions du selecteur de point, dans l'ordre affiche. `short` est
+ * ce qui tient dans la ligne, `label` ce que disent l'infobulle et le lecteur
+ * d'ecran.
+ */
+const POINT_OPTIONS: {
+  value: NonNullable<Point['point']>;
+  short: string;
+  label: string;
+}[] = [
+  { value: 'left', short: 'L', label: 'left' },
+  { value: 'nopoint', short: '–', label: 'nopoint' },
+  { value: 'right', short: 'R', label: 'right' },
+];
+
+/** Les seuils mesures, ceux avec lesquels le modele a propose la premiere fois. */
+const DEFAULT_DECODE: DecodeSettings = {
+  threshold_in: 0.5,
+  threshold_out: 0.7,
+  min_gap: 30,
+  snap: true,
 };
 
-type TeamIntroductionOverlay = {
-  type: 'TeamIntroduction';
-  team1: string;
-  team2: string;
-  condition: string;
+/** Compteur de groupes de radios, voir `switchName`. */
+let nextSwitchGroupId = 0;
+
+/**
+ * Un evenement qui change la lecture du score sans rien dessiner : les
+ * equipes changent de cote, ou un set se termine.
+ */
+type ScoreEventOverlay = {
+  type: 'SideSwitch' | 'SetEnd';
+  tc: number;
 };
 
 type WarningOverlay = {
@@ -28,31 +79,289 @@ type WarningOverlay = {
   length?: number;
 };
 
-type Overlay = TeamIntroductionOverlay | WarningOverlay;
+/**
+ * Ce que porte la liste d'overlays d'un cut. Ce qu'est le match (equipes,
+ * condition, sets, score de depart) vit sur la game, pas dans le fichier.
+ */
+type Overlay = ScoreEventOverlay | WarningOverlay;
+
+/** Tout ce qui vit dans la liste : chaque overlay a un timecode. */
+type TimedOverlay = Overlay;
+
+/**
+ * Une ligne de la liste unique : un point du montage, ou un evenement.
+ *
+ * Les deux sont ranges ensemble et tries par timecode, parce qu'un
+ * changement de cote n'a de sens qu'entre deux points precis : dans une
+ * colonne separee on ne voit jamais ou il tombe.
+ */
+type Row =
+  | { kind: 'point'; point: Point; index: number }
+  | { kind: 'event'; overlay: TimedOverlay };
+
+/** Le timecode qui range une ligne dans la liste. */
+function rowFrame(row: Row): number {
+  return row.kind === 'point' ? row.point.in : row.overlay.tc;
+}
+
+/** Le timecode d'un overlay. */
+function overlayFrame(overlay: Overlay): number {
+  return overlay.tc;
+}
+
+/** Ce que la timeline pose sur la barre : tout ce qui a un timecode. */
+function timelineEvents(overlays: readonly Overlay[]): CutEvent[] {
+  return overlays.map((overlay) => ({
+    type: overlay.type,
+    tc: overlay.tc,
+    label:
+      overlay.type === 'Warning'
+        ? overlay.warning_type || overlay.text || 'warning'
+        : overlay.type === 'SideSwitch'
+          ? 'changement de côté'
+          : 'fin de set',
+  }));
+}
+
+/** Une case sous la liste des points, et la cle qu'elle ecrit dans `display`. */
+type RenderOption = {
+  key: 'intro' | 'tail' | 'stabilise';
+  label: string;
+  hint: string;
+  fallback: boolean;
+};
+
+/** Les options du rendu, avec les defauts que le rendu applique lui-meme. */
+const RENDER_OPTIONS: RenderOption[] = [
+  {
+    key: 'intro',
+    label: "écran d'introduction",
+    hint: 'Ouvre la vidéo sur la carte du match : tournoi, équipes, condition.',
+    fallback: true,
+  },
+  {
+    key: 'tail',
+    label: 'écran de fin',
+    hint: 'Laisse tourner la vidéo 25 s après le dernier point, score final affiché.',
+    fallback: true,
+  },
+  {
+    key: 'stabilise',
+    label: 'stabiliser',
+    hint: "Fige le cadre de chaque plan conservé. Rogne 8 % de l'image et allonge le rendu.",
+    fallback: false,
+  },
+];
 
 type CutPayload = {
   points: Point[];
   overlays: Overlay[];
+  /**
+   * Le bloc laisse par le modele. Conserve tel quel, y compris a travers une
+   * sauvegarde manuelle : c'est la provenance du cut et la liste des endroits
+   * a verifier, et l'ecraser en enregistrant un timecode serait une perte
+   * silencieuse.
+   */
+  comment?: CutComment;
+  /**
+   * Les choix de montage : tableau de score, carte d'ouverture,
+   * stabilisation. Conserve tel quel pour la meme raison que `comment` — un
+   * enregistrement qui ne connait pas une option ne doit pas l'effacer.
+   */
+  display?: Record<string, unknown>;
+};
+
+/**
+ * La suggestion qui recouvre le plus ce point, s'il y en a une.
+ *
+ * Par recouvrement et non par egalite des timecodes : les suggestions ont ete
+ * calculees sur les segments proposes, et deplacer une frontiere ne doit pas
+ * faire disparaitre l'avis du modele sur le point qu'on est en train de
+ * regler. Un point qu'aucune suggestion ne recouvre n'en a pas.
+ */
+export function suggestionForPoint(
+  sides: CutSideGuess[] | undefined,
+  point: Point,
+): CutSideGuess | null {
+  let best: CutSideGuess | null = null;
+  let bestOverlap = 0;
+  for (const side of sides ?? []) {
+    const overlap = Math.min(point.out, side.out) - Math.max(point.in, side.in);
+    if (overlap > bestOverlap) {
+      best = side;
+      bestOverlap = overlap;
+    }
+  }
+  return best;
+}
+
+/** Une ligne de la liste « a verifier », prete a etre affichee. */
+type ReviewRow = ReviewMarker & { timecode: string };
+
+/** Ce que chaque motif de revue veut dire, en francais et en une ligne. */
+const REVIEW_LABELS: Record<string, string> = {
+  in_incertain: 'début peu sûr',
+  out_incertain: 'fin peu sûre',
+  segment_long: 'point anormalement long',
+  pause_longue: 'longue pause',
+  in_isole: 'début sans fin',
+  out_orphelin: 'fin sans début',
+  in_non_referme: 'début non refermé',
+  segment_court: 'segment trop court',
+  segment_trop_long: 'segment trop long',
+  inside_faible: 'segment rejeté',
+  fusion: 'segments fusionnés',
 };
 
 @Component({
   selector: 'app-cut-detail',
   standalone: true,
-  imports: [CommonModule, MatButtonModule, FormsModule, MatTabsModule],
+
+  imports: [CommonModule, MatButtonModule, FormsModule, MatSelect, MatOption],
   templateUrl: './cut-detail.html',
   styleUrl: './cut-detail.css',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CutDetailComponent implements OnChanges {
   @Input() cut: Cut | null = null;
-  @Input() currentFrame: number | null = null;
-  @Input() seekToFrame?: (frame: number) => void;
+  /**
+   * Mise en page etroite : le panneau d'infos passe au-dessus de la liste en
+   * une seule colonne. Le choix vient du parent, qui mesure le panneau.
+   */
+  readonly compact = input(false);
+  @Output() seekToFrame = new EventEmitter<number>();
 
-  payload: CutPayload | null = null;
-  parseError: string | null = null;
+  payload = signal<CutPayload | null>(null);
+  /**
+   * La liste affichee : points et evenements ranges ensemble.
+   *
+   * Elle n'est reconstruite qu'au chargement, a l'ajout, a la suppression et
+   * sur « Fix ». Trier a chaque frappe ferait sauter la ligne sous le curseur
+   * pendant qu'on tape un timecode.
+   */
+  readonly rows = signal<Row[]>([]);
+  readonly parseError = signal<string | null>(null);
   valid = signal(true);
   queuePreset = 'medium';
+  protected readonly renderPresets = cutRenderPresets;
+  protected readonly pointOptions = POINT_OPTIONS;
+  /**
+   * Prefixe des `name` du selecteur de point. Les radios de meme `name` forment
+   * un seul groupe pour le navigateur, et `preserveContent` garde plusieurs
+   * cuts vivants : sans prefixe unique par composant, changer le point d'une
+   * ligne deselectionnerait la meme ligne d'un autre cut.
+   */
+  protected readonly switchName = `cut-point-${++nextSwitchGroupId}-`;
+  /**
+   * Les endroits a verifier, dans l'ordre du temps.
+   *
+   * Ce que le modele a propose sans en etre sur et ce qu'il a failli
+   * proposer sont melanges : pour le monteur c'est la meme consigne — va
+   * regarder la — et les separer l'obligerait a lire deux listes.
+   */
+  readonly reviewRows = computed<ReviewRow[]>(() => {
+    const comment = this.payload()?.comment;
+    if (!comment) return [];
+
+    const fps = comment.fps || this.state.rushFps();
+    const rows = [
+      ...this.toMarkers(comment.review, 'review', fps),
+      ...this.toMarkers(comment.rejected, 'rejected', fps),
+    ].sort((a, b) => a.frame - b.frame);
+    return rows.map((marker) => ({
+      ...marker,
+      timecode: this.formatTimecode(marker.frame),
+    }));
+  });
+
+  /** Le libelle francais d'un motif, ou le motif brut s'il est inconnu. */
+  reviewLabel(kind: string): string {
+    return REVIEW_LABELS[kind] ?? kind;
+  }
+
+  /** Envoie le lecteur a l'endroit signale. */
+  onReviewSeek(row: ReviewRow): void {
+    this.seekToFrame.emit(row.frame);
+  }
+
+  private toMarkers(
+    items: CutReviewItem[] | undefined,
+    source: ReviewMarker['source'],
+    fps: number,
+  ): ReviewMarker[] {
+    return (items ?? [])
+      .filter((item) => Number.isFinite(item?.at))
+      .map((item) => ({
+        frame: Math.max(0, Math.round(item.at * fps)),
+        kind: String(item.kind ?? ''),
+        detail: String(item.detail ?? ''),
+        source,
+      }));
+  }
+
+  /** Reglages du decodage, quand le cut porte des courbes. */
+  readonly decode = signal<DecodeSettings>({ ...DEFAULT_DECODE });
+  /** Resume du dernier apercu, ou `null` tant qu'on n'a rien tourne. */
+  readonly decodePreview = signal<{
+    segments: number;
+    kept: number;
+    snapped: boolean;
+  } | null>(null);
+  readonly decodePending = signal(false);
+  private decodeTimer: ReturnType<typeof setTimeout> | null = null;
   private http = inject(HttpClient);
   private cutService = inject(CutsService);
+  private state = inject(GameEditCutsStateService);
+  /** Point survole, partage avec la timeline sous le lecteur. */
+  readonly hoveredPoint = this.state.hoveredPointIndex;
+
+  /**
+   * Le point a surligner dans la liste : celui sous la tete de lecture, ou a
+   * defaut le plus proche d'elle, pour voir ou l'on en est sans chercher.
+   * `null` quand ce cut n'est pas celui du lecteur, ou qu'il n'a aucun point.
+   */
+  readonly currentPointIndex = computed(() => {
+    if (this.state.activeCut()?.pk !== this.cut?.pk) return null;
+    const frame = this.state.rushFrame();
+    let closest: number | null = null;
+    let closestDistance = Number.POSITIVE_INFINITY;
+    for (const [index, point] of (this.payload()?.points ?? []).entries()) {
+      const start = Number(point.in);
+      const end = Number(point.out);
+      if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+      const distance =
+        frame < start ? start - frame : frame > end ? frame - end : 0;
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closest = index;
+      }
+    }
+    return closest;
+  });
+
+  /** Vrai quand le point est deja attribue a un cote : il est traite. */
+  isScored(point: Point): boolean {
+    return point.point === 'left' || point.point === 'right';
+  }
+
+  constructor() {
+    // La timeline vit a cote du lecteur : seul le cut ouvert lui envoie ses
+    // sections, sinon les onglets gardes en vie par `preserveContent`
+    // s'ecraseraient les uns les autres.
+    effect(() => {
+      // Les deux signaux se lisent avant tout `return` : un effet ne se
+      // reabonne qu'a ce qu'il a lu au dernier passage, et sortir plus haut
+      // le rendrait sourd aux changements de `payload`.
+      const payload = this.payload();
+      const points = payload?.points ?? [];
+      const overlays = payload?.overlays ?? [];
+      const isActive = this.state.activeCut()?.pk === this.cut?.pk;
+      if (!isActive) return;
+      this.state.activeCutPoints.set([...points]);
+      this.state.activeCutEvents.set(timelineEvents(overlays));
+      this.state.reviewMarkers.set(this.reviewRows());
+    });
+  }
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['cut']) {
@@ -61,10 +370,106 @@ export class CutDetailComponent implements OnChanges {
     }
   }
 
+  /**
+   * Redemande un apercu apres chaque mouvement de curseur.
+   *
+   * Attendre un court instant plutot que de tirer a chaque pixel : le
+   * re-decodage coute une passe de numpy, pas un GPU, mais un curseur emet
+   * des dizaines d'evenements par seconde.
+   */
+  onDecodeChange<K extends keyof DecodeSettings>(
+    key: K,
+    value: DecodeSettings[K],
+  ): void {
+    this.decode.set({ ...this.decode(), [key]: value });
+    if (this.decodeTimer) clearTimeout(this.decodeTimer);
+    this.decodeTimer = setTimeout(() => this.previewDecode(), 250);
+  }
+
+  /** Abandonne l'apercu et remet les seuils mesures. */
+  onDecodeReset(): void {
+    if (this.decodeTimer) clearTimeout(this.decodeTimer);
+    this.decode.set({ ...DEFAULT_DECODE });
+    this.decodePreview.set(null);
+    this.state.previewPoints.set([]);
+  }
+
+  /**
+   * Ecrit l'apercu dans le cut.
+   *
+   * C'est le seul geste destructif de ce panneau : il remplace la liste de
+   * points, corrections manuelles comprises, d'ou le bouton separe.
+   */
+  onDecodeApply(): void {
+    if (!this.cut) return;
+    this.decodePending.set(true);
+    this.cutService.redecode(this.cut, this.decode(), true).subscribe({
+      next: () => {
+        this.decodePending.set(false);
+        this.decodePreview.set(null);
+        this.state.previewPoints.set([]);
+        this.loadJson();
+      },
+      error: (e) => {
+        this.decodePending.set(false);
+        console.error('Erreur lors du re-decodage', e);
+      },
+    });
+  }
+
+  private previewDecode(): void {
+    if (!this.cut) return;
+    this.decodePending.set(true);
+    this.cutService.redecode(this.cut, this.decode()).subscribe({
+      next: (result) => {
+        this.decodePending.set(false);
+        if (this.state.activeCut()?.pk !== this.cut?.pk) return;
+        this.decodePreview.set({
+          segments: result.segments,
+          kept: result.stats.kept,
+          snapped: result.snapped,
+        });
+        this.state.previewPoints.set(
+          result.points.map((point) => ({ in: point.in, out: point.out })),
+        );
+      },
+      error: (e) => {
+        this.decodePending.set(false);
+        console.error("Erreur lors de l'apercu du re-decodage", e);
+      },
+    });
+  }
+
+  protected readonly renderOptions = RENDER_OPTIONS;
+
+  /**
+   * L'etat d'une option de rendu. Une option absente du fichier vaut son
+   * defaut, celui que le rendu applique aussi : la case dit ce qui sortira.
+   */
+  renderOption(option: RenderOption): boolean {
+    const value = this.payload()?.display?.[option.key];
+    return typeof value === 'boolean' ? value : option.fallback;
+  }
+
+  /**
+   * Coche ou decoche une option. Ecrit dans le cut comme le reste : elle ne
+   * part au rendu qu'une fois enregistree.
+   */
+  onRenderOptionChange(option: RenderOption, checked: boolean): void {
+    const payload = this.payload();
+    if (!payload) return;
+    this.payload.set({
+      ...payload,
+      display: { ...(payload.display ?? {}), [option.key]: checked },
+    });
+  }
+
   onSave(): void {
     if (!this.cut) return;
     const json = this.buildJson();
-    const file = new File([json], `cut-${this.cut.pk ?? 'new'}.json`, {type: 'application/json'});
+    const file = new File([json], `cut-${this.cut.pk ?? 'new'}.json`, {
+      type: 'application/json',
+    });
     const formData = new FormData();
     formData.append('json_file', file);
     this.cutService.update(this.cut, formData as any).subscribe({
@@ -73,130 +478,155 @@ export class CutDetailComponent implements OnChanges {
     });
   }
 
+  /**
+   * Range la liste par timecode, et l'ecrit dans le fichier.
+   *
+   * L'ordre des points est celui du montage : ffmpeg concatene dans l'ordre
+   * de la liste, pas dans celui des timecodes. Trier ici fait donc les deux
+   * a la fois — remettre la liste en ordre et remettre le montage en ordre.
+   */
+  /** Le score du tableau devant chaque point de la liste. */
+  readonly boardStates = computed(() => {
+    const payload = this.payload();
+    if (!payload) return [];
+    const events = payload.overlays.filter(
+      (overlay): overlay is ScoreEventOverlay =>
+        overlay.type === 'SideSwitch' || overlay.type === 'SetEnd',
+    );
+    return buildStates(payload.points, events, this.state.startScore());
+  });
+
+  /**
+   * Le score affiche en face d'un point : celui avec lequel l'action
+   * commence, comme un vrai tableau pendant le jeu.
+   */
+  scoreFor(row: Row): string {
+    if (row.kind !== 'point') return '';
+    const state = stateAt(this.boardStates(), row.index);
+    return `${state.leftScore} – ${state.rightScore}`;
+  }
+
   onFix(): void {
+    this.sortPayload();
+    this.rebuildRows();
+    this.onPointEdited();
+  }
+
+  /** Range les points par `in` et les overlays par `tc`, sur place. */
+  private sortPayload(): void {
+    const payload = this.payload();
+    if (!payload) return;
+    const points = [...payload.points].sort((a, b) => a.in - b.in);
+    const overlays = [...payload.overlays].sort(
+      (a, b) => overlayFrame(a) - overlayFrame(b),
+    );
+    this.payload.set({ ...payload, points, overlays });
+  }
+
+  /** Recalcule la liste affichee a partir du payload. */
+  private rebuildRows(): void {
+    const payload = this.payload();
+    if (!payload) {
+      this.rows.set([]);
+      return;
+    }
+    const rows: Row[] = [
+      ...payload.points.map((point, index) => ({
+        kind: 'point' as const,
+        point,
+        index,
+      })),
+      ...payload.overlays.map((overlay) => ({
+        kind: 'event' as const,
+        overlay,
+      })),
+    ];
+    rows.sort((a, b) => rowFrame(a) - rowFrame(b));
+    this.rows.set(rows);
+  }
+
+  /** Ajoute un evenement, place a la frame courante du lecteur. */
+  addEvent(type: TimedOverlay['type']): void {
+    const payload = this.payload() ?? { points: [], overlays: [] };
+    const tc = Math.max(Math.round(this.state.rushFrame()), 0);
+    const overlay: TimedOverlay =
+      type === 'Warning'
+        ? { type: 'Warning', warning_type: '', text: '', tc, length: 300 }
+        : { type, tc };
+    this.payload.set({ ...payload, overlays: [...payload.overlays, overlay] });
+    // Range tout de suite : le score de chaque point se lit dans l'ordre des
+    // timecodes, et un evenement pose au milieu doit compter des maintenant.
+    this.sortPayload();
+    this.rebuildRows();
+  }
+
+  /** Le nom lisible d'un evenement qui ne se dessine pas. */
+  eventLabel(type: TimedOverlay['type']): string {
+    if (type === 'SideSwitch') return 'changement de côté';
+    if (type === 'SetEnd') return 'fin de set';
+    return type;
+  }
+
+  /** Cale un evenement sur la frame courante du lecteur. */
+  setEventFromCurrentFrame(overlay: TimedOverlay): void {
+    overlay.tc = Math.max(Math.round(this.state.rushFrame()), 0);
+    this.onPointEdited();
+  }
+
+  /** Retire une ligne, point ou evenement. */
+  removeRow(row: Row): void {
+    const payload = this.payload();
+    if (!payload) return;
+    if (row.kind === 'point') {
+      this.payload.set({
+        ...payload,
+        points: payload.points.filter((point) => point !== row.point),
+      });
+    } else {
+      this.payload.set({
+        ...payload,
+        overlays: payload.overlays.filter((overlay) => overlay !== row.overlay),
+      });
+    }
+    this.rebuildRows();
+    this.onPointEdited();
   }
 
   onAddToQueue(): void {
     if (!this.cut?.pk) return;
     const preset = this.queuePreset || 'medium';
-    this.cutService.render_cut(this.cut, {preset, to_queue: true}).subscribe({
+    this.cutService.render_cut(this.cut, { preset, to_queue: true }).subscribe({
       next: () => {},
       error: (e) => console.error("Erreur lors de l'ajout a la queue", e),
     });
   }
 
-  private loadJson(): void {
-    this.payload = null;
-    this.parseError = null;
-    const path = this.cut?.json_file?.trim();
-    if (!path || !this.isFetchablePath(path)) return;
-
-    this.http.get(path, {responseType: 'text'}).subscribe({
-      next: (text) => this.parseJson(text),
-      error: (e) => {
-        this.parseError = e?.message ? String(e.message) : 'Erreur de chargement';
-      },
-    });
-  }
-
-  private parseJson(content: string): void {
-    if (!content?.trim()) return;
-
-    try {
-      const raw = JSON.parse(content);
-      const points = Array.isArray(raw?.points) ? raw.points : [];
-      const overlays = Array.isArray(raw?.overlays) ? raw.overlays : [];
-
-      this.payload = {
-        points: points
-          .filter((p: any) => p && typeof p === 'object')
-          .map((p: any) => ({
-            in: Number(p.in),
-            out: Number(p.out),
-            point: p.point,
-          }))
-          .filter((p: Point) => Number.isFinite(p.in) && Number.isFinite(p.out)),
-        overlays: overlays
-          .filter((o: any) => o && typeof o === 'object')
-          .map((o: any) => this.normalizeOverlay(o))
-          .filter((o: Overlay | null) => !!o) as Overlay[],
-      };
-    } catch (e: any) {
-      this.parseError = e?.message ? String(e.message) : 'Invalid JSON';
-    }
-  }
-
   addPoint(): void {
-    if (!this.payload) {
-      this.payload = {points: [], overlays: []};
+    const payload = this.payload();
+    if (!payload) {
+      this.payload.set({ points: [], overlays: [] });
+      return;
     }
-    this.payload.points.push({in: 0, out: 0, point: 'nopoint'});
+    const at = Math.max(Math.round(this.state.rushFrame()), 0);
+    this.payload.set({
+      ...payload,
+      points: [...payload.points, { in: at, out: at, point: 'nopoint' }],
+    });
+    this.sortPayload();
+    this.rebuildRows();
   }
 
-  addPointAfter(index: number): void {
-    if (!this.payload) return;
-    const current = this.payload.points[index];
-    const next = this.payload.points[index + 1];
-    const currentOut = Number(current?.out ?? 0);
-    const nextIn = Number(next?.in ?? currentOut + 2);
-    const newIn = Number.isFinite(currentOut) ? currentOut + 1 : 0;
-    const newOut = Number.isFinite(nextIn) ? nextIn - 1 : newIn;
-    this.payload.points.splice(index + 1, 0, {in: newIn, out: newOut, point: 'nopoint'});
-  }
-
-  removePoint(index: number): void {
-    if (!this.payload) return;
-    this.payload.points.splice(index, 1);
-  }
-
-  addOverlay(type: Overlay['type'] = 'Warning'): void {
-    if (!this.payload) {
-      this.payload = {points: [], overlays: []};
-    }
-    if (type === 'TeamIntroduction') {
-      this.payload.overlays.push({
-        type: 'TeamIntroduction',
-        team1: '',
-        team2: '',
-        condition: '',
-      });
-    } else {
-      this.payload.overlays.push({
-        type: 'Warning',
-        warning_type: '',
-        text: '',
-        tc: 0,
-        length: 300,
-      });
-    }
-  }
-
-  addOverlayAfter(index: number, type?: Overlay['type']): void {
-    if (!this.payload) return;
-    const current = this.payload.overlays[index];
-    const nextType = type ?? current?.type ?? 'Warning';
-    const insertIndex = index + 1;
-    if (nextType === 'TeamIntroduction') {
-      this.payload.overlays.splice(insertIndex, 0, {
-        type: 'TeamIntroduction',
-        team1: '',
-        team2: '',
-        condition: '',
-      });
-    } else {
-      this.payload.overlays.splice(insertIndex, 0, {
-        type: 'Warning',
-        warning_type: '',
-        text: '',
-        tc: 0,
-        length: 300,
-      });
-    }
+  /**
+   * `ngModel` ecrit dans le point sur place : le signal `payload` ne change
+   * pas d'identite, donc la timeline doit etre prevenue a la main.
+   */
+  onPointEdited(): void {
+    this.publishPoints();
   }
 
   formatTimecode(frameValue: number): string {
     if (!Number.isFinite(frameValue) || frameValue < 0) return '00:00:00:00';
-    const fps = 60;
+    const fps = this.nominalRushFps();
     const totalFrames = Math.floor(frameValue);
     const totalSeconds = Math.floor(totalFrames / fps);
     const hours = Math.floor(totalSeconds / 3600);
@@ -211,9 +641,13 @@ export class CutDetailComponent implements OnChanges {
   }
 
   formatDurationFrames(startFrame: number, endFrame: number): string {
-    if (!Number.isFinite(startFrame) || !Number.isFinite(endFrame)) return '00:00:00';
-    const fps = 60;
-    const totalFrames = Math.max(0, Math.floor(endFrame) - Math.floor(startFrame));
+    if (!Number.isFinite(startFrame) || !Number.isFinite(endFrame))
+      return '00:00:00';
+    const fps = this.nominalRushFps();
+    const totalFrames = Math.max(
+      0,
+      Math.floor(endFrame) - Math.floor(startFrame),
+    );
     const totalSeconds = Math.floor(totalFrames / fps);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
@@ -224,21 +658,86 @@ export class CutDetailComponent implements OnChanges {
   }
 
   setFromCurrentFrame(point: Point, field: 'in' | 'out'): void {
-    const frame = this.currentFrame;
+    const frame = this.state.rushFrame();
     if (!Number.isFinite(frame as number)) return;
     point[field] = Math.max(0, Math.floor(frame as number));
+    this.publishPoints();
+  }
+
+  private publishPoints(): void {
+    if (this.state.activeCut()?.pk !== this.cut?.pk) return;
+    const payload = this.payload();
+    this.state.activeCutPoints.set([...(payload?.points ?? [])]);
+    this.state.activeCutEvents.set(timelineEvents(payload?.overlays ?? []));
+    this.state.reviewMarkers.set(this.reviewRows());
+  }
+
+  /**
+   * Fps du rush arrondi a l'entier : les timecodes affichent un compteur de
+   * frames, qui doit rester entier meme sur du 59.94.
+   */
+  private nominalRushFps(): number {
+    return Math.max(1, Math.round(this.state.rushFps()));
+  }
+
+  /**
+   * Temps mort entre la fin de ce point et le debut du suivant, au format
+   * mm:ss:ff. `null` sur le dernier point : il n'y a pas de suivant.
+   */
+  gapToNext(index: number): string | null {
+    const payload = this.payload();
+    if (!payload) return null;
+    const current = payload.points[index];
+    const next = payload.points[index + 1];
+    if (!current || !next) return null;
+    return this.formatDurationFrames(current.out, next.in);
+  }
+
+  setHoveredPoint(index: number | null): void {
+    this.hoveredPoint.set(index);
+  }
+
+  /** Ce que le modele propose pour ce point, ou null s'il ne dit rien. */
+  suggestion(point: Point): CutSideGuess | null {
+    return suggestionForPoint(this.payload()?.comment?.sides, point);
+  }
+
+  /** Index de la position d'une suggestion, pour placer son curseur. */
+  suggestionPosition(side: CutSideGuess): number {
+    const index = POINT_OPTIONS.findIndex(
+      (option) => option.value === side.point,
+    );
+    return index < 0 ? 1 : index;
+  }
+
+  /** L'infobulle d'une suggestion : le camp, et a quel point le modele y croit. */
+  suggestionTitle(side: CutSideGuess): string {
+    const camp = side.point === 'left' ? 'gauche' : 'droite';
+    const confidence = Math.round((side.confidence ?? 0) * 100);
+    return (
+      `Suggestion du modele : ${camp} (${confidence} %). ` +
+      `A titre indicatif — le champ a gauche reste a vous.`
+    );
+  }
+
+  /** Index de la position active du selecteur, pour placer le curseur. */
+  pointPosition(point: Point): number {
+    const value = point.point ?? 'nopoint';
+    const index = POINT_OPTIONS.findIndex((option) => option.value === value);
+    return index < 0 ? 1 : index;
   }
 
   onSeekToFrame(frameValue: number): void {
     if (!Number.isFinite(frameValue)) return;
-    this.seekToFrame?.(Math.max(0, Math.floor(frameValue)));
+    this.seekToFrame.emit(Math.max(0, Math.floor(frameValue)));
   }
 
   isInInvalid(index: number): boolean {
-    if (!this.payload) return false;
+    const payload = this.payload();
+    if (!payload) return false;
     if (index <= 0) return false;
-    const current = this.payload.points[index];
-    const prev = this.payload.points[index - 1];
+    const current = payload.points[index];
+    const prev = payload.points[index - 1];
     const currentIn = Number(current?.in ?? NaN);
     const prevOut = Number(prev?.out ?? NaN);
     if (!Number.isFinite(currentIn) || !Number.isFinite(prevOut)) return false;
@@ -246,9 +745,10 @@ export class CutDetailComponent implements OnChanges {
   }
 
   isOutInvalid(index: number): boolean {
-    if (!this.payload) return false;
-    const current = this.payload.points[index];
-    const next = this.payload.points[index + 1];
+    const payload = this.payload();
+    if (!payload) return false;
+    const current = payload.points[index];
+    const next = payload.points[index + 1];
     if (!next) return false;
     const currentOut = Number(current?.out ?? NaN);
     const nextIn = Number(next?.in ?? NaN);
@@ -263,22 +763,85 @@ export class CutDetailComponent implements OnChanges {
     return start > end;
   }
 
-  removeOverlay(index: number): void {
-    if (!this.payload) return;
-    this.payload.overlays.splice(index, 1);
+  private loadJson(): void {
+    this.payload.set(null);
+    this.parseError.set(null);
+    const path = this.cut?.json_file?.trim();
+    if (!path || !this.isFetchablePath(path)) return;
+
+    this.http.get(path, { responseType: 'text' }).subscribe({
+      next: (text) => queueMicrotask(() => this.parseJson(text)),
+      error: (e) => {
+        this.parseError.set(
+          e?.message ? String(e.message) : 'Erreur de chargement',
+        );
+      },
+    });
   }
 
+  private parseJson(content: string): void {
+    if (!content?.trim()) return;
+
+    try {
+      const raw = JSON.parse(content);
+      const points = Array.isArray(raw?.points) ? raw.points : [];
+      const overlays = Array.isArray(raw?.overlays) ? raw.overlays : [];
+
+      this.payload.set({
+        points: points
+          .filter((p: any) => p && typeof p === 'object')
+          .map((p: any) => ({
+            in: Number(p.in),
+            out: Number(p.out),
+            point: p.point,
+          }))
+          .filter(
+            (p: Point) => Number.isFinite(p.in) && Number.isFinite(p.out),
+          ),
+        comment:
+          raw?.comment && typeof raw.comment === 'object'
+            ? (raw.comment as CutComment)
+            : undefined,
+        display:
+          raw?.display &&
+          typeof raw.display === 'object' &&
+          !Array.isArray(raw.display)
+            ? (raw.display as Record<string, unknown>)
+            : undefined,
+        overlays: overlays
+          .filter((o: any) => o && typeof o === 'object')
+          .map((o: any) => this.normalizeOverlay(o))
+          .filter((o: Overlay | null) => !!o) as Overlay[],
+      });
+      this.sortPayload();
+      this.rebuildRows();
+    } catch (e: any) {
+      this.parseError.set(e?.message ? String(e.message) : 'Invalid JSON');
+    }
+  }
+
+  /**
+   * Reconnait un overlay a son `type`, en retombant sur ses champs pour les
+   * fichiers ecrits avant que les types existent.
+   */
   private normalizeOverlay(raw: any): Overlay | null {
-    if (raw.team1 !== undefined || raw.team2 !== undefined || raw.condition !== undefined) {
-      return {
-        type: 'TeamIntroduction',
-        team1: String(raw.team1 ?? ''),
-        team2: String(raw.team2 ?? ''),
-        condition: String(raw.condition ?? ''),
-      };
+    const type = String(raw?.type ?? '');
+
+    if (type === 'SideSwitch' || type === 'SetEnd') {
+      const tc = Number(raw.tc);
+      return Number.isFinite(tc) ? { type, tc } : null;
     }
 
-    if (raw.warning_type !== undefined || raw.text !== undefined || raw.tc !== undefined) {
+    // Ce qu'est le match vit sur la game : un ancien bloc d'infos est ignore,
+    // et disparait du fichier au prochain enregistrement.
+    if (type === 'GameInfo' || type === 'TeamIntroduction') return null;
+
+    if (
+      type === 'Warning' ||
+      raw.warning_type !== undefined ||
+      raw.text !== undefined ||
+      raw.tc !== undefined
+    ) {
       return {
         type: 'Warning',
         warning_type: String(raw.warning_type ?? ''),
@@ -296,14 +859,17 @@ export class CutDetailComponent implements OnChanges {
   }
 
   private buildJson(): string {
-    if (!this.payload) return '';
+    const payload = this.payload();
+    if (!payload) return '';
     return JSON.stringify(
       {
-        points: this.payload.points,
-        overlays: this.payload.overlays,
+        points: payload.points,
+        overlays: payload.overlays,
+        ...(payload.comment ? { comment: payload.comment } : {}),
+        ...(payload.display ? { display: payload.display } : {}),
       },
       null,
-      2
+      2,
     );
   }
 }

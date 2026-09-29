@@ -1,0 +1,48 @@
+.team-create-button {
+  min-width: 2.75rem;
+  padding-inline: 0.5rem;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.team-create-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 280px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--mat-sys-surface-container);
+  box-shadow:
+    0 10px 30px rgba(15, 23, 42, 0.18),
+    0 0 0 1px light-dark(rgba(15, 23, 42, 0.06), rgba(255, 255, 255, 0.06));
+}
+
+.team-create-bubble h3 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
+.team-create-logo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+
+.team-create-logo small {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.team-create-error {
+  margin: 0;
+  color: var(--mat-sys-error);
+  font-size: 0.85rem;
+}
+
+.team-create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}

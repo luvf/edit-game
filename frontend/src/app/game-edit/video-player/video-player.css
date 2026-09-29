@@ -1,0 +1,74 @@
+.video-slot {
+  width: 100%;
+  max-width: 100%;
+  padding: 12px;
+  background: var(--mat-sys-surface-container-low);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+  justify-content: flex-start;
+  box-sizing: border-box;
+}
+
+.source-proxy-video {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  background: #000;
+}
+
+.source-proxy-video,
+.active-cut-video {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  background: #000;
+}
+
+.video-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.video-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.video-tools:empty {
+  display: none;
+}
+
+.video-tools:empty + .quality-select {
+  margin-left: auto;
+}
+
+.quality-select {
+  margin-left: 8px;
+  margin-top: 1em;
+  width: 140px;
+}
+
+.video-metrics {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+}
+
+/* L'attenuation porte sur les compteurs, pas sur le conteneur : ce que le
+   parent projette a cote garde ses propres couleurs. */
+.video-metrics .metric {
+  opacity: 0.75;
+}

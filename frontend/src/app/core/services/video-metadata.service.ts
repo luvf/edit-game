@@ -1,9 +1,8 @@
-import {HttpClient} from '@angular/common/http';
-import {Team, TmpImage, VideoMetadata, Yt_Video} from '../models/models';
-import {HateoasService} from '../hateoas.service';
-import {Injectable} from '@angular/core';
-import {Observable} from 'rxjs';
-
+import { HttpClient } from '@angular/common/http';
+import { Team, TmpImage, VideoMetadata, Yt_Video } from '../models/models';
+import { HateoasService } from '../hateoas.service';
+import { Injectable } from '@angular/core';
+import { Observable } from 'rxjs';
 
 /**
  * Service providing HATEOAS-powered operations for VideoMetadata resources.
@@ -13,7 +12,7 @@ import {Observable} from 'rxjs';
  * - Exposes helpers to follow domain-specific relations (teams, images, linked videos).
  * - Exposes actions to generate/upload/reset metadata-related assets.
  */
-@Injectable({providedIn: 'root'})
+@Injectable({ providedIn: 'root' })
 export class VideoMetadataService extends HateoasService<VideoMetadata> {
   /**
    * Creates the service and sets the default collection URL for video metadata.
@@ -24,8 +23,7 @@ export class VideoMetadataService extends HateoasService<VideoMetadata> {
    */
   constructor(http: HttpClient) {
     super(http);
-    this.setCollectionUrl("http://localhost:8000/api/video_metadatas/");
-
+    this.setCollectionUrl('http://localhost:8000/api/video_metadatas/');
   }
 
   team1(resource: VideoMetadata, reload: boolean = false): Observable<Team> {
@@ -40,25 +38,28 @@ export class VideoMetadataService extends HateoasService<VideoMetadata> {
     return this.follow_resource<TmpImage>(resource, 'miniature_image', reload);
   }
 
-
   base_image(resource: VideoMetadata, reload: boolean = false) {
     return this.follow_resource<TmpImage>(resource, 'base_image', reload);
   }
 
-
   linked_yt_videos(resource: VideoMetadata, reload: boolean = false) {
-    return this.follow_resource<Yt_Video[]>(resource, 'linked_yt_videos', reload);
+    return this.follow_resource<Yt_Video[]>(
+      resource,
+      'linked_yt_videos',
+      reload,
+    );
   }
 
   set_yt_video(resource: VideoMetadata, ytVideo: Yt_Video | string | null) {
-    const ytVideoValue = typeof ytVideo === 'string'
-      ? ytVideo
-      : ytVideo?._links?.self?.href ?? ytVideo?.pk ?? null;
-    return this.invoke_resource<{yt_video: Yt_Video | null}>(
+    const ytVideoValue =
+      typeof ytVideo === 'string'
+        ? ytVideo
+        : (ytVideo?._links?.self?.href ?? ytVideo?.pk ?? null);
+    return this.invoke_resource<{ yt_video: Yt_Video | null }>(
       resource,
       'set_yt_video',
-      {yt_video: ytVideoValue},
-      'PATCH'
+      { yt_video: ytVideoValue },
+      'PATCH',
     );
   }
 
@@ -73,10 +74,7 @@ export class VideoMetadataService extends HateoasService<VideoMetadata> {
    *   - time_code: Optional timecode (seconds or normalized, depending on backend).
    * @returns An observable emitting the backend response (e.g., updated links/URLs).
    */
-  generate_miniature(
-    resource: VideoMetadata,
-    payload: Partial<VideoMetadata>
-  ) {
+  generate_miniature(resource: VideoMetadata, payload: Partial<VideoMetadata>) {
     return this.invoke_resource<any>(resource, 'generate_miniature', payload);
   }
 
@@ -89,7 +87,12 @@ export class VideoMetadataService extends HateoasService<VideoMetadata> {
    * @returns An observable emitting the backend response.
    */
   upload_description(resource: VideoMetadata) {
-    return this.invoke_resource<any>(resource, 'upload_description', {}, "PATCH");
+    return this.invoke_resource<any>(
+      resource,
+      'upload_description',
+      {},
+      'PATCH',
+    );
   }
 
   /**
@@ -99,7 +102,7 @@ export class VideoMetadataService extends HateoasService<VideoMetadata> {
    * @returns An observable emitting the backend response.
    */
   upload_miniature(resource: VideoMetadata) {
-    return this.invoke_resource<any>(resource, 'upload_miniature', {}, "PATCH");
+    return this.invoke_resource<any>(resource, 'upload_miniature', {}, 'PATCH');
   }
 
   /**
@@ -111,7 +114,11 @@ export class VideoMetadataService extends HateoasService<VideoMetadata> {
    * @returns An observable emitting the backend response.
    */
   reset_title_description(resource: VideoMetadata) {
-    return this.invoke_resource<any>(resource, 'reset_title_description', {}, "PATCH");
+    return this.invoke_resource<any>(
+      resource,
+      'reset_title_description',
+      {},
+      'PATCH',
+    );
   }
-
 }

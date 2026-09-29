@@ -1,0 +1,64 @@
+<section class="create-panel">
+  <h2>Create Tournament</h2>
+
+  <mat-form-field appearance="outline">
+    <mat-label>Name *</mat-label>
+    <input matInput [(ngModel)]="form.name" />
+  </mat-form-field>
+
+  <mat-form-field appearance="outline">
+    <mat-label>Short Name *</mat-label>
+    <input matInput [(ngModel)]="form.short_name" />
+  </mat-form-field>
+
+  <mat-form-field appearance="outline">
+    <mat-label>Date *</mat-label>
+    <input matInput type="date" [(ngModel)]="form.date" />
+  </mat-form-field>
+
+  <mat-form-field appearance="outline">
+    <mat-label>Place *</mat-label>
+    <input matInput [(ngModel)]="form.place" />
+  </mat-form-field>
+
+  <mat-form-field appearance="outline">
+    <mat-label>JTR</mat-label>
+    <input matInput [(ngModel)]="form.JTR" />
+  </mat-form-field>
+
+  <mat-form-field appearance="outline">
+    <mat-label>Tugeny Link</mat-label>
+    <input matInput [(ngModel)]="form.tugeny_link" />
+  </mat-form-field>
+
+  <mat-form-field appearance="outline">
+    <mat-label>Color</mat-label>
+    <input matInput type="color" [(ngModel)]="form.color" />
+
+    <color-picker [(value)]="form.color" />
+  </mat-form-field>
+
+  <mat-form-field appearance="outline">
+    <mat-label>Drive dir</mat-label>
+    <input matInput [(ngModel)]="form.drive_dir" />
+  </mat-form-field>
+
+  <mat-form-field appearance="outline">
+    <mat-label>Tournament Dir</mat-label>
+    <input matInput [(ngModel)]="form.tournament_dir" />
+  </mat-form-field>
+
+  <button
+    mat-raised-button
+    color="primary"
+    (click)="onCreateTournament()"
+    [disabled]="
+      !form.name.trim() ||
+      !form.short_name.trim() ||
+      !form.place.trim() ||
+      !form.date
+    "
+  >
+    Create Tournament
+  </button>
+</section>

@@ -7,13 +7,12 @@ import {GameEditComponent} from './game-edit/game-edit';
 import {RenderQueueComponent} from './render-queue/render-queue';
 
 export const routes: Routes = [
-  {path: '', redirectTo: 'tournaments', pathMatch: 'full'},
-  {path:"tournaments", component : TournamentViewComponent},
-  {path: 'tournament/games', component: TournamentGamesViewComponent},
-    {path: 'tournament/video-editing', component: TournamentEditGamesView},
+  { path: '', redirectTo: 'tournaments', pathMatch: 'full' },
+  { path: 'tournaments', component: TournamentViewComponent },
+  { path: 'tournament/games', component: TournamentGamesViewComponent },
+  { path: 'tournament/video-editing', component: TournamentEditGamesView },
 
-  {path: 'game', component: GameMiniatureComponent},
-  {path: 'game-edit', component: GameEditComponent},
-  {path: 'render-queue', component: RenderQueueComponent},
-
+  { path: 'game', component: GameMiniatureComponent },
+  { path: 'game-edit', component: GameEditComponent },
+  { path: 'render-queue', component: RenderQueueComponent },
 ];

@@ -1,0 +1,49 @@
+<div class="video-slot">
+  @if (currentVideoUrl(); as videoUrl) {
+    <!-- En mode CORS : la video vient d'un autre serveur (nginx, port 8081),
+         et Firefox bloque sinon ses lectures partielles
+         (OpaqueResponseBlocking), ce qu'il affiche comme un type MIME non
+         pris en charge. nginx renvoie Access-Control-Allow-Origin. -->
+    <video
+      #videoElement
+      class="active-cut-video"
+      controls
+      crossorigin="anonymous"
+      [attr.preload]="preload()"
+      [style.max-height]="maxHeight()"
+      [src]="videoUrl"
+      (timeupdate)="onTimeUpdate()"
+      (loadedmetadata)="onLoadedMetadata()"
+      (canplay)="onCanPlay()"
+    ></video>
+  } @else {
+    <div class="video-empty">Aucune vidéo disponible.</div>
+  }
+
+  <div class="video-controls">
+    <button mat-stroked-button type="button" (click)="seekBy(-5)">-5</button>
+    <button mat-stroked-button type="button" (click)="seekBy(-1)">-1</button>
+    <button mat-stroked-button type="button" (click)="seekBy(1)">+1</button>
+    <button mat-stroked-button type="button" (click)="seekBy(5)">+5</button>
+    <div class="video-metrics">
+      <span class="metric">Frame: {{ currentFrame() }}</span>
+      <span class="metric">Timecode: {{ currentTimecode() }}</span>
+      <ng-content select="[player-status]"></ng-content>
+    </div>
+    <!-- Des outils de la page, a gauche du choix de qualite. -->
+    <div class="video-tools">
+      <ng-content select="[player-tools]"></ng-content>
+    </div>
+    <mat-form-field appearance="outline" class="quality-select">
+      <mat-label>Qualité</mat-label>
+      <mat-select
+        [value]="selectedQuality()"
+        (selectionChange)="setQuality($event.value)"
+      >
+        @for (q of availableQualities(); track q) {
+          <mat-option [value]="q">{{ q }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  </div>
+</div>

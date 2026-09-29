@@ -9,7 +9,7 @@
 }
 
 .clickable-row:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: light-dark(rgba(0, 0, 0, 0.04), rgba(255, 255, 255, 0.04));
 }
 
 .proxy-global-actions {
@@ -27,7 +27,8 @@
 .create-game-panel {
   margin-top: 20px;
   padding-top: 16px;
-  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  border-top: 1px solid
+    light-dark(rgba(0, 0, 0, 0.12), rgba(255, 255, 255, 0.12));
   display: grid;
   gap: 16px;
 }
@@ -103,9 +104,9 @@
   gap: 12px;
   justify-content: space-between;
   padding: 10px 12px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid light-dark(rgba(0, 0, 0, 0.12), rgba(255, 255, 255, 0.12));
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.02);
+  background: light-dark(rgba(0, 0, 0, 0.02), rgba(255, 255, 255, 0.02));
 }
 
 .selected-file-name {
@@ -116,7 +117,7 @@
 .remove-file {
   border: none;
   background: transparent;
-  color: #b91c1c;
+  color: var(--mat-sys-error);
   cursor: pointer;
   padding: 0;
   white-space: nowrap;
@@ -130,4 +131,9 @@
   .create-game-preview {
     grid-template-columns: 1fr;
   }
+}
+
+.archive-all-summary {
+  font-size: 12px;
+  opacity: 0.75;
 }

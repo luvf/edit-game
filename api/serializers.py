@@ -11,16 +11,15 @@ from django.core.files.base import ContentFile
 from django.template.defaultfilters import slugify
 from rest_framework import serializers
 
-from core.models import (
-    Cut,
-    Game,
-    RenderQueueItem,
-    Team,
-    TmpImage,
-    Tournament,
-    VideoMetadata,
-    YTVideo,
+from core.models.cut import Cut
+from core.models.game import Game
+from core.models.media import TmpImage, VideoMetadata, YTVideo
+from core.models.render_queue.base import (
+    RenderQueueItemBase as RenderQueueItem,
 )
+from core.models.tournament import Team, Tournament
+from core.models.video import Video, VideoFile, file_exists
+from jugger_video_manipulation.scoreboard import StartScore, start_score
 
 Model = (
     Cut
@@ -31,6 +30,7 @@ Model = (
     | VideoMetadata
     | YTVideo
     | RenderQueueItem
+    | Video
 )
 
 T = TypeVar("T", bound=Model)
@@ -295,6 +295,9 @@ class TournamentSerializer(
         view_name="tournament-youtube-update"
     )
     archive = serializers.HyperlinkedIdentityField(view_name="tournament-archive")
+    archive_all_games = serializers.HyperlinkedIdentityField(
+        view_name="tournament-archive-all-games"
+    )
     is_archived = serializers.SerializerMethodField()
     video_metadatas = serializers.HyperlinkedIdentityField(
         view_name="tournament-videos"
@@ -309,6 +312,8 @@ class TournamentSerializer(
     generate_games = serializers.HyperlinkedIdentityField(
         view_name="tournament-generate-games"
     )
+    tournament_dir = serializers.CharField(write_only=True)
+    drive_dir = serializers.CharField(write_only=True)
 
     default_hal_embedded: ClassVar[dict[str, str]] = {}
 
@@ -320,6 +325,7 @@ class TournamentSerializer(
             "url",
             "pk",
             "name",
+            "short_name",
             "date",
             "games",
             "place",
@@ -336,6 +342,9 @@ class TournamentSerializer(
             "sync_videos",
             "youtube_update",
             "archive",
+            "archive_all_games",
+            "tournament_dir",
+            "drive_dir",
         ]
 
     def get_is_archived(self, obj: Tournament) -> bool:
@@ -355,32 +364,70 @@ class TournamentSerializer(
         """Create a new tournament instance."""
         new_tournament = Tournament(
             name=validated_data.get("name"),
-            short_name=validated_data.get("short_name"),
+            short_name=validated_data.get("short_name", validated_data.get("name")),
             date=validated_data.get("date"),
-            place=validated_data.get("place"),
-            JTR=validated_data.get("JTR"),
-            tugeny_link=validated_data.get("tugeny_link"),
-            color=validated_data.get("color"),
+            place=validated_data.get("place") or "",
+            JTR=validated_data.get("JTR") or "",
+            tugeny_link=validated_data.get("tugeny_link") or "",
+            color=validated_data.get("color") or "#0000",
             slug=slugify(validated_data.get("name")),
+            drive_dir=validated_data.get("drive_dir"),
+            tournament_dir=validated_data.get("tournament_dir"),
         )
         new_tournament.save()
         return new_tournament
 
 
+#: The render qualities counted as a finished, publishable render of a cut.
+HIGH_RENDER_QUALITIES = (VideoFile.Quality.HIGH, VideoFile.Quality.HIGH_AV1)
+
+
 class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game]):
     """Game serializer."""
 
+    high_renders = serializers.SerializerMethodField()
+
     cuts = serializers.HyperlinkedIdentityField(view_name="game-cuts")
     create_cut = serializers.HyperlinkedIdentityField(view_name="game-create-cut")
-
     generate_proxy = serializers.HyperlinkedIdentityField(
         view_name="game-generate-proxy"
     )
+    create_archive = serializers.HyperlinkedIdentityField(
+        view_name="game-create-archive"
+    )
+    ml_cut = serializers.HyperlinkedIdentityField(view_name="game-ml-cut")
+
+    def get_high_renders(self, game: Game) -> int:
+        """Count this game's cut renders in High h265 or High AV1, on disk.
+
+        A render's file row is created as soon as its output path is worked
+        out, before ffmpeg has written anything: a queued or failed render has
+        a row and no file. Only the files that exist are counted.
+        """
+        paths = VideoFile.objects.filter(
+            video__cut__game=game, quality__in=HIGH_RENDER_QUALITIES
+        ).values_list("path", flat=True)
+        return sum(1 for path in paths if path and file_exists(path))
+
+    def validate_start_score(self, value: Any) -> StartScore | None:
+        """Pair the two teams' per-set scores, the shorter padded with zeros.
+
+        Each team may be sent as a list or as text like `10-3`. Nothing on
+        either side clears the starting score.
+        """
+        if value in (None, ""):
+            return None
+        if not isinstance(value, dict):
+            msg = 'Expected {"team1": [...], "team2": [...]}.'
+            raise serializers.ValidationError(msg)
+        return start_score(value.get("team1"), value.get("team2"))
 
     default_hal_embedded: ClassVar[dict[str, str]] = {
         "tournament": "TournamentSerializer",
         "team1": "TeamSerializer",
         "team2": "TeamSerializer",
+        "video_proxy": "VideoSerializer",
+        "archive_video": "VideoSerializer",
     }
 
     class Meta:
@@ -393,14 +440,25 @@ class GameSerializer(HALMixin[Game], serializers.HyperlinkedModelSerializer[Game
             "name",
             "files",
             "tournament",
-            "rendered",
             "team1",
             "team2",
+            "condition",
+            "sets_to_win",
+            "start_score",
+            "field_number",
+            "day_number",
+            "game_number",
+            "win_condition",
             "json_file",
-            "source_proxy",
             "cuts",
+            "high_renders",
             "create_cut",
             "generate_proxy",
+            "create_archive",
+            "ml_cut",
+            "video_proxy",
+            "archive_video",
+            "video_metadata",
         ]
 
 
@@ -412,6 +470,49 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
     gen_from_rendered = serializers.HyperlinkedIdentityField(
         view_name="cut-gen-from-rendered"
     )
+    has_curves = serializers.BooleanField(read_only=True)
+    curves = serializers.HyperlinkedIdentityField(view_name="cut-curves")
+    redecode = serializers.HyperlinkedIdentityField(view_name="cut-redecode")
+    default_hal_embedded: ClassVar[dict[str, str]] = {
+        "rendered_video": "VideoSerializer",
+    }
+
+    class Meta:
+        """Meta."""
+
+        model = Cut
+        fields: Sequence[str] = [
+            "url",
+            "pk",
+            "name",
+            "type_cut",
+            "json_file",
+            "rendered_video",
+            "game",
+            "slug",
+            "render",
+            "gen_from_file",
+            "gen_from_rendered",
+            "has_curves",
+            "curves",
+            "redecode",
+        ]
+
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        """Let json_file bypass FileField validation when it's raw JSON, not an upload.
+
+        DRF's auto-generated FileField rejects any non-file value before
+        `update()` ever runs, so a plain str/dict/list payload for json_file
+        must be pulled out here and re-injected after the base validation.
+        """
+        raw_json_file = None
+        if "json_file" in data and not hasattr(data.get("json_file"), "read"):
+            data = data.copy()
+            raw_json_file = data.pop("json_file")
+        validated: dict[str, Any] = super().to_internal_value(data)
+        if raw_json_file is not None:
+            validated["json_file"] = raw_json_file
+        return validated
 
     def update(self, instance: Cut, validated_data: dict[str, Any]) -> Cut:
         """Update a cut, handling JSON payloads for json_file."""
@@ -445,24 +546,6 @@ class CutSerializer(HALMixin[Cut], serializers.HyperlinkedModelSerializer[Cut]):
         instance.save()
         return instance
 
-    class Meta:
-        """Meta."""
-
-        model = Cut
-        fields: Sequence[str] = [
-            "url",
-            "pk",
-            "name",
-            "type_cut",
-            "json_file",
-            "rendered_video",
-            "game",
-            "slug",
-            "render",
-            "gen_from_file",
-            "gen_from_rendered",
-        ]
-
 
 class RenderQueueItemSerializer(
     HALMixin[RenderQueueItem], serializers.HyperlinkedModelSerializer[RenderQueueItem]
@@ -476,30 +559,24 @@ class RenderQueueItemSerializer(
     game = serializers.SerializerMethodField()
     cut_name = serializers.CharField(source="cut.name", read_only=True)
     game_name = serializers.CharField(source="game.name", read_only=True)
+    metadata = serializers.SerializerMethodField()
+    command = serializers.SerializerMethodField()
+
+    def get_metadata(self, obj: RenderQueueItem) -> str:
+        """Return metadata for ffmpeg items, empty otherwise."""
+        return obj.concrete().metadata if obj.concrete() else ""
+
+    def get_command(self, obj: RenderQueueItem) -> str:
+        """Return command for ffmpeg items, empty otherwise."""
+        return obj.concrete().command_parameters if obj.concrete() else ""
 
     def get_cut(self, obj: RenderQueueItem) -> int | None:
-        """Return the cut id for a queue item.
-
-        Args:
-            obj: render queue item
-        Returns:
-            cut id or None
-        """
-        if obj.cut is None:
-            return None
-        return obj.cut.pk
+        """Return the cut id for a queue item."""
+        return obj.cut.pk if obj.cut else None
 
     def get_game(self, obj: RenderQueueItem) -> int | None:
-        """Return the game id for a queue item.
-
-        Args:
-            obj: render queue item
-        Returns:
-            game id or None
-        """
-        if obj.game is None:
-            return None
-        return obj.game.pk
+        """Return the game id for a queue item."""
+        return obj.game.pk if obj.game else None
 
     class Meta:
         """Meta."""
@@ -515,9 +592,8 @@ class RenderQueueItemSerializer(
             "cut_name",
             "game",
             "game_name",
-            "preset",
+            "metadata",
             "status",
-            "output_filename",
             "command",
             "error",
             "created_at",
@@ -534,3 +610,60 @@ class TeamSerializer(HALMixin[Team], serializers.HyperlinkedModelSerializer[Team
 
         model = Team
         fields: Sequence[str] = ["url", "pk", "name", "short_name", "image", "slug"]
+
+
+class VideoSerializer(HALMixin[Video], serializers.HyperlinkedModelSerializer[Video]):
+    """Video serializer."""
+
+    owner_type = serializers.SerializerMethodField()
+    files = serializers.SerializerMethodField()
+    qualities = serializers.SerializerMethodField()
+
+    class Meta:
+        """Meta."""
+
+        model = Video
+        fields: Sequence[str] = [
+            "pk",
+            "url",
+            "duration",
+            "owner_type",
+            "files",
+            "qualities",
+            "cut",
+            "game",
+        ]
+        read_only_fields = fields
+
+    def get_owner_type(self, obj: Video) -> str | None:
+        """Return the type of the owner (game or cut)."""
+        try:
+            if obj.game:
+                return "game"
+        except AttributeError:
+            pass
+        try:
+            if obj.cut:
+                return "cut"
+        except AttributeError:
+            pass
+        return None
+
+    def get_files(self, obj: Video) -> dict[str, dict[str, Any]]:
+        """Return physical files indexed by quality."""
+        files: dict[str, dict[str, Any]] = {}
+
+        for video_file in obj.files.all():
+            url = video_file.url
+            if len(url) > 0:
+                files[video_file.quality] = {
+                    "url": url,
+                    "format": video_file.format,
+                    "fps": video_file.fps,
+                }
+
+        return files
+
+    def get_qualities(self, obj: Video) -> list[str]:
+        """Return available qualities."""
+        return list(obj.files.values_list("quality", flat=True).distinct())

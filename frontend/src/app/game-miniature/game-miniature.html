@@ -1,0 +1,41 @@
+<div class="page-container" [formGroup]="videoMetadataForm">
+  <section>
+    <app-miniature-builder
+      [videoMetadata]="videoMetadata"
+      formGroupName="miniatureBuilder"
+    >
+    </app-miniature-builder>
+  </section>
+  <button (click)="onGenerateClick()" color="primary" mat-raised-button>
+    Générer miniature
+  </button>
+
+  <section>
+    <app-meta-fields
+      formGroupName="meta_fields"
+      [ytVideos]="ytVideos()"
+      [selectedYtVideoHref]="selectedYtVideoHref()"
+      (ytVideoSelected)="onYtVideoSelected($event)"
+    ></app-meta-fields>
+  </section>
+</div>
+<button
+  (click)="onResetDescription()"
+  class="reset-btn"
+  color="primary"
+  mat-raised-button
+>
+  Reset
+</button>
+
+<button (click)="onSave()" class="save-btn" color="primary" mat-raised-button>
+  Save
+</button>
+<button
+  (click)="onPublish()"
+  class="publish-btn"
+  color="primary"
+  mat-raised-button
+>
+  Publish
+</button>

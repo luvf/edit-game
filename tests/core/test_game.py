@@ -1,0 +1,400 @@
+"""Tests for core.models.game.Game."""
+
+from __future__ import annotations
+
+import importlib
+from pathlib import Path
+
+import pytest
+from django.core.exceptions import ValidationError
+from model_bakery import baker
+
+from core.models.game import ArchiveAlreadyExistsError
+from core.models.render_queue.ffmpeg import RenderQueueItemArchive
+from core.models.video import Video, VideoFile
+
+
+class TestGetSourceFiles:
+    def test_no_archive_video_returns_rush_paths(self, game):
+        expected = [
+            Path(game.tournament.media_path) / "rushs" / name for name in game.files
+        ]
+        assert game.get_source_files() == expected
+
+    def test_archive_video_used_when_available(self, game, tmp_path):
+        video = baker.make("core.Video", name="archive")
+        archive_file = tmp_path / "archive.mp4"
+        archive_file.write_bytes(b"archive-bytes")
+        baker.make(
+            "core.VideoFile",
+            video=video,
+            quality=VideoFile.Quality.ARCHIVE,
+            format=VideoFile.Format.MP4,
+            path=str(archive_file),
+        )
+        game.archive_video = video
+        game.save(update_fields=["archive_video"])
+
+        assert game.get_source_files() == [archive_file]
+
+    def test_falls_back_to_rush_when_archive_file_missing_on_disk(self, game, tmp_path):
+        video = baker.make("core.Video", name="archive")
+        missing_path = tmp_path / "gone.mp4"
+        baker.make(
+            "core.VideoFile",
+            video=video,
+            quality=VideoFile.Quality.ARCHIVE,
+            format=VideoFile.Format.MP4,
+            path=str(missing_path),
+        )
+        game.archive_video = video
+        game.save(update_fields=["archive_video"])
+
+        expected = [
+            Path(game.tournament.media_path) / "rushs" / name for name in game.files
+        ]
+        assert game.get_source_files() == expected
+
+    def test_force_rush_uses_rush_files_when_present_even_with_archive(
+        self, game, tmp_path, rush_files_factory
+    ):
+        rush_paths = rush_files_factory(game)
+
+        video = baker.make("core.Video", name="archive")
+        archive_file = tmp_path / "archive.mp4"
+        archive_file.write_bytes(b"archive-bytes")
+        baker.make(
+            "core.VideoFile",
+            video=video,
+            quality=VideoFile.Quality.ARCHIVE,
+            format=VideoFile.Format.MP4,
+            path=str(archive_file),
+        )
+        game.archive_video = video
+        game.save(update_fields=["archive_video"])
+
+        assert game.get_source_files(force_rush=True) == rush_paths
+
+    def test_force_rush_falls_back_when_rush_files_missing(self, game, tmp_path):
+        video = baker.make("core.Video", name="archive")
+        archive_file = tmp_path / "archive.mp4"
+        archive_file.write_bytes(b"archive-bytes")
+        baker.make(
+            "core.VideoFile",
+            video=video,
+            quality=VideoFile.Quality.ARCHIVE,
+            format=VideoFile.Format.MP4,
+            path=str(archive_file),
+        )
+        game.archive_video = video
+        game.save(update_fields=["archive_video"])
+
+        # rush files were never created on disk
+        assert game.get_source_files(force_rush=True) == [archive_file]
+
+
+class TestEnsureVideo:
+    def test_creates_video_when_missing(self, game):
+        assert game.video_proxy is None
+        game.ensure_video()
+        assert isinstance(game.video_proxy, Video)
+        game.refresh_from_db()
+        assert game.video_proxy is not None
+
+    def test_is_idempotent(self, game):
+        game.ensure_video()
+        first = game.video_proxy
+        game.ensure_video()
+        assert game.video_proxy_id == first.id
+
+
+class TestEnsureArchiveVideo:
+    def test_creates_archive_video_when_missing(self, game):
+        assert game.archive_video is None
+        video = game.ensure_archive_video()
+        assert video.name == f"archive{game.name}"
+        game.refresh_from_db()
+        assert game.archive_video_id == video.id
+
+    def test_returns_existing_archive_video(self, game):
+        video = baker.make("core.Video")
+        game.archive_video = video
+        game.save(update_fields=["archive_video"])
+
+        assert game.ensure_archive_video() == video
+
+
+class TestJsonRoundtrip:
+    def test_set_and_get_json(self, game):
+        game.set_json({"a": 1, "b": [1, 2, 3]})
+
+        assert game.get_json() == {"a": 1, "b": [1, 2, 3]}
+
+
+class TestEnqueueProxyRender:
+    def test_invalid_preset_raises(self, game):
+        with pytest.raises(ValueError, match="Preset must be"):
+            game.enqueue_proxy_render(preset="ultra")
+
+    def test_creates_item_and_ensures_video(self, game):
+        assert game.video_proxy is None
+
+        item = game.enqueue_proxy_render(preset="low")
+
+        assert item.game == game
+        assert item.preset == "low"
+        assert item.status == item.Status.CREATED
+        game.refresh_from_db()
+        assert game.video_proxy is not None
+
+
+class TestEnqueueArchiveRender:
+    def test_creates_item(self, game):
+        item = game.enqueue_archive_render(preset="high")
+
+        assert item.game == game
+        assert item.preset == "high"
+
+    def test_conflicts_when_pending_item_already_exists(self, game):
+        game.enqueue_archive_render(preset="high")
+
+        with pytest.raises(ValidationError) as exc_info:
+            game.enqueue_archive_render(preset="high")
+        assert exc_info.value.archive_video_id == game.archive_video_id
+
+    def test_defaults_to_the_archive_preset(self, game):
+        item = game.enqueue_archive_render()
+
+        assert item.preset == RenderQueueItemArchive.DEFAULT_PRESET
+
+    def test_force_creates_a_second_item_despite_conflict(self, game):
+        first = game.enqueue_archive_render(preset="high")
+
+        second = game.enqueue_archive_render(preset="high", force=True)
+
+        assert first.pk != second.pk
+        assert (
+            RenderQueueItemArchive.objects.filter(game=game, preset="high").count() == 2
+        )
+
+    def test_conflicts_when_archive_file_already_exists_on_disk(self, game, tmp_path):
+        video = baker.make("core.Video", name="archive")
+        archive_file = tmp_path / "archive.mp4"
+        archive_file.write_bytes(b"x")
+        baker.make(
+            "core.VideoFile",
+            video=video,
+            quality=VideoFile.Quality.ARCHIVE,
+            format=VideoFile.Format.MP4,
+            path=str(archive_file),
+        )
+        game.archive_video = video
+        game.save(update_fields=["archive_video"])
+
+        with pytest.raises(ValidationError) as exc_info:
+            game.enqueue_archive_render(preset="high")
+        assert exc_info.value.archive_video_id == video.id
+
+    def test_force_bypasses_existing_archive_file_conflict(self, game, tmp_path):
+        video = baker.make("core.Video", name="archive")
+        archive_file = tmp_path / "archive.mp4"
+        archive_file.write_bytes(b"x")
+        baker.make(
+            "core.VideoFile",
+            video=video,
+            quality=VideoFile.Quality.ARCHIVE,
+            format=VideoFile.Format.MP4,
+            path=str(archive_file),
+        )
+        game.archive_video = video
+        game.save(update_fields=["archive_video"])
+
+        item = game.enqueue_archive_render(preset="high", force=True)
+
+        assert item.game == game
+
+
+class TestArchivePresetLabelling:
+    """The preset is also the quality the file is filed under."""
+
+    def test_the_default_preset_is_the_archive_one(self, db):
+        from core.models.render_queue.ffmpeg import RenderQueueItemArchive
+
+        game = baker.make("core.Game", files=[])
+
+        item = game.enqueue_archive_render()
+
+        assert item.preset == RenderQueueItemArchive.DEFAULT_PRESET
+        assert item.preset == "archive"
+
+    def test_the_batch_command_no_longer_hardcodes_high(self):
+        from core.management.commands.enque_archives import Command
+        from core.models.render_queue.ffmpeg import RenderQueueItemArchive
+
+        parser = Command().create_parser("manage.py", "enque_archives")
+        default = parser.get_default("preset")
+
+        assert default == RenderQueueItemArchive.DEFAULT_PRESET
+
+    def test_an_archive_filed_as_high_blocks_a_second_one(self, db, tmp_path):
+        # The guard used to look only at quality "archive", so a game whose
+        # archive sat under "high" looked unarchived and got a second file.
+        path = tmp_path / "old.mp4"
+        path.write_bytes(b"0")
+        video = baker.make("core.Video", name="g")
+        game = baker.make("core.Game", archive_video=video, files=[])
+        baker.make(
+            "core.VideoFile",
+            video=video,
+            quality="high",
+            format="mp4",
+            path=str(path),
+        )
+
+        with pytest.raises(ArchiveAlreadyExistsError):
+            game.enqueue_archive_render(preset="archive")
+
+    def test_a_row_whose_file_is_gone_does_not_block(self, db, tmp_path):
+        video = baker.make("core.Video", name="g")
+        game = baker.make("core.Game", archive_video=video, files=[])
+        baker.make(
+            "core.VideoFile",
+            video=video,
+            quality="high",
+            format="mp4",
+            path=str(tmp_path / "missing.mp4"),
+        )
+
+        assert game.has_archive_on_disk() is False
+        assert game.enqueue_archive_render().pk is not None
+
+    def test_an_existing_file_of_the_same_quality_does_block(self, db, tmp_path):
+        path = tmp_path / "old.mp4"
+        path.write_bytes(b"0")
+        video = baker.make("core.Video", name="g")
+        game = baker.make("core.Game", archive_video=video, files=[])
+        baker.make(
+            "core.VideoFile",
+            video=video,
+            quality="archive",
+            format="mp4",
+            path=str(path),
+        )
+
+        with pytest.raises(ArchiveAlreadyExistsError):
+            game.enqueue_archive_render(preset="archive")
+
+    def test_a_game_without_any_archive_file_is_not_blocked(self, db):
+        video = baker.make("core.Video", name="g")
+        game = baker.make("core.Game", archive_video=video, files=[])
+
+        assert game.has_archive_on_disk() is False
+        assert game.enqueue_archive_render().pk is not None
+
+
+class TestGetMiniatureSource:
+    @staticmethod
+    def _file(video, tmp_path, quality, *, on_disk=True):
+        path = tmp_path / f"{video.name}_{quality}.mp4"
+        if on_disk:
+            path.write_bytes(b"mp4")
+        VideoFile.objects.create(video=video, quality=quality, path=str(path))
+        return path
+
+    @staticmethod
+    def _cut_video(game):
+        cut = baker.make("core.Cut", game=game, type_cut="MAN")
+        cut.rendered_video = baker.make("core.Video", name=f"cut{cut.pk}")
+        cut.save(update_fields=["rendered_video"])
+        return cut.rendered_video
+
+    def test_prefers_the_latest_cut_in_its_best_quality(self, game, tmp_path):
+        self._file(self._cut_video(game), tmp_path, "high")
+        latest = self._cut_video(game)
+        self._file(latest, tmp_path, "medium")
+        best = self._file(latest, tmp_path, "high")
+
+        assert game.get_miniature_source() == best
+
+    def test_skips_renders_not_on_disk(self, game, tmp_path):
+        video = self._cut_video(game)
+        self._file(video, tmp_path, "high", on_disk=False)
+        medium = self._file(video, tmp_path, "medium")
+
+        assert game.get_miniature_source() == medium
+
+    def test_falls_back_to_the_archive_then_the_proxy(self, game, tmp_path):
+        game.video_proxy = baker.make("core.Video", name="proxy")
+        game.save(update_fields=["video_proxy"])
+        proxy = self._file(game.video_proxy, tmp_path, "low")
+
+        assert game.get_miniature_source() == proxy
+
+        game.archive_video = baker.make("core.Video", name="archive")
+        game.save(update_fields=["archive_video"])
+        archive = self._file(game.archive_video, tmp_path, "archive")
+
+        assert game.get_miniature_source() == archive
+
+    def test_raises_without_any_video_on_disk(self, game, tmp_path):
+        self._file(self._cut_video(game), tmp_path, "high", on_disk=False)
+
+        with pytest.raises(FileNotFoundError):
+            game.get_miniature_source()
+
+
+class TestNumber:
+    def test_pads_terrain_and_game_to_two_digits(self, game):
+        game.field_number, game.day_number, game.game_number = 8, 2, 5
+
+        assert game.number == "08205"
+
+    def test_a_two_digit_terrain_needs_no_padding(self, game):
+        game.field_number, game.day_number, game.game_number = 12, 2, 7
+
+        assert game.number == "12207"
+
+    def test_defaults_to_zeros(self, game):
+        assert game.number == "00000"
+
+
+class TestScheduleFromName:
+    @pytest.fixture()
+    def migration(self):
+        return importlib.import_module("core.migrations.0037_game_schedule_numbers")
+
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            ("8205 blue fangs vs mh 1a10+2v", (8, 2, 5, "1a10+2v")),
+            ("12207 schatten vs gag 1a10+2v", (12, 2, 7, "1a10+2v")),
+            (
+                "9111  Fontanes Faust vs Leipziger Nachtwache 1a10+2v",
+                (9, 1, 11, "1a10+2v"),
+            ),
+            ("7105 Unicorsairs vs SpVgg  1a8", (7, 1, 5, "1a8")),
+            ("7110 sugoi vs MH", (7, 1, 10, "")),
+        ],
+    )
+    def test_reads_terrain_day_game_and_condition(self, migration, name, expected):
+        assert migration.parse_schedule(name) == expected
+
+    @pytest.mark.parametrize(
+        "name", ["1014", "mh vs bamb", "mh vs bamberg fight for place 27"]
+    )
+    def test_leaves_other_names_alone(self, migration, name):
+        assert migration.parse_schedule(name) is None
+
+    def test_fills_the_games_it_can_read(self, migration, game, tournament):
+        from django.apps import apps
+
+        game.name = "10208 mh vs leondiger 1a10+2v"
+        game.save()
+        bare = baker.make("core.Game", tournament=tournament, name="1014", files=[])
+
+        migration.fill_schedule(apps, None)
+
+        game.refresh_from_db()
+        bare.refresh_from_db()
+        assert (game.number, game.win_condition) == ("10208", "1a10+2v")
+        assert (bare.number, bare.win_condition) == ("00000", "")

@@ -1,88 +1,174 @@
 <div class="edit-layout">
-  <mat-card class="video-slot">
-    @if ((sourceProxy?.trim()?.length ?? 0) > 0) {
-      <video #proxyVideo class="source-proxy-video" controls [attr.src]="sourceProxy"></video>
-      <div class="video-controls">
-        <button mat-stroked-button type="button" (click)="seekBy(-5)">-5</button>
-        <button mat-stroked-button type="button" (click)="seekBy(-1)">-1</button>
-        <button mat-stroked-button type="button" (click)="seekBy(1)">+1</button>
-        <button mat-stroked-button type="button" (click)="seekBy(5)">+5</button>
-      </div>
-      <div class="video-metrics">
-        <div>Frame: {{ currentFrame() }}</div>
-        <div>Timecode: {{ currentTimecode() }}</div>
-      </div>
+  <div class="video-column">
+    <mat-card class="video-slot">
+      @if (rushVideo(); as video) {
+        <app-video-player
+          #rushPlayer
+          [sourceVideo]="video"
+          (fpsChange)="rushFps.set($event)"
+          (durationFramesChange)="rushDurationFrames.set($event)"
+          (currentFrameChange)="rushFrame.set($event)"
+        >
+          <app-game-video-menu player-tools [game]="game"></app-game-video-menu>
+          <!-- Projete a cote du compteur de frames : c'est le seul endroit ou
+               l'on regarde deja pour savoir ou l'on est dans le rush. -->
+          <span player-status class="player-badges">
+            <span
+              class="status-point"
+              [class.is-outside]="activePointIndex() === null"
+              title="Point du montage sous la tête de lecture"
+            >
+              {{ pointLabel() }}
+            </span>
+            @if (activeCutScore(); as score) {
+              <span
+                class="status-score"
+                title="Score que le rendu affichera ici, gauche – droite"
+              >
+                {{ score }}
+              </span>
+            }
+          </span>
+        </app-video-player>
+        <app-cut-timeline
+          [durationFrames]="rushDurationFrames()"
+          [currentFrame]="rushFrame()"
+          [points]="activeCutPoints()"
+          [events]="activeCutEvents()"
+          [curves]="activeCutCurves()"
+          [previewPoints]="previewPoints()"
+          [reviewMarkers]="reviewMarkers()"
+          [fps]="rushFps()"
+          [(hoveredIndex)]="hoveredPointIndex"
+          (seek)="onSeekRush($event)"
+        ></app-cut-timeline>
+      }
+    </mat-card>
+
+    @if (activeCut(); as cut) {
+      <mat-card class="video-slot is-secondary">
+        <div class="active-cut-video-title">
+          Rendered cut : {{ cut?.name ?? cut?.slug }}
+        </div>
+        @if (cutsVideos()[cut.pk]; as cutVideo) {
+          <app-video-player
+            [sourceVideo]="cutVideo"
+            maxHeight="30vh"
+            preload="metadata"
+            (currentFrameChange)="renderedFrame.set($event)"
+          >
+          </app-video-player>
+        }
+      </mat-card>
     }
-  </mat-card>
-  <mat-card class="side-panel">
-    <mat-tab-group>
+  </div>
+  <mat-card class="side-panel" #sidePanel>
+    <mat-tab-group
+      [selectedIndex]="selectedCutTabIndex()"
+      (selectedIndexChange)="onSelectedCutTabChange($event)"
+      [preserveContent]="true"
+    >
       @for (cut of cuts(); track cut.pk ?? cut.slug ?? $index) {
         <mat-tab>
           <ng-template mat-tab-label>
-            <span class="cut-tab-label">{{ cut.name ?? cut.slug ?? ('Cut ' + ($index + 1)) }}</span>
-            <button type="button" class="cut-delete" (click)="onDeleteCut(cut, $event)">×</button>
-          </ng-template>
-          <div class="tab-content">
-            <app-cut-detail
-              [cut]="cut"
-              [currentFrame]="currentFrame()"
-              [seekToFrame]="seekToFrame"
-            ></app-cut-detail>
-            <button mat-stroked-button color="primary" class="cut-render" type="button"
-                    (click)="onRenderCut(cut)">
-              Generate
+            <span class="cut-tab-label">{{
+              cut.name || cut.slug || "Cut " + ($index + 1)
+            }}</span>
+            <button
+              type="button"
+              class="cut-delete"
+              (click)="onDeleteCut(cut, $event)"
+            >
+              ×
             </button>
-          </div>
+          </ng-template>
+          <ng-template matTabContent>
+            <div class="tab-content">
+              <app-cut-detail
+                [cut]="cut"
+                [compact]="compact()"
+                (seekToFrame)="onSeekRush($event)"
+              ></app-cut-detail>
+              <button
+                mat-stroked-button
+                color="primary"
+                class="cut-render"
+                type="button"
+                (click)="onRenderCut(cut)"
+              >
+                Generate
+              </button>
+            </div>
+          </ng-template>
         </mat-tab>
       }
       <mat-tab label="+">
-        <div class="tab-content">
-          <mat-form-field appearance="outline">
-            <mat-label>Nom du cut</mat-label>
-            <input matInput type="text" [(ngModel)]="newCutName">
-          </mat-form-field>
-          <div class="cut-create-row">
-            <mat-form-field appearance="outline" class="cut-type">
-              <mat-label>Type de cut</mat-label>
-              <mat-select [(ngModel)]="selectedCutType">
-                @for (template of cutTemplates(); track template.code) {
-                  <mat-option [value]="template.code">{{ template.label }}</mat-option>
-                }
-              </mat-select>
+        <ng-template matTabContent>
+          <div class="tab-content">
+            <mat-form-field appearance="outline">
+              <mat-label>Nom du cut</mat-label>
+              <input matInput type="text" [(ngModel)]="newCutName" />
             </mat-form-field>
-            @if (selectedCutType() === 'VID') {
+            <div class="cut-create-row">
               <mat-form-field appearance="outline" class="cut-type">
-                <mat-label>Source rendered</mat-label>
-                <mat-select [(ngModel)]="selectedRendered">
-                  @for (file of renderedFiles(); track file) {
-                    <mat-option [value]="file">{{ file }}</mat-option>
+                <mat-label>Type de cut</mat-label>
+                <mat-select [(ngModel)]="selectedCutType">
+                  @for (template of cutTemplates(); track template.code) {
+                    <mat-option [value]="template.code"
+                      >{{ template.label }}
+                    </mat-option>
                   }
                 </mat-select>
               </mat-form-field>
-            }
-            <button mat-stroked-button color="primary" class="cut-add" type="button"
-                    (click)="onGenerateCut()">
-              Creer
-            </button>
-          </div>
-          @if (selectedCutType() === 'OTIO') {
-            <div class="cut-xml-upload">
-              <label for="xml-upload">Fichier XML</label>
-              <input
-                id="xml-upload"
-                type="file"
-                accept=".xml,application/xml,text/xml"
-                (change)="onFileSelected($event)"
-              >
-              @if (loadedFile()) {
-                <span class="cut-xml-filename">{{ loadedFile()?.name }}</span>
+              @if (selectedCutType() === "VID") {
+                <mat-form-field appearance="outline" class="cut-type">
+                  <mat-label>Source rendered</mat-label>
+                  <mat-select [(ngModel)]="selectedRendered">
+                    @for (file of renderedFiles(); track file) {
+                      <mat-option [value]="file">{{ file }}</mat-option>
+                    }
+                  </mat-select>
+                </mat-form-field>
               }
+              <button
+                mat-stroked-button
+                color="primary"
+                class="cut-add"
+                type="button"
+                [disabled]="mlCutPending()"
+                (click)="onGenerateCut()"
+              >
+                {{ mlCutPending() ? "En file…" : "Creer" }}
+              </button>
             </div>
-          }
-          @if (!cuts().length) {
-            <p class="cuts-empty">No cuts yet.</p>
-          }
-        </div>
+            @if (selectedCutType() === "ML") {
+              <p class="cut-ml-hint">
+                Le modèle propose un montage à partir de l'audio de l'archive,
+                ou des rushs quand l'archive n'existe pas encore. Il tourne dans
+                la file de rendu : quelques minutes, davantage la première fois
+                pour cette game. Le cut s'ouvre vide et se remplira quand le job
+                sera passé.
+              </p>
+            }
+            @if (selectedCutType() === "OTIO") {
+              <div class="cut-xml-upload">
+                <label for="xml-upload">Fichier XML</label>
+                <input
+                  id="xml-upload"
+                  type="file"
+                  accept=".xml,application/xml,text/xml"
+                  (change)="onFileSelected($event)"
+                />
+                @if (loadedFile()) {
+                  <span class="cut-xml-filename">{{ loadedFile()?.name }}</span>
+                }
+              </div>
+            }
+            @if (!cuts().length) {
+              <p class="cuts-empty">No cuts yet.</p>
+            }
+          </div>
+        </ng-template>
       </mat-tab>
     </mat-tab-group>
   </mat-card>

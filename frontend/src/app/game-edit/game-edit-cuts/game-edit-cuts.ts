@@ -1,6 +1,9 @@
+import { pairStartScore, readSetScores } from '../scoreboard';
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
+  computed,
   ElementRef,
   inject,
   Input,
@@ -11,27 +14,67 @@ import {
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
-import {CommonModule} from '@angular/common';
-import {FormsModule} from '@angular/forms';
-import {MatTabsModule} from '@angular/material/tabs';
-import {MatButtonModule} from '@angular/material/button';
-import {MatCardModule} from '@angular/material/card';
-import {MatFormFieldModule} from '@angular/material/form-field';
-import {MatInputModule} from '@angular/material/input';
-import {MatSelectModule} from '@angular/material/select';
-import {CutsService, GamesService} from '../../core/services/misc-hateoas-models.service';
-import {TournamentService} from '../../core/services/tournament.service';
-import {Cut, Game, Tournament} from '../../core/models/models';
-import {CutDetailComponent} from '../cut-detail/cut-detail';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { MatTabsModule } from '@angular/material/tabs';
+import { MatButtonModule } from '@angular/material/button';
+import { MatCardModule } from '@angular/material/card';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
+import {
+  CutsService,
+  GamesService,
+} from '../../core/services/misc-hateoas-models.service';
+import { TournamentService } from '../../core/services/tournament.service';
+import {
+  Cut,
+  CutCurves,
+  Game,
+  Tournament,
+  Video,
+  VideoFile,
+  VideoFiles,
+  VideoQuality,
+} from '../../core/models/models';
+import { CutDetailComponent } from '../cut-detail/cut-detail';
+import { CutTimelineComponent } from '../cut-timeline/cut-timeline';
+import { VideoPlayer } from '../video-player/video-player';
+import { GameVideoMenuComponent } from '../game-video-menu/game-video-menu';
+import { GameEditCutsStateService } from './game-edit-cuts-state';
 
 type CutTemplate = {
   code: string;
   label: string;
 };
 
+/**
+ * Largeur du panneau lateral en dessous de laquelle les points et les overlays
+ * d'un cut passent en onglets plutot que cote a cote.
+ */
+const COMPACT_PANEL_WIDTH = 1000;
+
+/**
+ * Fichier a exposer pour l'archive d'un match.
+ *
+ * Les archives recentes sont stockees en qualite `archive`, les plus
+ * anciennes sous le preset qui les a produites (`high`). Une seule entree
+ * suffit : c'est le meme master.
+ */
+function pickArchiveFile(files: VideoFiles): VideoFile | null {
+  const entries = Object.entries(files) as [
+    VideoQuality,
+    VideoFile | undefined,
+  ][];
+  const preferred = entries.find(([quality]) => quality === 'archive');
+  return (preferred ?? entries[0])?.[1] ?? null;
+}
+
 @Component({
   selector: 'app-game-edit-cuts',
   standalone: true,
+  providers: [GameEditCutsStateService],
+
   imports: [
     CommonModule,
     FormsModule,
@@ -42,96 +85,153 @@ type CutTemplate = {
     MatInputModule,
     MatSelectModule,
     CutDetailComponent,
+    CutTimelineComponent,
+    VideoPlayer,
+    GameVideoMenuComponent,
   ],
   templateUrl: './game-edit-cuts.html',
   styleUrl: './game-edit-cuts.css',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class GameEditCutsComponent implements AfterViewInit, OnChanges, OnDestroy,OnInit {
-  @Input() game: Game | null = null;
-
-  sourceProxy: string | null = null;
-
-  currentFrame = signal(0);
-  currentTimecode = signal('00:00:00');
+export class GameEditCutsComponent
+  implements AfterViewInit, OnChanges, OnDestroy, OnInit
+{
+  @Input() game?: Game | null = null;
   cuts = signal<Cut[]>([]);
+  cutsVideos = signal<Record<string, Video>>({});
+  proxyGameVideo = signal<Video | null>(null);
+  /** Archive du match, seulement si elle est liee et qu'un fichier existe. */
+  archiveGameVideo = signal<Video | null>(null);
+  /**
+   * Source du lecteur de rush : les fichiers du proxy et ceux de l'archive
+   * reunis, pour que l'archive soit un choix de plus dans le menu qualite.
+   */
+  rushVideo = computed<Video | null>(() => {
+    const proxy = this.proxyGameVideo();
+    const archive = this.archiveGameVideo();
+    // L'archive est toujours republiee sous la cle `archive` : une archive
+    // ancienne est stockee en `high` et ecraserait sinon la qualite du proxy
+    // qui porte ce nom.
+    const archiveFile = archive ? pickArchiveFile(archive.files) : null;
+    const archiveFiles: VideoFiles | null = archiveFile
+      ? { archive: archiveFile }
+      : null;
+    if (!proxy) {
+      return archive && archiveFiles
+        ? { ...archive, files: archiveFiles }
+        : archive;
+    }
+    if (!archiveFiles) return proxy;
+    return {
+      ...proxy,
+      files: { ...proxy.files, ...archiveFiles },
+    };
+  });
   cutTemplates = signal<CutTemplate[]>([]);
   newCutName = signal('');
+  /** Vrai entre la demande de proposition ML et la creation du cut. */
+  mlCutPending = signal(false);
   selectedCutType = signal<string | null>(null);
   loadedFile = signal<File | null>(null);
   renderedFiles = signal<string[]>([]);
   selectedRendered = signal<string | null>(null);
+  selectedCutTabIndex = signal(0);
+
+  /** Vrai quand le panneau lateral est trop etroit pour la vue en deux colonnes. */
+  readonly compact = signal(false);
 
   @ViewChild('proxyVideo') proxyVideo?: ElementRef<HTMLVideoElement>;
+  @ViewChild('rushPlayer') rushPlayer?: VideoPlayer;
+  @ViewChild('sidePanel', { read: ElementRef })
+  sidePanel?: ElementRef<HTMLElement>;
   protected readonly length = length;
-  private frameCallbackId: number | null = null;
-  private fallbackListener?: () => void;
+  private state = inject(GameEditCutsStateService);
+  rushFrame = this.state.rushFrame;
+  renderedFrame = this.state.renderedFrame;
+  rushFps = this.state.rushFps;
+  rushDurationFrames = this.state.rushDurationFrames;
+  activeCutPoints = this.state.activeCutPoints;
+  activeCutEvents = this.state.activeCutEvents;
+  previewPoints = this.state.previewPoints;
+  reviewMarkers = this.state.reviewMarkers;
+  activeCutScore = this.state.activeCutScore;
+  activePointIndex = this.state.activePointIndex;
+  hoveredPointIndex = this.state.hoveredPointIndex;
+
+  /** Timecode du rush sous la tete de lecture, au fps reel de la source. */
+  readonly rushTimecode = computed(() => {
+    const fps = Math.max(1, Math.round(this.rushFps()));
+    const frames = Math.max(0, Math.floor(this.rushFrame()));
+    const totalSeconds = Math.floor(frames / fps);
+    const pad = (value: number) => value.toString().padStart(2, '0');
+    return `${pad(Math.floor(totalSeconds / 3600))}:${pad(
+      Math.floor(totalSeconds / 60) % 60,
+    )}:${pad(totalSeconds % 60)}:${pad(frames % fps)}`;
+  });
+
+  /** Le point sous la tete de lecture, ou l'absence de point. */
+  readonly pointLabel = computed(() => {
+    const index = this.activePointIndex();
+    const total = this.activeCutPoints().length;
+    if (index === null) return total ? 'hors point' : 'aucun point';
+    return `point ${index + 1} / ${total}`;
+  });
+  activeCut = this.state.activeCut;
+  /** Courbes du modele pour le cut ouvert, absentes pour un cut manuel. */
+  activeCutCurves = signal<CutCurves | null>(null);
   private gameService = inject(GamesService);
   private cutService = inject(CutsService);
   private tournamentService = inject(TournamentService);
-
+  private panelResize?: ResizeObserver;
 
   ngOnInit(): void {
+    // Les cuts, rendered et la vidéo du match sont chargés par ngOnChanges,
+    // qui se déclenche avant ngOnInit sur le premier binding de `game`.
     this.loadCutTemplates();
-    if (!this.game) return;
-    this.loadCuts();
-    this.loadRenderedFiles();
-    this.sourceProxy = this.game?.source_proxy;
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['cuts'] || changes['game']) {
+    if (changes['game']) {
+      this.state.startScore.set(
+        pairStartScore(
+          readSetScores(this.game?.start_score?.team1),
+          readSetScores(this.game?.start_score?.team2),
+        ),
+      );
       this.loadCuts();
       this.loadRenderedFiles();
-    }
-    if (changes['sourceProxy']) {
-      if (!this.sourceProxy?.trim()) {
-        this.stopFrameTracking();
-        this.currentFrame.set(0);
-        this.currentTimecode.set('00:00:00');
-        return;
-      }
-      this.queueFrameTracking();
+      this.loadGameVideo();
     }
   }
 
   ngAfterViewInit(): void {
-    this.queueFrameTracking();
+    const panel = this.sidePanel?.nativeElement;
+    if (!panel || typeof ResizeObserver === 'undefined') return;
+
+    this.panelResize = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width === undefined) return;
+      this.compact.set(width <= COMPACT_PANEL_WIDTH);
+    });
+    this.panelResize.observe(panel);
   }
 
   ngOnDestroy(): void {
-    this.stopFrameTracking();
+    this.panelResize?.disconnect();
   }
-
-  seekBy(steps: number): void {
-    const video = this.proxyVideo?.nativeElement;
-    if (!video) return;
-    const offsetSeconds = steps * 1.5;
-    const targetTime = Math.max(0, video.currentTime + offsetSeconds);
-    video.currentTime = Number.isFinite(video.duration)
-      ? Math.min(video.duration, targetTime)
-      : targetTime;
-  }
-
-  seekToFrame = (frame: number): void => {
-    const video = this.proxyVideo?.nativeElement;
-    if (!video) return;
-    const fps = 60;
-    const targetSeconds = frame / fps;
-    video.currentTime = Number.isFinite(video.duration)
-      ? Math.min(video.duration, Math.max(0, targetSeconds))
-      : Math.max(0, targetSeconds);
-  };
 
   onGenerateCut(): void {
     if (!this.game) return;
     const selectedType = this.selectedCutType();
-    const template = this.cutTemplates().find((item) => item.code === selectedType);
+    const template = this.cutTemplates().find(
+      (item) => item.code === selectedType,
+    );
     if (!template) return;
     if (template.code === 'XML' && !this.loadedFile()) {
       console.error('Fichier XML manquant.');
       return;
     }
-     if (template.code === 'OTIO' && !this.loadedFile()) {
+    if (template.code === 'OTIO' && !this.loadedFile()) {
       console.error('Fichier OTIO json manquant.');
       return;
     }
@@ -140,6 +240,10 @@ export class GameEditCutsComponent implements AfterViewInit, OnChanges, OnDestro
       return;
     }
     const name = this.newCutName().trim() || template.label;
+    if (template.code === 'ML') {
+      this.onProposeMlCut(name);
+      return;
+    }
     const payload = {
       name,
       slug: this.slugify(name),
@@ -154,27 +258,58 @@ export class GameEditCutsComponent implements AfterViewInit, OnChanges, OnDestro
           this.cutService.gen_from_file(cut, file).subscribe({
             next: (updated) => {
               this.cuts.set(
-                this.cuts().map((item) => (item.pk === updated.pk ? updated : item))
+                this.cuts().map((item) =>
+                  item.pk === updated.pk ? updated : item,
+                ),
               );
               this.loadedFile.set(null);
             },
-            error: (e) => console.error("Erreur lors de l'upload du json OTIO", e),
+            error: (e) =>
+              console.error("Erreur lors de l'upload du json OTIO", e),
           });
         } else if (template.code === 'VID') {
           const filename = this.selectedRendered();
           if (!filename) return;
-          this.cutService.gen_from_rendered(cut, {filename}).subscribe({
+          this.cutService.gen_from_rendered(cut, { filename }).subscribe({
             next: (updated) => {
               this.cuts.set(
-                this.cuts().map((item) => (item.pk === updated.pk ? updated : item))
+                this.cuts().map((item) =>
+                  item.pk === updated.pk ? updated : item,
+                ),
               );
               this.selectedRendered.set(null);
             },
-            error: (e) => console.error("Erreur lors du cut depuis rendered", e),
+            error: (e) =>
+              console.error('Erreur lors du cut depuis rendered', e),
           });
         }
       },
       error: (e) => console.error('Erreur lors de la création du cut', e),
+    });
+  }
+
+  /**
+   * Demande une proposition de cut au modele.
+   *
+   * Le cut revient vide et son onglet s'ouvre tout de suite : le modele
+   * tourne dans la file de rendu et peut prendre quelques minutes, le temps
+   * d'extraire l'audio la premiere fois -- de l'archive, ou des rushs quand
+   * la game n'en a pas encore.
+   */
+  onProposeMlCut(name: string): void {
+    if (!this.game) return;
+    this.mlCutPending.set(true);
+    this.gameService.ml_cut(this.game, { name }).subscribe({
+      next: (response) => {
+        this.mlCutPending.set(false);
+        this.cuts.set([...this.cuts(), response.cut]);
+        this.selectedCutTabIndex.set(this.cuts().length - 1);
+        this.newCutName.set('');
+      },
+      error: (e) => {
+        this.mlCutPending.set(false);
+        console.error('Erreur lors de la demande de proposition ML', e);
+      },
     });
   }
 
@@ -189,26 +324,133 @@ export class GameEditCutsComponent implements AfterViewInit, OnChanges, OnDestro
     if (!this.game) return;
     const label = cut.name ?? cut.slug ?? 'ce cut';
     if (!confirm(`Supprimer ${label} ?`)) return;
+
     this.cutService.delete(cut).subscribe({
-      next: () => this.cuts.set(this.cuts().filter((item) => item.pk !== cut.pk)),
+      next: () => {
+        const nextCuts = this.cuts().filter((item) => item.pk !== cut.pk);
+        this.cuts.set(nextCuts);
+
+        if (this.selectedCutTabIndex() >= nextCuts.length) {
+          this.selectedCutTabIndex.set(Math.max(0, nextCuts.length - 1));
+        }
+      },
       error: (e) => console.error('Erreur lors de la suppression du cut', e),
     });
   }
 
   onRenderCut(cut: Cut): void {
-    this.cutService.render_cut(cut, {to_queue: false}).subscribe({
+    this.cutService.render_cut(cut, { to_queue: false }).subscribe({
       next: () => {},
       error: (e) => console.error('Erreur lors du render du cut', e),
+    });
+  }
+
+  onSeekRush(frame: number): void {
+    this.rushFrame.set(frame);
+    this.rushPlayer?.goToFrame(frame);
+  }
+
+  onSelectedCutTabChange(index: number): void {
+    this.selectedCutTabIndex.set(index);
+    // Le detail du nouvel onglet republiera ses points ; en attendant, mieux
+    // vaut une timeline vide que les sections de l'onglet qu'on vient de quitter.
+    this.activeCutPoints.set([]);
+    this.activeCutEvents.set([]);
+    this.hoveredPointIndex.set(null);
+    // L'apercu et les reperes appartiennent a l'onglet qu'on quitte.
+    this.previewPoints.set([]);
+    this.reviewMarkers.set([]);
+    const cut = this.cuts()[index] ?? null;
+    this.activeCut.set(cut);
+    this.loadActiveCurves(cut);
+  }
+
+  private loadGameVideo(): void {
+    const game = this.game;
+    this.proxyGameVideo.set(null);
+    this.archiveGameVideo.set(null);
+    if (!game) return;
+
+    this.gameService.proxy_video(game).subscribe({
+      next: (video: Video) => {
+        this.proxyGameVideo.set(video);
+      },
+      error: (error) => {
+        console.error('Error loading game video:', error);
+      },
+    });
+    this.loadArchiveVideo(game);
+  }
+
+  /**
+   * Charge l'archive du match si elle est exposee par l'API.
+   *
+   * Un Video d'archive peut exister sans fichier rendu (la relation est creee
+   * des la mise en file du rendu) : sans fichier, il n'y a rien a lire, donc
+   * la source archive reste indisponible.
+   */
+  private loadArchiveVideo(game: Game): void {
+    if (!game._links?.archive_video) return;
+    this.gameService.archive_video(game).subscribe({
+      next: (video: Video) => {
+        if (!Object.keys(video?.files ?? {}).length) return;
+        this.archiveGameVideo.set(video);
+      },
+      error: (e) =>
+        console.error("Erreur lors du chargement de l'archive du match", e),
     });
   }
 
   private loadCuts(): void {
     if (!this.game) return;
     this.gameService.cuts(this.game).subscribe({
-      next: (cuts) => this.cuts.set(cuts),
-      error: (e) => console.error('Erreur lors du chargement des cuts', e),
-    })
+      next: (cuts: Cut[]) => {
+        this.cuts.set(cuts);
+        this.cuts().forEach((v) => this.loadCutVideo(v));
+        const nextIndex =
+          this.selectedCutTabIndex() >= cuts.length
+            ? Math.max(0, cuts.length - 1)
+            : this.selectedCutTabIndex();
 
+        this.selectedCutTabIndex.set(nextIndex);
+        const active = cuts[nextIndex] ?? null;
+        this.activeCut.set(active);
+        this.loadActiveCurves(active);
+      },
+      error: (e) => console.error('Erreur lors du chargement des cuts', e),
+    });
+  }
+  /**
+   * Charge les courbes du cut ouvert, s'il en porte.
+   *
+   * Une requete par onglet ouvert plutot qu'un chargement de tous les cuts :
+   * un cut manuel n'a rien a charger, et seul celui qu'on regarde est
+   * dessine.
+   */
+  private loadActiveCurves(cut: Cut | null): void {
+    this.activeCutCurves.set(null);
+    if (!cut?.has_curves) return;
+
+    this.cutService.curves(cut).subscribe({
+      next: (curves) => {
+        // L'onglet a pu changer pendant la requete.
+        if (this.activeCut()?.pk === cut.pk) this.activeCutCurves.set(curves);
+      },
+      error: (e) => console.error('Erreur lors du chargement des courbes', e),
+    });
+  }
+
+  private loadCutVideo(cut: Cut): void {
+    this.cutService.rendered_video(cut).subscribe({
+      next: (video: Video) => {
+        const next1 = { ...this.cutsVideos() };
+        next1[cut.pk] = video;
+        this.cutsVideos.set(next1);
+      },
+      error: (e) => {
+        console.error(`Erreur no rendered_video pour le cut ${cut.pk}`, e);
+      },
+    });
   }
 
   private loadCutTemplates(): void {
@@ -219,19 +461,23 @@ export class GameEditCutsComponent implements AfterViewInit, OnChanges, OnDestro
           this.selectedCutType.set(templates[0].code);
         }
       },
-      error: (e) => console.error('Erreur lors du chargement des templates de cuts', e),
+      error: (e) =>
+        console.error('Erreur lors du chargement des templates de cuts', e),
     });
   }
 
   private loadRenderedFiles(): void {
     if (!this.game) return;
     const embedded = this.game._embedded;
-    const embeddedTournament = embedded?.['tournament'] as Tournament | undefined;
+    const embeddedTournament = embedded?.['tournament'] as
+      | Tournament
+      | undefined;
     const tournamentLink = this.game._links?.tournament?.href;
     if (embeddedTournament?._links?.self) {
       this.tournamentService.rendered(embeddedTournament, true).subscribe({
         next: (files) => this.renderedFiles.set(files),
-        error: (e) => console.error('Erreur lors du chargement des rendered', e),
+        error: (e) =>
+          console.error('Erreur lors du chargement des rendered', e),
       });
       return;
     }
@@ -241,72 +487,12 @@ export class GameEditCutsComponent implements AfterViewInit, OnChanges, OnDestro
         if (!tournament) return;
         this.tournamentService.rendered(tournament, true).subscribe({
           next: (files) => this.renderedFiles.set(files),
-          error: (e) => console.error('Erreur lors du chargement des rendered', e),
+          error: (e) =>
+            console.error('Erreur lors du chargement des rendered', e),
         });
       },
       error: (e) => console.error('Erreur lors du chargement du tournoi', e),
     });
-  }
-
-
-  private queueFrameTracking(): void {
-    setTimeout(() => this.startFrameTracking(), 0);
-  }
-
-  private startFrameTracking(): void {
-    const video = this.proxyVideo?.nativeElement;
-    if (!video) return;
-
-    this.stopFrameTracking();
-    const updateMetrics = () => {
-      const fps = 60;
-      const timeSeconds = video.currentTime;
-      this.currentFrame.set(Math.max(0, Math.floor(timeSeconds * fps)));
-      this.currentTimecode.set(this.formatTimecode(timeSeconds, fps));
-    };
-
-    const anyVideo = video as any;
-    if (typeof anyVideo.requestVideoFrameCallback === 'function') {
-      const onFrame = () => {
-        updateMetrics();
-        this.frameCallbackId = anyVideo.requestVideoFrameCallback(onFrame);
-      };
-      this.frameCallbackId = anyVideo.requestVideoFrameCallback(onFrame);
-      return;
-    }
-
-    const onTimeUpdate = () => updateMetrics();
-    this.fallbackListener = () => {
-      video.removeEventListener('timeupdate', onTimeUpdate);
-      video.removeEventListener('seeked', onTimeUpdate);
-      video.removeEventListener('loadeddata', onTimeUpdate);
-    };
-    video.addEventListener('timeupdate', onTimeUpdate);
-    video.addEventListener('seeked', onTimeUpdate);
-    video.addEventListener('loadeddata', onTimeUpdate);
-  }
-
-  private stopFrameTracking(): void {
-    const video = this.proxyVideo?.nativeElement as any;
-    if (this.frameCallbackId !== null && video?.cancelVideoFrameCallback) {
-      video.cancelVideoFrameCallback(this.frameCallbackId);
-      this.frameCallbackId = null;
-    }
-    if (this.fallbackListener) {
-      this.fallbackListener();
-      this.fallbackListener = undefined;
-    }
-  }
-
-  private formatTimecode(timeSeconds: number, fps: number): string {
-    if (!Number.isFinite(timeSeconds) || timeSeconds < 0) return '00:00:00';
-    const totalFrames = Math.floor(timeSeconds * fps);
-    const minutes = Math.floor(totalFrames / (fps * 60));
-    const seconds = Math.floor(totalFrames / fps) % 60;
-    const frames = totalFrames % fps;
-    return `${minutes.toString().padStart(2, '0')}:${seconds
-      .toString()
-      .padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
   }
 
   private slugify(value: string): string {

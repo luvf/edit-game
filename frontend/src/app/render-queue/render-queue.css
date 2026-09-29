@@ -36,7 +36,7 @@
 
 .render-queue__subtitle {
   margin: 0 0 16px;
-  color: #546e7a;
+  color: var(--mat-sys-on-surface-variant);
 }
 
 .render-queue__table {
@@ -77,41 +77,51 @@
   right: -12px;
 }
 
+.render-queue-table th.render-queue__filter {
+  padding: 4px 6px 8px;
+}
+
+.render-queue__filter .mat-mdc-form-field {
+  width: 100%;
+  min-width: 8em;
+  font-size: 12px;
+}
+
 .render-queue__status {
   font-weight: 600;
 }
 
 .status--created {
-  color: #6b7280;
+  color: var(--mat-sys-on-surface-variant);
 }
 
 .status--waiting {
-  color: #111827;
+  color: var(--mat-sys-on-surface);
 }
 
 .status--running {
-  color: #15803d;
+  color: light-dark(#15803d, #4ade80);
 }
 
 .status--done {
-  color: #2563eb;
+  color: var(--mat-sys-primary);
 }
 
 .status--failed {
-  color: #dc2626;
+  color: var(--mat-sys-error);
 }
 
 .render-queue__error {
   padding: 10px 12px;
   border-radius: 8px;
-  background: #fff3f3;
-  color: #c62828;
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-error);
   margin-bottom: 12px;
 }
 
 .render-queue__empty {
   padding: 12px;
-  color: #607d8b;
+  color: var(--mat-sys-on-surface-variant);
 }
 
 .render-queue__error-text {
@@ -122,8 +132,8 @@
   margin-top: 8px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: #fff3f3;
-  color: #c62828;
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-error);
 }
 
 .render-queue__checkbox {

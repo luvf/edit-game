@@ -3,23 +3,21 @@
 from __future__ import annotations
 
 import json
+import re
+import unicodedata
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import Any, ClassVar, cast
 
 import opentimelineio as otio
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import models
+from django.db.models import OneToOneField
 
-from jugger_video_manipulation.cut_from_rendered import (
-    build_cut_points_from_rendered_audio,
-)
-from jugger_video_manipulation.cut_from_rendered_frames import (
-    build_cut_points_from_rendered_frames,
-)
-
-if TYPE_CHECKING:
-    from core.models.render_queue import RenderQueueItemCut
+from core.models.render_queue.ffmpeg import RenderQueueItemCut
+from core.models.render_queue.gen_cut import RenderQueueItemGenCut
+from core.models.render_queue.ml_cut import RenderQueueItemMlCut
+from core.models.video import Video
 
 
 class Cut(models.Model):
@@ -38,9 +36,16 @@ class Cut(models.Model):
     json_file = models.FileField(
         upload_to="json_files/cuts/", default="json_files/cuts/default.json"
     )
-    rendered_video = models.CharField(max_length=255, blank=True, default="")
+    # The three probability curves the model produced, when a model produced
+    # this cut. Kept next to the cut rather than in the auto-edit cache, which
+    # is disposable by design: they are this proposal's provenance, and what
+    # lets its thresholds be turned again months later without a GPU.
+    curves_file = models.FileField(upload_to="curves/", blank=True, default="")
     slug = models.SlugField(default="", null=False)
-    game = models.ForeignKey("core.Game", on_delete=models.SET_NULL, null=True)
+    game = models.ForeignKey("core.Game", on_delete=models.CASCADE, related_name="cuts")
+    rendered_video = OneToOneField(
+        Video, on_delete=models.SET_NULL, null=True, blank=True, related_name="cut"
+    )
 
     class Meta:
         """Model metadata."""
@@ -50,6 +55,40 @@ class Cut(models.Model):
     def __str__(self) -> str:
         """To string representation."""
         return self.name
+
+    @property
+    def render_basename(self) -> str:
+        """Return the name this cut's renders are filed under, before the quality.
+
+        `<TTJGG>_<team1>_<team2>_<win condition>_c<pk>`: what the match is,
+        readable at a glance, then the cut's pk, which keeps two cuts of one
+        game apart. Teams go by short name, case kept. A part the game does
+        not have yet is left out rather than left empty.
+        """
+        game = self.game
+        teams = (game.team1, game.team2)
+        parts = [
+            game.number,
+            *(team.short_name if team is not None else "" for team in teams),
+            game.win_condition,
+        ]
+        readable = [_filename_part(part) for part in parts]
+        return "_".join([*(part for part in readable if part), f"c{self.pk}"])
+
+    @property
+    def has_curves(self) -> bool:
+        """Tell whether this cut's probability curves are still on disk.
+
+        The row can outlive the file — the cache was cleaned, the media
+        directory was pruned — and every reader has to cope, so this answers
+        the question rather than raising.
+        """
+        if not self.curves_file:
+            return False
+        try:
+            return Path(self.curves_file.path).exists()
+        except (ValueError, NotImplementedError):
+            return False
 
     @property
     def json_file_path(self) -> Path:
@@ -66,6 +105,16 @@ class Cut(models.Model):
         filename = f"cut_{self.pk}_data.json"
         content = ContentFile(json.dumps(json_data, ensure_ascii=False).encode("utf-8"))
         self.json_file.save(filename, content, save=True)
+
+    def ensure_video(self) -> None:
+        """Create and attach a video if missing."""
+        if self.rendered_video:
+            return
+
+        from core.models.video import Video
+
+        self.rendered_video = Video.objects.create(name=self.name)
+        self.save(update_fields=["rendered_video"])
 
     def gen_from_file(self, file_content: bytes | str) -> dict[str, Any]:
         """Generate cut json payload from a file content."""
@@ -107,65 +156,73 @@ class Cut(models.Model):
 
         return {"points": trim_points, "overlays": []}
 
-    def gen_from_rendered(
+    def enqueue_cut_times_generation(
         self,
         rendered_path: str | Path,
         *,
-        sample_rate: int = 16000,
-        use_frames: bool = True,
         tmp_dir: str | Path | None = None,
-    ) -> dict[str, Any]:
-        """Generate cut json payload from a rendered video file."""
-        if not self.game or not isinstance(self.game.files, list):
-            return {"points": [], "overlays": []}
-        if not self.game.files:
-            return {"points": [], "overlays": []}
-
-        source_dir = Path(self.game.tournament.source_dir)
+    ) -> RenderQueueItemGenCut:
+        """Generate a RenderQueueItemGenCut for this cut from a rendered video file."""
         tmp_path = Path(tmp_dir) if tmp_dir else Path(settings.BASE_DIR) / "tmp"
-        if use_frames:
-            proxy_path = None
-            if self.game.source_proxy and self.game.source_proxy.name:
-                candidate = self.game.source_proxy_path
-                if candidate.exists():
-                    proxy_path = candidate
-            if proxy_path is None:
-                self.game.generate_proxy(preset="medium")
-                self.game.refresh_from_db(fields=["source_proxy"])
-                if self.game.source_proxy and self.game.source_proxy.name:
-                    candidate = self.game.source_proxy_path
-                    if candidate.exists():
-                        proxy_path = candidate
-            if proxy_path is None:
-                raise FileNotFoundError("Proxy generation failed for frame matching.")
-            points = build_cut_points_from_rendered_frames(
-                source_dir=source_dir,
-                source_files=self.game.files,
-                target_path=Path(rendered_path),
-                source_proxy_path=proxy_path,
-                tmp_dir=tmp_path,
-            )
-        else:
-            points = build_cut_points_from_rendered_audio(
-                source_dir=source_dir,
-                source_files=self.game.files,
-                target_path=Path(rendered_path),
-                sample_rate=sample_rate,
-                tmp_dir=tmp_path,
-            )
-        return {"points": points, "overlays": []}
 
-    def render(self, *, preset: str = "medium") -> RenderQueueItemCut:
-        """Create a queue item for this cut render."""
-        item = self.to_queue(preset=preset)
-        item.run()
+        return RenderQueueItemGenCut.objects.create(
+            cut=self,
+            rendered_path=f"{rendered_path}",
+            tmp_dir=f"{tmp_path}",
+        )
+
+    def enqueue_ml_generation(
+        self,
+        *,
+        run_name: str = "",
+        run_now: bool = False,
+    ) -> RenderQueueItemMlCut:
+        """Queue a job that fills this cut from the auto-edit model.
+
+        Args:
+            run_name: which training run to use; the configured one otherwise.
+            run_now: queue it ahead of the waiting jobs.
+
+        Returns:
+            The queue item, already created.
+        """
+        item = RenderQueueItemMlCut.objects.create(cut=self, run_name=run_name)
+        if run_now:
+            item.run_now()
         return item
 
-    def to_queue(self, *, preset: str = "medium") -> RenderQueueItemCut:
+    def enqueue_cut_render(
+        self, *, preset: str = "medium", run_now: bool = False
+    ) -> RenderQueueItemCut:
         """Create a queue item for this cut render."""
-        from core.models.render_queue import RenderQueueItemCut
+        if preset not in [
+            "low",
+            "medium",
+            "high",
+            "low_av1",
+            "medium_av1",
+            "high_av1",
+            "youtube",
+        ]:
+            raise ValueError("Preset must be low, medium, high or youtube")
+        self.ensure_video()
 
-        return RenderQueueItemCut.objects.create(
+        render_queue_item = RenderQueueItemCut.objects.create(
             cut=self,
             preset=preset,
         )
+        if run_now:
+            render_queue_item.run()
+        return render_queue_item
+
+
+def _filename_part(value: str) -> str:
+    """Make a piece of text safe in a filename, case and `+` kept.
+
+    Accents are dropped, and anything else that is not a letter, a digit, a
+    `+` or a `-` becomes a `-`: an underscore is what separates the parts.
+    """
+    ascii_value = (
+        unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
+    )
+    return re.sub(r"[^A-Za-z0-9+-]+", "-", ascii_value).strip("-")

@@ -8,7 +8,7 @@ import urllib.parse
 from collections.abc import Sequence
 from http import HTTPMethod
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from xml.etree import ElementTree
 
 from django.conf import settings
@@ -17,7 +17,7 @@ from django.db.models import Model, Q
 from django.http import FileResponse, Http404
 from django.urls import resolve
 from django.utils.text import slugify
-from rest_framework import viewsets
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import (
     AllowAny,
@@ -37,20 +37,24 @@ from api.serializers import (
     TmpImageSerializer,
     TournamentSerializer,
     VideoMetadataSerializer,
+    VideoSerializer,
     YTVideoSerializer,
 )
-from core.models import (
-    Cut,
-    Game,
-    RenderQueueItem,
-    Team,
-    TmpImage,
-    Tournament,
-    VideoMetadata,
-    YTVideo,
+from core.models.cut import Cut
+from core.models.game import ArchiveAlreadyExistsError, Game
+from core.models.media import TmpImage, VideoMetadata, YTVideo
+from core.models.render_queue.base import (
+    RenderQueueItemBase as RenderQueueItem,
 )
+from core.models.render_queue.ffmpeg import RenderQueueItemArchive
+from core.models.tournament import Team, Tournament
+from core.models.video import Video
 from core.tasks import run_async_task
+from core.utils.curves import DEFAULT_POINTS, CurvesUnreadableError, load_curves
 from core.utils.dataset_utils import get_base_json
+from game_autoedit.config import DEFAULT_FPS, Paths
+from game_autoedit.data.catalog import UnusableGameError
+from game_autoedit.service import redecode as redecode_cut
 from jugger_video_manipulation.build_miniature import get_video_file_names
 
 type PermissionClass = type[BasePermission] | OperandHolder | SingleOperandHolder
@@ -63,6 +67,20 @@ def _model_from_url[T: Model](url: str, model_cls: type[T]) -> T:
     if not isinstance(obj, model_cls):
         raise Http404
     return obj
+
+
+def _youtube_rendered_metadatas(tournament: Tournament) -> list[VideoMetadata]:
+    """Return the tournament's VideoMetadata whose game has a YouTube render.
+
+    Only those get published, so only those have a thumbnail worth editing. An
+    orphan, with no game behind it, is left out with them.
+    """
+    metadatas = (
+        VideoMetadata.objects.filter(tournament=tournament, game__isnull=False)
+        .select_related("game")
+        .order_by("-publication_date", "-pk")
+    )
+    return [vm for vm in metadatas if vm.game.has_youtube_render()]
 
 
 class VideoMetadataViewSet(viewsets.ModelViewSet[VideoMetadata]):
@@ -353,7 +371,7 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         base_json = json.loads(get_base_json())
         base_json["team1"] = ""
         base_json["team2"] = ""
-        base_json["dir"] = tournament.source_dir
+        base_json["dir"] = str(tournament.media_path)
         base_json["files"] = filenames
         base_json["filename"] = f"{slug}.json"
 
@@ -361,7 +379,6 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
             name=game_name,
             files=filenames,
             tournament=tournament,
-            rendered="",
             slug=slug,
         )
         content = ContentFile(json.dumps(base_json, indent=4).encode("utf-8"))
@@ -373,47 +390,67 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
 
     @action(detail=True, methods=[HTTPMethod.POST], url_path="sync_videos")
     def sync_videos(self, request: Request, pk: str | None = None) -> Response:
-        """Synchronize videos in  'rendered' dir with VideoMetadata.
+        """Synchronize the tournament's games with VideoMetadata.
 
-        il:
-        - creates missing VideoMetadata
-        - generates default miniature
-        - actualize linked YT video
+        It:
+        - creates the missing VideoMetadata, one per game
+        - generates its default miniature from the game's video
+        - actualizes the linked YT videos
+
+        A game is skipped while its teams are not both set or while it has no
+        YouTube render on disk: the thumbnail and the chapters are read from
+        it. `skipped` tells which and why. The orphan VideoMetadata, made from
+        the rendered dir, are left as they are, and out of `videos`.
         """
         _ = pk, request
         tournament: Tournament = self.get_object()
 
-        videos = get_video_file_names(tournament.get_rendered_path().absolute())
         created_names = []
-        for video in videos:
-            # Creates missing video metadata and default miniature
-            if not VideoMetadata.objects.filter(
-                name=video.name, tournament=tournament
-            ).exists():
-                teams = Team.identify_team(str(video.name))
-                new_vid = VideoMetadata.objects.create(
-                    name=video.absolute().name,
-                    tournament=tournament,
-                    team1=teams[0],
-                    team2=teams[1],
-                    time_code=random.random(),
-                )
-                new_vid.generate_miniature()
-                created_names.append(video)
+        skipped = []
+        games = Game.objects.filter(
+            tournament=tournament, video_metadata__isnull=True
+        ).select_related("team1", "team2")
+        for game in games.order_by("pk"):
+            if game.team1 is None or game.team2 is None:
+                skipped.append({"game": game.name, "reason": "teams not set"})
+                continue
+            if not game.has_youtube_render():
+                skipped.append({"game": game.name, "reason": "no youtube render"})
+                continue
+
+            # An orphan of that name, made before games had one: adopt it.
+            orphan = VideoMetadata.objects.filter(
+                tournament=tournament, name=game.name, game__isnull=True
+            ).first()
+            if orphan is not None:
+                game.video_metadata = orphan
+                game.save(update_fields=["video_metadata"])
+                continue
+
+            new_vid = VideoMetadata.objects.create(
+                name=game.name,
+                tournament=tournament,
+                game=game,
+                team1=game.team1,
+                team2=game.team2,
+                time_code=random.random(),
+            )
+            new_vid.generate_miniature()
+            created_names.append(game.name)
 
         # Mets à jour les liens YT vers les VideoMetadata du tournoi
         YTVideo.objects.update_linked_video(tournament)
 
         # Retourne l'état courant
-        vids_qs = VideoMetadata.objects.filter(tournament=tournament).order_by(
-            "-publication_date", "-pk"
-        )
         vids_ser = VideoMetadataSerializer(
-            vids_qs, many=True, context=self.get_serializer_context()
+            _youtube_rendered_metadatas(tournament),
+            many=True,
+            context=self.get_serializer_context(),
         )
         return Response(
             {
                 "created": created_names,
+                "skipped": skipped,
                 "videos": vids_ser.data,
             }
         )
@@ -423,11 +460,10 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         """Get the videos associated with this tournament."""
         _ = pk, request
         tournament = self.get_object()
-        qs = VideoMetadata.objects.filter(tournament=tournament).order_by(
-            "-publication_date", "-pk"
-        )
         serializer = VideoMetadataSerializer(
-            qs, many=True, context=self.get_serializer_context()
+            _youtube_rendered_metadatas(tournament),
+            many=True,
+            context=self.get_serializer_context(),
         )
         return Response(serializer.data)
 
@@ -448,7 +484,7 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         """List source filenames from this tournament rushs directory."""
         _ = pk, request
         tournament = self.get_object()
-        rushs_dir = (tournament.source_dir_path / "rushs").absolute()
+        rushs_dir = (tournament.media_path / "rushs").absolute()
         if not rushs_dir.exists():
             return Response([])
         files = sorted(
@@ -478,7 +514,7 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
             )
 
         safe_name = Path(filename).name
-        rushs_dir = (tournament.source_dir_path / "rushs").resolve()
+        rushs_dir = (tournament.media_path / "rushs").resolve()
         source_path = (rushs_dir / safe_name).resolve()
         try:
             source_path.relative_to(rushs_dir)
@@ -503,14 +539,58 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         YTVideo.youtube_update(tournament)
         return Response({"status": "ok"})
 
+    @action(detail=True, methods=[HTTPMethod.POST], url_path="archive_all_games")
+    def archive_all_games(self, request: Request, pk: str | None = None) -> Response:
+        """Queue an archive render for every game of this tournament.
+
+        A game that already has an archive (or a pending archive job) is left
+        alone rather than failing the whole batch: the caller gets the list of
+        what was queued and what was skipped.
+        """
+        _ = pk
+        tournament: Tournament = self.get_object()
+        preset = request.data.get("preset") or RenderQueueItemArchive.DEFAULT_PRESET
+        force = bool(request.data.get("force", False))
+
+        queued: list[int] = []
+        skipped: list[int] = []
+        for game in Game.objects.filter(tournament=tournament).order_by("pk"):
+            try:
+                item = game.enqueue_archive_render(preset=preset, force=force)
+            except ArchiveAlreadyExistsError:
+                skipped.append(game.pk)
+            else:
+                queued.append(item.pk)
+
+        return Response(
+            {
+                "status": "ok",
+                "preset": preset,
+                "queued": queued,
+                "skipped": skipped,
+            }
+        )
+
     @action(detail=True, methods=[HTTPMethod.POST], url_path="archive")
     def archive(self, request: Request, pk: str | None = None) -> Response:
-        """Move the tournament source directory to the archive drive."""
+        """Move the tournament source directory to the archive drive.
+
+        Archiving changes the drive the tournament resolves to, which leaves
+        every VideoFile pointing at the previous one: the rows are re-pointed
+        right after, so the files stay reachable.
+        """
         _ = pk, request
         tournament: Tournament = self.get_object()
+        tournament.archive()
         tournament.drive_dir = str(settings.TOURNAMENTS_ARCHIVE_DIR)
         tournament.save(update_fields=["drive_dir"])
-        return Response({"status": "ok", "source_dir": tournament.source_dir})
+        return Response(
+            {
+                "status": "ok",
+                "source_dir": str(tournament.media_path),
+                "video_files": dict(tournament.refresh_video_files()),
+            }
+        )
 
 
 class GameViewSet(viewsets.ModelViewSet[Game]):
@@ -523,12 +603,6 @@ class GameViewSet(viewsets.ModelViewSet[Game]):
     serializer_class = GameSerializer
     queryset = Game.objects.all()
     permission_classes: Sequence[PermissionClass] = [AllowAny]
-
-    def get_object(self) -> Game:
-        """Fetch a game and normalize stale proxy metadata before returning it."""
-        game = super().get_object()
-        game.normalize_source_proxy()
-        return game
 
     def retrieve(self, request: Request, *args: object, **kwargs: object) -> Response:
         """Return a single game with a normalized proxy reference."""
@@ -554,15 +628,9 @@ class GameViewSet(viewsets.ModelViewSet[Game]):
         _ = pk
         game = self.get_object()
         preset = request.data.get("quality") or "low"
-        to_queue_value = request.data.get("to_queue")
-        to_queue = (
-            str(to_queue_value).strip().lower() in {"1", "true", "yes", "y", "on"}
-            if to_queue_value is not None
-            else True
-        )
 
         try:
-            item = game.generate_proxy(preset=preset, to_queue=to_queue)
+            item = game.enqueue_proxy_render(preset=preset)
         except ValueError as exc:
             return Response({"status": "failed", "error": str(exc)}, status=400)
         except Exception as exc:
@@ -590,6 +658,71 @@ class GameViewSet(viewsets.ModelViewSet[Game]):
         serializer = CutSerializer(cut, context=self.get_serializer_context())
         return Response(serializer.data)
 
+    @action(detail=True, methods=[HTTPMethod.POST], url_path="ml-cut")
+    def ml_cut(self, request: Request, pk: str | None = None) -> Response:
+        """Create a cut and queue the model that fills it.
+
+        The cut is created empty and immediately: the front has something to
+        open and to watch, and the queue item carries the progress. It is
+        created with type ML so it never becomes training material — a
+        corrected proposal must be saved under another type.
+        """
+        _ = pk
+        game = self.get_object()
+        name = request.data.get("name") or f"Proposition ML {game.name}"
+        run_name = request.data.get("run") or ""
+
+        cut = Cut.objects.create(
+            game=game, name=name, slug=slugify(name), type_cut="ML"
+        )
+        cut.json_file.save(
+            f"cut_{cut.pk}_data.json",
+            ContentFile(json.dumps({"points": [], "overlays": []}).encode("utf-8")),
+            save=True,
+        )
+        item = cut.enqueue_ml_generation(run_name=run_name)
+
+        return Response(
+            {
+                "detail": "La proposition de cut a été ajoutée à la file de rendu.",
+                "cut": CutSerializer(cut, context=self.get_serializer_context()).data,
+                "render_queue_item_id": item.id,
+                "status": item.status,
+                "run": item.effective_run,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["post"], url_path="create_archive")
+    def create_archive(self, request: Request, pk: str | None = None) -> Response:
+        """Create a render queue item that generates the game archive."""
+        _ = pk
+        game = self.get_object()
+
+        preset = request.data.get("preset") or RenderQueueItemArchive.DEFAULT_PRESET
+        force = bool(request.data.get("force", False))
+
+        try:
+            item = game.enqueue_archive_render(preset=preset, force=force)
+        except ArchiveAlreadyExistsError as exc:
+            return Response(
+                {
+                    "detail": exc.message,
+                    "archive_video_id": exc.archive_video_id,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        return Response(
+            {
+                "detail": "La génération de l'archive a été ajoutée à la file de rendu.",
+                "render_queue_item_id": item.id,
+                "status": item.status,
+                "preset": item.preset,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
 
 class TeamViewSet(viewsets.ModelViewSet[Team]):
     """Team viewset."""
@@ -597,6 +730,50 @@ class TeamViewSet(viewsets.ModelViewSet[Team]):
     serializer_class = TeamSerializer
     queryset = Team.objects.all()
     permission_classes: Sequence[PermissionClass] = [AllowAny]
+
+
+def _decoding_options(data: Any) -> tuple[Any, bool]:
+    """Build a decode spec from a request body, clamped to sane ranges.
+
+    Every value is optional: what is not sent keeps the measured default, so
+    a caller can nudge one threshold without restating the other nine.
+    """
+    from game_autoedit.eval.decode import DecodeSpec
+
+    defaults = DecodeSpec()
+
+    def number(key: str, fallback: float, low: float, high: float) -> float:
+        try:
+            value = float(data.get(key, fallback))
+        except (TypeError, ValueError):
+            return fallback
+        return max(low, min(high, value))
+
+    spec = DecodeSpec(
+        threshold={
+            "in": number("threshold_in", defaults.threshold["in"], 0.0, 1.0),
+            "out": number("threshold_out", defaults.threshold["out"], 0.0, 1.0),
+        },
+        min_peak_distance=number(
+            "min_peak_distance", defaults.min_peak_distance, 0.0, 60.0
+        ),
+        min_gap=number("min_gap", defaults.min_gap, 0.0, 600.0),
+        min_duration=number("min_duration", defaults.min_duration, 0.0, 600.0),
+        max_duration=number("max_duration", defaults.max_duration, 1.0, 3600.0),
+        inside_veto=number("inside_veto", defaults.inside_veto, 0.0, 1.0),
+        snap_fraction=number("snap_fraction", defaults.snap_fraction, 0.0, 1.0),
+        inside_weight=number("inside_weight", defaults.inside_weight, 0.0, 1.0),
+        inside_smoothing=number(
+            "inside_smoothing", defaults.inside_smoothing, 0.0, 10.0
+        ),
+    )
+    snap = str(data.get("snap", "true")).strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+    return spec, snap
 
 
 class CutViewSet(viewsets.ModelViewSet[Cut]):
@@ -620,16 +797,110 @@ class CutViewSet(viewsets.ModelViewSet[Cut]):
         )
 
         try:
-            if to_queue:
-                item = cut.to_queue(preset=preset)
-            else:
-                item = cut.render(preset=preset)
+            item = cut.enqueue_cut_render(preset=preset, run_now=not to_queue)
         except Exception as exc:
             return Response({"status": "failed", "error": str(exc)}, status=500)
         serializer = RenderQueueItemSerializer(
             item, context=self.get_serializer_context()
         )
         return Response(serializer.data)
+
+    @action(detail=True, methods=[HTTPMethod.POST], url_path="redecode")
+    def redecode(self, request: Request, pk: str | None = None) -> Response:
+        """Re-derive the cut from its stored curves, with other thresholds.
+
+        Costs a pass of numpy over a file already on disk — no model, no GPU —
+        so a person can turn a threshold and watch the result.
+
+        Nothing is written unless `apply` is true: a proposal that has already
+        been corrected by hand would otherwise be silently overwritten by a
+        slider.
+        """
+        _ = pk
+        cut = self.get_object()
+        if not cut.has_curves:
+            return Response(
+                {"detail": "Ce cut ne porte pas de courbes."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        spec, snap = _decoding_options(request.data)
+        previous = cut.get_json()
+        comment = previous.get("comment", {})
+        fps = comment.get("fps") or DEFAULT_FPS
+        apply_changes = str(request.data.get("apply", "")).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+        cache = settings.AUTOEDIT_CACHE
+        try:
+            decoding = redecode_cut(
+                Path(cut.curves_file.path),
+                fps=float(fps),
+                game_id=cut.game_id,
+                decode_spec=spec,
+                paths=Paths(root=Path(cache)) if cache else None,
+                snap=snap,
+                model_info=comment.get("model", {}),
+            )
+        except UnusableGameError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND)
+
+        if apply_changes:
+            cut.set_json(decoding.payload)
+
+        return Response(
+            {
+                "applied": apply_changes,
+                "snapped": decoding.snapped,
+                "segments": decoding.segments,
+                "points": decoding.payload["points"],
+                "stats": decoding.payload["comment"]["stats"],
+                "review": decoding.payload["comment"]["review"],
+                # What the side classifier makes of these very segments, when
+                # the run carries one: re-derived here, never stale.
+                "sides": decoding.payload["comment"].get("sides", []),
+            }
+        )
+
+    @action(detail=True, methods=[HTTPMethod.GET], url_path="curves")
+    def curves(self, request: Request, pk: str | None = None) -> Response:
+        """Return the model's probability curves, thinned for display.
+
+        `points` says how many values per channel to return; the default is
+        wide enough for any timeline. Thresholds come along so the front can
+        draw the line a peak had to clear to become a boundary.
+        """
+        _ = pk
+        cut = self.get_object()
+        if not cut.has_curves:
+            return Response(
+                {"detail": "Ce cut ne porte pas de courbes."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            points = int(request.query_params.get("points", DEFAULT_POINTS))
+        except (TypeError, ValueError):
+            points = DEFAULT_POINTS
+
+        try:
+            curves = load_curves(Path(cut.curves_file.path), points=points)
+        except CurvesUnreadableError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND)
+
+        comment = cut.get_json().get("comment", {})
+        return Response(
+            {
+                **curves.payload(),
+                "fps": comment.get("fps"),
+                "decode": comment.get("decode", {}),
+                "run": comment.get("model", {}).get("run"),
+            }
+        )
 
     @action(detail=True, methods=[HTTPMethod.POST], url_path="gen-from-file")
     def gen_from_file(self, request: Request, pk: str | None = None) -> Response:
@@ -691,12 +962,12 @@ class CutViewSet(viewsets.ModelViewSet[Cut]):
             )
 
         try:
-            payload = cut.gen_from_rendered(candidate)
-            cut.set_json(payload)
+            payload = cut.enqueue_cut_times_generation(candidate)
         except Exception as exc:
             return Response({"status": "failed", "error": str(exc)}, status=500)
-
-        serializer = CutSerializer(cut, context=self.get_serializer_context())
+        serializer = RenderQueueItemSerializer(
+            payload, context=self.get_serializer_context()
+        )
         return Response(serializer.data)
 
     @action(detail=False, methods=[HTTPMethod.GET], url_path="cut-types")
@@ -713,7 +984,9 @@ class RenderQueueItemViewSet(viewsets.ModelViewSet[RenderQueueItem]):
 
     serializer_class = RenderQueueItemSerializer
     queryset = RenderQueueItem.objects.select_related(
-        "renderqueueitemcut__cut", "renderqueueitemproxy__game"
+        "renderqueueitemffmpeg__renderqueueitemcut__cut",
+        "renderqueueitemffmpeg__renderqueueitemproxy__game",
+        "renderqueueitemgencut__cut",
     ).order_by("created_at")
     permission_classes: Sequence[PermissionClass] = [AllowAny]
 
@@ -744,5 +1017,28 @@ class RenderQueueItemViewSet(viewsets.ModelViewSet[RenderQueueItem]):
         item.reset()
         serializer = RenderQueueItemSerializer(
             item, context=self.get_serializer_context()
+        )
+        return Response(serializer.data)
+
+
+class VideoViewSet(viewsets.ReadOnlyModelViewSet[Video]):
+    """Read-only ViewSet for videos."""
+
+    queryset = (
+        Video.objects.select_related("game", "cut", "cut__game")
+        .prefetch_related("files")
+        .all()
+    )
+    serializer_class = VideoSerializer
+    pagination_class = StandardResultsSetPagination
+    permission_classes: Sequence[PermissionClass] = [AllowAny]
+
+    @action(detail=True, methods=["get"], url_path="files")
+    def files(self, request: Request, pk: str | None = None) -> Response:
+        """Return the files for one video."""
+        _ = pk
+        video = self.get_object()
+        serializer = VideoSerializer(
+            video.files.all(), many=True, context={"request": request}
         )
         return Response(serializer.data)
