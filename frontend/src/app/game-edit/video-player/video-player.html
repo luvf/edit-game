@@ -9,7 +9,7 @@
       class="active-cut-video"
       controls
       crossorigin="anonymous"
-      preload="auto"
+      [attr.preload]="preload()"
       [style.max-height]="maxHeight()"
       [src]="videoUrl"
       (timeupdate)="onTimeUpdate()"

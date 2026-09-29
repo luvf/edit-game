@@ -66,6 +66,18 @@
   width: auto;
 }
 
+/* Pas de fleches +1/-1 : on tape le numero, on ne le fait pas defiler. */
+.match-number-part input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.match-number-part input[type="number"]::-webkit-inner-spin-button,
+.match-number-part input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 /* Aligne sur le texte des champs voisins, pas sur leur bordure. */
 .match-number {
   flex: 0 0 auto;

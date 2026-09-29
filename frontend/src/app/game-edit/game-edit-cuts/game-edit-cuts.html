@@ -54,6 +54,7 @@
           <app-video-player
             [sourceVideo]="cutVideo"
             maxHeight="30vh"
+            preload="metadata"
             (currentFrameChange)="renderedFrame.set($event)"
           >
           </app-video-player>

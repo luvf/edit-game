@@ -43,6 +43,13 @@ export class VideoPlayer implements OnChanges {
    * suit dans la colonne doit rester un apercu.
    */
   readonly maxHeight = input('62vh');
+  /**
+   * Ce que le navigateur telecharge avant qu'on lance la lecture. Le rush
+   * merite `auto` : on saute dedans tout de suite. Un apercu secondaire reste
+   * sur `metadata`, sinon deux telechargements se disputent les connexions du
+   * serveur de medias, qui peut etre le NAS.
+   */
+  readonly preload = input<'auto' | 'metadata' | 'none'>('auto');
 
   readonly currentFrame = signal(0);
   @Output() currentFrameChange = new EventEmitter<number>();
