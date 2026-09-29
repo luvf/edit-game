@@ -243,13 +243,22 @@ class TestSyncVideos:
         VideoFile.objects.create(video=game.video_proxy, quality="low", path=str(path))
 
     @staticmethod
+    def _put_youtube_render_on_disk(game, tmp_path, *, on_disk=True):
+        video = baker.make("core.Video", name=f"render{game.pk}")
+        baker.make("core.Cut", game=game, rendered_video=video)
+        path = tmp_path / f"render{game.pk}_youtube.mp4"
+        if on_disk:
+            path.write_bytes(b"mp4")
+        VideoFile.objects.create(video=video, quality="youtube", path=str(path))
+
+    @staticmethod
     def _sync(api_client, tournament):
         return api_client.post(reverse("tournament-sync-videos", args=[tournament.pk]))
 
-    def test_creates_the_metadata_of_a_game_with_a_video(
+    def test_creates_the_metadata_of_a_game_with_a_youtube_render(
         self, api_client, game, tmp_path
     ):
-        self._put_proxy_on_disk(game, tmp_path)
+        self._put_youtube_render_on_disk(game, tmp_path)
 
         response = self._sync(api_client, game.tournament)
 
@@ -261,7 +270,7 @@ class TestSyncVideos:
         assert vm.miniature_image is not None
 
     def test_does_not_duplicate_on_a_second_sync(self, api_client, game, tmp_path):
-        self._put_proxy_on_disk(game, tmp_path)
+        self._put_youtube_render_on_disk(game, tmp_path)
 
         self._sync(api_client, game.tournament)
         response = self._sync(api_client, game.tournament)
@@ -269,25 +278,32 @@ class TestSyncVideos:
         assert response.data["created"] == []
         assert VideoMetadata.objects.count() == 1
 
-    def test_skips_games_without_video_or_teams(
-        self, api_client, game, tournament, tmp_path
+    def test_skips_games_without_youtube_render_or_teams(
+        self, api_client, game, tournament, team1, team2, tmp_path
     ):
+        # Un proxy donne bien une image, mais ce n'est pas la video publiee.
+        self._put_proxy_on_disk(game, tmp_path)
+        render_not_done = baker.make(
+            "core.Game", tournament=tournament, team1=team1, team2=team2, files=[]
+        )
+        self._put_youtube_render_on_disk(render_not_done, tmp_path, on_disk=False)
         no_teams = baker.make(
             "core.Game", tournament=tournament, team1=None, team2=None, files=[]
         )
-        self._put_proxy_on_disk(no_teams, tmp_path)
+        self._put_youtube_render_on_disk(no_teams, tmp_path)
 
         response = self._sync(api_client, tournament)
 
         assert response.data["created"] == []
         assert response.data["skipped"] == [
-            {"game": game.name, "reason": "no video on disk"},
+            {"game": game.name, "reason": "no youtube render"},
+            {"game": render_not_done.name, "reason": "no youtube render"},
             {"game": no_teams.name, "reason": "teams not set"},
         ]
         assert not VideoMetadata.objects.exists()
 
     def test_adopts_an_orphan_of_the_same_name(self, api_client, game, tmp_path):
-        self._put_proxy_on_disk(game, tmp_path)
+        self._put_youtube_render_on_disk(game, tmp_path)
         orphan = VideoMetadata(
             name=game.name,
             tournament=game.tournament,
@@ -314,4 +330,30 @@ class TestSyncVideos:
         response = self._sync(api_client, tournament)
 
         assert response.status_code == 200
-        assert [video["pk"] for video in response.data["videos"]] == [orphan.pk]
+        assert VideoMetadata.objects.filter(pk=orphan.pk, game__isnull=True).exists()
+        assert response.data["videos"] == []
+
+    def test_lists_only_the_metadatas_whose_game_has_a_youtube_render(
+        self, api_client, game, tournament, team1, team2, tmp_path
+    ):
+        self._put_youtube_render_on_disk(game, tmp_path)
+        proxy_only = baker.make(
+            "core.Game", tournament=tournament, team1=team1, team2=team2, files=[]
+        )
+        self._put_proxy_on_disk(proxy_only, tmp_path)
+        self._sync(api_client, tournament)
+        # Une metadata deja creee pour une game sans rendu YouTube reste cachee.
+        VideoMetadata.objects.create(
+            name=proxy_only.name,
+            tournament=tournament,
+            game=proxy_only,
+            team1=team1,
+            team2=team2,
+            time_code=0.5,
+        )
+
+        response = api_client.get(reverse("tournament-videos", args=[tournament.pk]))
+
+        assert response.status_code == 200
+        game.refresh_from_db()
+        assert [video["pk"] for video in response.data] == [game.video_metadata.pk]

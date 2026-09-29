@@ -211,6 +211,23 @@ class Game(models.Model):
                 return Path(path)
         raise FileNotFoundError(f"Game {self.pk} has no video file on disk.")
 
+    def has_youtube_render(self) -> bool:
+        """Tell whether one of this game's cuts has a YouTube render on disk.
+
+        It is the video that gets published, so the only one worth a thumbnail
+        and a description. The file row is created when the render starts, so
+        the disk is what says the render is done.
+        """
+        from core.models.video import VideoFile, file_exists
+
+        return any(
+            file_exists(path)
+            for path in VideoFile.objects.filter(
+                video__cut__game=self, quality=VideoFile.Quality.YOUTUBE
+            ).values_list("path", flat=True)
+            if path
+        )
+
     def has_archive_on_disk(self) -> bool:
         """Tell whether this game already has an archive file on disk.
 

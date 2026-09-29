@@ -69,6 +69,20 @@ def _model_from_url[T: Model](url: str, model_cls: type[T]) -> T:
     return obj
 
 
+def _youtube_rendered_metadatas(tournament: Tournament) -> list[VideoMetadata]:
+    """Return the tournament's VideoMetadata whose game has a YouTube render.
+
+    Only those get published, so only those have a thumbnail worth editing. An
+    orphan, with no game behind it, is left out with them.
+    """
+    metadatas = (
+        VideoMetadata.objects.filter(tournament=tournament, game__isnull=False)
+        .select_related("game")
+        .order_by("-publication_date", "-pk")
+    )
+    return [vm for vm in metadatas if vm.game.has_youtube_render()]
+
+
 class VideoMetadataViewSet(viewsets.ModelViewSet[VideoMetadata]):
     """Video Metadata viewset.
 
@@ -383,9 +397,10 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         - generates its default miniature from the game's video
         - actualizes the linked YT videos
 
-        A game is skipped while its teams are not both set or while none of
-        its videos is on disk; `skipped` tells which and why. The orphan
-        VideoMetadata, made from the rendered dir, are left as they are.
+        A game is skipped while its teams are not both set or while it has no
+        YouTube render on disk: the thumbnail and the chapters are read from
+        it. `skipped` tells which and why. The orphan VideoMetadata, made from
+        the rendered dir, are left as they are, and out of `videos`.
         """
         _ = pk, request
         tournament: Tournament = self.get_object()
@@ -399,10 +414,8 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
             if game.team1 is None or game.team2 is None:
                 skipped.append({"game": game.name, "reason": "teams not set"})
                 continue
-            try:
-                game.get_miniature_source()
-            except FileNotFoundError:
-                skipped.append({"game": game.name, "reason": "no video on disk"})
+            if not game.has_youtube_render():
+                skipped.append({"game": game.name, "reason": "no youtube render"})
                 continue
 
             # An orphan of that name, made before games had one: adopt it.
@@ -429,11 +442,10 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         YTVideo.objects.update_linked_video(tournament)
 
         # Retourne l'état courant
-        vids_qs = VideoMetadata.objects.filter(tournament=tournament).order_by(
-            "-publication_date", "-pk"
-        )
         vids_ser = VideoMetadataSerializer(
-            vids_qs, many=True, context=self.get_serializer_context()
+            _youtube_rendered_metadatas(tournament),
+            many=True,
+            context=self.get_serializer_context(),
         )
         return Response(
             {
@@ -448,11 +460,10 @@ class TournamentsViewSet(viewsets.ModelViewSet[Tournament]):
         """Get the videos associated with this tournament."""
         _ = pk, request
         tournament = self.get_object()
-        qs = VideoMetadata.objects.filter(tournament=tournament).order_by(
-            "-publication_date", "-pk"
-        )
         serializer = VideoMetadataSerializer(
-            qs, many=True, context=self.get_serializer_context()
+            _youtube_rendered_metadatas(tournament),
+            many=True,
+            context=self.get_serializer_context(),
         )
         return Response(serializer.data)
 
