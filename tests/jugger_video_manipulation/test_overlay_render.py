@@ -178,12 +178,12 @@ class TestHistory:
 
 
 class TestWarning:
-    def test_it_tucks_against_the_bar_at_the_bottom(self):
+    def test_it_stays_at_the_top_with_the_bar_at_the_bottom(self):
         layer = draw_warning("replay", "coup ignoré", size=SMALL)
 
         box = painted(layer)
         assert box is not None
-        assert box[3] < SMALL[1] - 40
+        assert box[1] < SMALL[1] * 0.3
 
     def test_it_tucks_under_the_bar_at_the_top(self):
         layer = draw_warning("replay", "coup ignoré", position="top", size=SMALL)
@@ -191,6 +191,20 @@ class TestWarning:
         box = painted(layer)
         assert box is not None
         assert box[1] > 40
+
+    def test_a_second_row_sits_lower_with_the_bar_at_the_bottom(self):
+        first = draw_warning("replay", "coup ignoré", size=SMALL)
+        second = draw_warning("replay", "coup ignoré", row=1, size=SMALL)
+
+        assert painted(second)[1] >= painted(first)[3]
+
+    def test_a_second_row_sits_lower_with_the_bar_at_the_top(self):
+        first = draw_warning("replay", "coup ignoré", position="top", size=SMALL)
+        second = draw_warning(
+            "replay", "coup ignoré", position="top", row=1, size=SMALL
+        )
+
+        assert painted(second)[1] >= painted(first)[3]
 
     def test_a_longer_text_makes_a_wider_strip(self):
         short = draw_warning("replay", "x", size=SMALL)

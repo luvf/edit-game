@@ -36,6 +36,11 @@ def warning(tc, length=None):
     return item
 
 
+def box(window):
+    """Return where a window's image is painted, to tell two rows apart."""
+    return Image.open(window.path).getchannel("A").getbbox()
+
+
 class TestScoreboardWindows:
     def test_a_cut_that_never_says_who_scored_gets_no_board(self, tmp_path):
         plan = build_plan(
@@ -123,6 +128,31 @@ class TestWarnings:
         plan = build_plan(content, TEAMS, FPS, tmp_path, context=CONTEXT)
 
         assert plan.windows == []
+
+    def test_two_warnings_at_once_are_drawn_one_above_the_other(self, tmp_path):
+        content = CutContent(
+            points=[point(0, 600)],
+            overlays=[warning(0, length=300), warning(60, length=300)],
+        )
+
+        plan = build_plan(content, TEAMS, FPS, tmp_path, context=CONTEXT)
+
+        first, second = (box(window) for window in plan.windows)
+        assert first != second
+        # Both stay up in full: they move apart, they are not cut short.
+        assert plan.windows[0].duration == pytest.approx(5.0)
+        assert plan.windows[1].duration == pytest.approx(5.0)
+
+    def test_a_warning_that_waits_its_turn_takes_the_free_row(self, tmp_path):
+        content = CutContent(
+            points=[point(0, 1800)],
+            overlays=[warning(0, length=300), warning(600, length=300)],
+        )
+
+        plan = build_plan(content, TEAMS, FPS, tmp_path, context=CONTEXT)
+
+        first, second = (box(window) for window in plan.windows)
+        assert first == second
 
     def test_the_length_is_read_in_frames(self, tmp_path):
         content = CutContent(points=[point(0, 600)], overlays=[warning(0, length=300)])

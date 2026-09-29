@@ -587,27 +587,34 @@ def draw_warning(
     style: Style | None = None,
     position: str = "bottom",
     bar_height: int | None = None,
+    row: int = 0,
     size: tuple[int, int] = FRAME,
 ) -> Image.Image:
     """Draw the warning strip, on a transparent frame.
 
-    It sits just inside the scoreboard, on whichever edge the bar is on, so the
-    two stack instead of competing for the same band of picture.
+    It sits at the top of the picture, where the action rarely is, whatever
+    edge the scoreboard took. A board that is up there too pushes it down just
+    under the bar, so the two never share a band of picture.
 
     Args:
         kind: the warning type, shown small and in capitals.
         text: the free text, shown large.
         style: fonts and sizes.
-        position: where the scoreboard is, so the strip can tuck against it.
+        position: where the scoreboard is; only `top` concerns the strip,
+            which then starts under the bar rather than at the margin.
         bar_height: how tall the scoreboard is, for the same reason; the
             theme's own bar height when omitted.
+        row: which slot down from the top the strip takes. Row 0 is the
+            highest; each row after that is one strip lower, which is how two
+            warnings shown at the same time stay readable instead of printing
+            over each other.
         size: the frame to draw on.
 
     Returns:
         An RGBA image of `size`, transparent outside the strip.
     """
     style = (style or Style()).scaled(OVERLAY_SCALE * size[1] / FRAME[1])
-    width, height = size
+    width = size[0]
     layer = Image.new("RGBA", size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
 
@@ -623,10 +630,9 @@ def draw_warning(
     stack_gap = style.gap - 3
 
     x0 = (width - strip_width) // 2
-    if position == "bottom":
-        y0 = height - style.margin - bar - stack_gap - strip_height
-    else:
-        y0 = style.margin + bar + stack_gap
+    # The first row is as high as the picture allows; the rest pile downwards.
+    top = style.margin + (bar + stack_gap if position == "top" else 0)
+    y0 = top + row * (strip_height + stack_gap)
 
     draw.rounded_rectangle(
         [x0, y0, x0 + strip_width, y0 + strip_height],

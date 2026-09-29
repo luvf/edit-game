@@ -199,9 +199,12 @@ def _warning_windows(
     of the render where it could appear at all. One landing past the last kept
     point is dropped: there is no render left to put it in, so it can only be a
     mistake in the cut file.
-    """
-    windows: list[Window] = []
 
+    Two warnings whose windows overlap are moved apart on the picture rather
+    than in time: each takes the lowest row free when it comes up, so both stay
+    on screen for exactly as long as the file says and neither hides the other.
+    """
+    timed = []
     for index, overlay in enumerate(content.overlays):
         if overlay.get("type") != "Warning":
             continue
@@ -210,18 +213,33 @@ def _warning_windows(
             continue
         length = overlay.get("length")
         seconds = (int(length) / fps) if length else DEFAULT_WARNING_SECONDS
+        timed.append((index, overlay, start, start + seconds))
+
+    windows: list[Window] = []
+    #: When each row frees up, in seconds of the render.
+    free_from: list[float] = []
+    for index, overlay, start, end in sorted(timed, key=lambda item: item[2]):
+        row = next(
+            (row for row, until in enumerate(free_from) if start >= until),
+            len(free_from),
+        )
+        if row == len(free_from):
+            free_from.append(end)
+        else:
+            free_from[row] = end
         image = draw_warning(
             str(overlay.get("warning_type", "")),
             str(overlay.get("text", "")),
             style=style,
             position=position,
+            row=row,
             size=size,
         )
         windows.append(
             Window(
                 path=_save(image, directory / f"warning_{index:03d}.png"),
                 start=start,
-                end=start + seconds,
+                end=end,
             )
         )
     return windows
