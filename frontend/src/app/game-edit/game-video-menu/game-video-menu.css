@@ -10,10 +10,10 @@
   width: 300px;
   padding: 14px 16px;
   border-radius: 12px;
-  background: #fff;
+  background: var(--mat-sys-surface-container);
   box-shadow:
     0 10px 30px rgba(15, 23, 42, 0.18),
-    0 0 0 1px rgba(15, 23, 42, 0.06);
+    0 0 0 1px light-dark(rgba(15, 23, 42, 0.06), rgba(255, 255, 255, 0.06));
 }
 
 .video-menu section {
@@ -25,7 +25,7 @@
 
 .video-menu section + section {
   padding-top: 12px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--mat-sys-outline-variant);
 }
 
 .video-menu h3 {
@@ -37,7 +37,7 @@
 
 .video-menu p {
   margin: 0;
-  color: #6b7280;
+  color: var(--mat-sys-on-surface-variant);
   font-size: 0.85rem;
 }
 
@@ -51,17 +51,17 @@
   flex: 1 1 auto;
   min-width: 0;
   padding: 6px 8px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--mat-sys-outline-variant);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mat-sys-surface-container-lowest);
   font: inherit;
   font-size: 0.9rem;
 }
 
 .video-menu .video-menu-message {
-  color: #166534;
+  color: light-dark(#166534, #4ade80);
 }
 
 .video-menu .video-menu-message.is-error {
-  color: #b91c1c;
+  color: var(--mat-sys-error);
 }

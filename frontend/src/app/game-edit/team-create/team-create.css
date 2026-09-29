@@ -12,10 +12,10 @@
   width: 280px;
   padding: 14px 16px;
   border-radius: 12px;
-  background: #fff;
+  background: var(--mat-sys-surface-container);
   box-shadow:
     0 10px 30px rgba(15, 23, 42, 0.18),
-    0 0 0 1px rgba(15, 23, 42, 0.06);
+    0 0 0 1px light-dark(rgba(15, 23, 42, 0.06), rgba(255, 255, 255, 0.06));
 }
 
 .team-create-bubble h3 {
@@ -31,12 +31,12 @@
 }
 
 .team-create-logo small {
-  color: #6b7280;
+  color: var(--mat-sys-on-surface-variant);
 }
 
 .team-create-error {
   margin: 0;
-  color: #b91c1c;
+  color: var(--mat-sys-error);
   font-size: 0.85rem;
 }
 

@@ -16,9 +16,9 @@ h3 {
   max-width: 720px;
   margin: 0;
   padding: 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--mat-sys-outline-variant);
   border-radius: 8px;
-  background: #fafafa;
+  background: var(--mat-sys-surface-container-low);
 }
 
 .image-card figcaption {
@@ -32,7 +32,7 @@ h3 {
   max-height: 480px;
   object-fit: contain;
   border-radius: 4px;
-  background: #fff;
+  background: var(--mat-sys-surface-container-lowest);
   display: block;
 }
 
@@ -44,11 +44,31 @@ h3 {
   display: block;
   border-radius: 4px;
   background:
-    linear-gradient(45deg, #f4f4f4 25%, transparent 25%) 0 0/16px 16px,
-    linear-gradient(-45deg, #f4f4f4 25%, transparent 25%) 0 0/16px 16px,
-    linear-gradient(45deg, transparent 75%, #f4f4f4 75%) 0 0/16px 16px,
-    linear-gradient(-45deg, transparent 75%, #f4f4f4 75%) 0 0/16px 16px,
-    #ffffff;
+    linear-gradient(
+        45deg,
+        var(--mat-sys-surface-container) 25%,
+        transparent 25%
+      )
+      0 0/16px 16px,
+    linear-gradient(
+        -45deg,
+        var(--mat-sys-surface-container) 25%,
+        transparent 25%
+      )
+      0 0/16px 16px,
+    linear-gradient(
+        45deg,
+        transparent 75%,
+        var(--mat-sys-surface-container) 75%
+      )
+      0 0/16px 16px,
+    linear-gradient(
+        -45deg,
+        transparent 75%,
+        var(--mat-sys-surface-container) 75%
+      )
+      0 0/16px 16px,
+    var(--mat-sys-surface-container-lowest);
   cursor: default;
 }
 

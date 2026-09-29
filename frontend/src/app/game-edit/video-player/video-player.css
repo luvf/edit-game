@@ -2,7 +2,7 @@
   width: 100%;
   max-width: 100%;
   padding: 12px;
-  background: #fafafa;
+  background: var(--mat-sys-surface-container-low);
   display: flex;
   flex-direction: column;
   gap: 12px;

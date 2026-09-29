@@ -82,7 +82,7 @@
   margin-left: auto;
   border: none;
   background: transparent;
-  color: #6b7280;
+  color: var(--mat-sys-on-surface-variant);
   font-size: 18px;
   line-height: 1;
   padding: 2px 6px;
@@ -159,22 +159,22 @@
 .status-point {
   padding: 1px 6px;
   border-radius: 999px;
-  background: #eef2ff;
-  color: #3730a3;
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
   white-space: nowrap;
 }
 
 /* Entre deux points, le montage saute : la pastille doit se taire. */
 .status-point.is-outside {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: var(--mat-sys-surface-container);
+  color: var(--mat-sys-on-surface-variant);
 }
 
 .status-score {
   padding: 1px 8px;
   border-radius: 999px;
-  background: #111827;
-  color: #fff;
+  background: var(--mat-sys-inverse-surface);
+  color: var(--mat-sys-inverse-on-surface);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }

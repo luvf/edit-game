@@ -30,9 +30,9 @@ section {
 .pretty-input textarea,
 .team-field select {
   padding: 10px 12px;
-  border: 1px solid #d7dbe0;
+  border: 1px solid var(--mat-sys-outline-variant);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mat-sys-surface-container-lowest);
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
@@ -53,11 +53,11 @@ section {
 
 /* Hints/counters */
 .hint {
-  color: #6b7280;
+  color: var(--mat-sys-on-surface-variant);
 }
 
 .counter {
-  color: #6b7280;
+  color: var(--mat-sys-on-surface-variant);
   font-variant-numeric: tabular-nums;
 }
 
@@ -113,9 +113,9 @@ section {
   max-width: 460px; /* limite la largeur de chaque carte pour un bon centrage */
   margin: 0;
   padding: 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--mat-sys-outline-variant);
   border-radius: 8px;
-  background: #fafafa;
+  background: var(--mat-sys-surface-container-low);
 }
 
 .image-card figcaption {
@@ -130,7 +130,7 @@ section {
   max-height: 240px;
   object-fit: contain;
   border-radius: 4px;
-  background: #fff;
+  background: var(--mat-sys-surface-container-lowest);
 }
 
 /* Actions centrées sous le formulaire */
@@ -159,11 +159,11 @@ button.primary[disabled] {
 }
 
 .error {
-  color: #b00020;
+  color: var(--mat-sys-error);
 }
 
 .ok {
-  color: #2e7d32;
+  color: light-dark(#2e7d32, #4ade80);
 }
 
 /* Responsive */

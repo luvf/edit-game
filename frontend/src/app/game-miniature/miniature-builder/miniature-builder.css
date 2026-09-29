@@ -21,7 +21,7 @@ mat-slider {
 }
 
 .hint {
-  color: #6b7280;
+  color: var(--mat-sys-on-surface-variant);
 }
 
 /* Layout principal: sliders à gauche, preview à droite */

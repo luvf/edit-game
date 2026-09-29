@@ -11,7 +11,7 @@
   gap: 6px 18px;
   margin-top: 12px;
   padding-top: 10px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--mat-sys-outline-variant);
 }
 
 .cut-option {
@@ -95,17 +95,17 @@
   justify-content: flex-start;
   padding: 4px 6px;
   border-radius: 10px;
-  background: #fff;
+  background: var(--mat-sys-surface-container-lowest);
 }
 
 .form-row:hover {
-  background: #f9fafb;
+  background: var(--mat-sys-surface-container-low);
 }
 
 /* Un point deja attribue a un cote est traite : il s'efface un peu, et
    redevient net des qu'on s'en approche. */
 .form-row.is-scored {
-  background: #f3f4f6;
+  background: var(--mat-sys-surface-container);
   opacity: 0.7;
 }
 
@@ -117,14 +117,14 @@
 
 /* Survol venu d'ici ou du segment correspondant dans la timeline. */
 .form-row.is-hovered {
-  background: #eef2ff;
+  background: var(--mat-sys-primary-container);
   box-shadow: inset 3px 0 0 #2563eb;
 }
 
 /* Le point sous la tete de lecture, ou le plus proche d'elle. Declare apres
    le survol : c'est lui qui reste visible quand les deux tombent ensemble. */
 .form-row.is-current {
-  background: #fef9c3;
+  background: light-dark(#fef9c3, #3f3a12);
   box-shadow: inset 3px 0 0 #ca8a04;
 }
 
@@ -183,7 +183,7 @@
   height: 32px;
   padding: 4px 8px;
   font-size: 13px;
-  border: 1px solid #d0d0d0;
+  border: 1px solid var(--mat-sys-outline-variant);
   border-radius: 6px;
 }
 
@@ -208,8 +208,8 @@
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  border: 1px solid #d0d0d0;
-  background: #fff;
+  border: 1px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-surface-container-lowest);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -240,7 +240,7 @@
 /* Un ecart negatif veut dire que le point suivant commence avant la fin de
    celui-ci : c'est la meme faute que signale l'input `out`. */
 .gap-to-next.invalid {
-  color: #c62828;
+  color: var(--mat-sys-error);
   opacity: 1;
   font-weight: 600;
 }
@@ -261,14 +261,14 @@
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: #b6bac1;
+  color: var(--mat-sys-outline);
   font-size: 17px;
   line-height: 1;
   cursor: pointer;
 }
 
 .form-row:hover .row-delete {
-  color: #6b7280;
+  color: var(--mat-sys-on-surface-variant);
 }
 
 .row-delete:hover {
@@ -289,9 +289,9 @@
   width: 78px;
   height: 26px;
   padding: 2px;
-  border: 1px solid #d0d0d0;
+  border: 1px solid var(--mat-sys-outline-variant);
   border-radius: 999px;
-  background: #f3f4f6;
+  background: var(--mat-sys-surface-container);
 }
 
 .point-switch-thumb {
@@ -301,7 +301,7 @@
   left: 2px;
   width: calc((100% - 4px) / 3);
   border-radius: 999px;
-  background: #ffffff;
+  background: var(--mat-sys-surface-bright);
   box-shadow: 0 1px 2px rgba(17, 24, 39, 0.2);
   transition:
     transform 140ms ease,
@@ -312,7 +312,7 @@
    coup d'oeil dans une liste de points, ce qu'un bleu et un ambre pales ne
    faisaient pas sur le fond clair de l'application. */
 .point-switch[data-position="0"] .point-switch-thumb {
-  background: #dcfce7;
+  background: light-dark(#dcfce7, #14532d);
 }
 
 .point-switch[data-position="1"] .point-switch-thumb {
@@ -321,7 +321,7 @@
 
 .point-switch[data-position="2"] .point-switch-thumb {
   transform: translateX(200%);
-  background: #fee2e2;
+  background: light-dark(#fee2e2, #7f1d1d);
 }
 
 .form-row label.point-switch-option {
@@ -349,11 +349,11 @@
 /* La lettre porte la couleur de son cote, active ou non : c'est elle qu'on
    lit, et l'option inactive reste lisible grace a son opacite. */
 .point-switch-option.is-left {
-  color: #15803d;
+  color: light-dark(#15803d, #4ade80);
 }
 
 .point-switch-option.is-right {
-  color: #991b1b;
+  color: light-dark(#991b1b, #f87171);
 }
 
 .point-switch-option input {
@@ -378,7 +378,7 @@
 }
 
 .cut-error {
-  color: #b00020;
+  color: var(--mat-sys-error);
 }
 
 .cut-empty {
@@ -388,21 +388,21 @@
 /* Un evenement n'a qu'un timecode : la ligne est plus courte, et se distingue
    des points par sa teinte pour qu'on la retrouve dans la liste melangee. */
 .form-row.is-event {
-  background: #f5f3ff;
-  border: 1px dashed #ddd6fe;
+  background: light-dark(#f5f3ff, #2a2540);
+  border: 1px dashed light-dark(#ddd6fe, #4c3f7a);
 }
 
 .form-row.is-event:hover {
-  background: #ede9fe;
+  background: light-dark(#ede9fe, #332c52);
 }
 
 .form-row.is-event[data-event="Warning"] {
-  background: #fff7ed;
-  border-color: #fed7aa;
+  background: light-dark(#fff7ed, #3a2716);
+  border-color: light-dark(#fed7aa, #7c4a1c);
 }
 
 .form-row.is-event[data-event="Warning"]:hover {
-  background: #ffedd5;
+  background: light-dark(#ffedd5, #45301a);
 }
 
 .row-kind {
@@ -446,8 +446,8 @@
   flex: 0 0 auto;
   padding: 2px 6px;
   border-radius: 6px;
-  background: #eef2ff;
-  color: #3730a3;
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -467,7 +467,8 @@
 .cut-decode {
   margin: 8px 0 0;
   padding: 6px 10px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
+  border: 1px solid
+    light-dark(rgba(15, 23, 42, 0.12), rgba(255, 255, 255, 0.12));
   border-radius: 6px;
   font-size: 13px;
 }
@@ -482,7 +483,7 @@
   padding: 1px 6px;
   border-radius: 10px;
   background: rgba(37, 99, 235, 0.12);
-  color: #1d4ed8;
+  color: var(--mat-sys-primary);
   font-size: 12px;
 }
 
@@ -527,7 +528,7 @@
 .cut-decode-warn {
   display: block;
   margin-top: 4px;
-  color: #b45309;
+  color: light-dark(#b45309, #fbbf24);
   opacity: 1;
 }
 
@@ -542,7 +543,8 @@
 .cut-review {
   margin: 8px 0 0;
   padding: 6px 10px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
+  border: 1px solid
+    light-dark(rgba(15, 23, 42, 0.12), rgba(255, 255, 255, 0.12));
   border-radius: 6px;
   font-size: 13px;
 }
@@ -557,7 +559,7 @@
   padding: 1px 6px;
   border-radius: 10px;
   background: rgba(180, 83, 9, 0.14);
-  color: #b45309;
+  color: light-dark(#b45309, #fbbf24);
   font-size: 12px;
 }
 
@@ -590,13 +592,13 @@
 }
 
 .cut-review-kind {
-  color: #b45309;
+  color: light-dark(#b45309, #fbbf24);
 }
 
 /* Un candidat rejete n'est pas un doute sur le montage rendu : il dit que le
    modele a failli proposer quelque chose ici. */
 .cut-review-row.is-rejected .cut-review-kind {
-  color: #6b7280;
+  color: var(--mat-sys-on-surface-variant);
 }
 
 .cut-review-detail {
@@ -610,12 +612,12 @@
   pointer-events: none;
   opacity: 0.55;
   border-style: dashed;
-  background: #fafafa;
+  background: var(--mat-sys-surface-container-low);
   width: 66px;
 }
 
 .point-switch.is-suggestion .point-switch-thumb {
-  background: #e5e7eb;
+  background: var(--mat-sys-surface-container-highest);
   box-shadow: none;
 }
 
@@ -626,11 +628,11 @@
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--mat-sys-outline);
 }
 
 .point-switch.is-suggestion .point-switch-option.is-active {
-  color: #4b5563;
+  color: var(--mat-sys-on-surface-variant);
   font-weight: 600;
 }
 

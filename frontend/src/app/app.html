@@ -23,6 +23,25 @@
           {{ action.label }}
         </button>
       }
+      <button
+        class="app-link theme-toggle"
+        type="button"
+        (click)="themeService.toggle()"
+        [attr.aria-label]="
+          themeService.theme() === 'dark'
+            ? 'Passer en mode clair'
+            : 'Passer en mode sombre'
+        "
+        [title]="
+          themeService.theme() === 'dark'
+            ? 'Passer en mode clair'
+            : 'Passer en mode sombre'
+        "
+      >
+        <span class="material-icons">{{
+          themeService.theme() === "dark" ? "light_mode" : "dark_mode"
+        }}</span>
+      </button>
     </div>
   </nav>
 
